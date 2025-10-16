@@ -1,0 +1,28 @@
+{
+  "name": "video",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "dev": "ts-node src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.json",
+    "run:once": "ts-node scripts/run-once.ts"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "googleapis": "^137.0.0",
+    "google-auth-library": "^9.15.0",
+    "twitter-api-v2": "^1.17.2",
+    "openai": "^4.67.3",
+    "@supabase/supabase-js": "^2.45.4",
+    "express": "^4.21.1"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3",
+    "@types/node": "^20.16.10",
+    "@types/express": "^5.0.0"
+  }
+}

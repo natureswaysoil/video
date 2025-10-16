@@ -1,0 +1,52 @@
+
+# Amazon PPC Optimizer - Git Ignore File
+
+# Configuration files with credentials
+config.json
+*.yaml
+*.yml
+
+# Log files
+logs/
+*.log
+
+# Audit files
+audit/
+*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Test files
+test_*.py
+temp_*
+
+# Windows
+*.lnk
