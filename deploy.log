@@ -1,0 +1,193 @@
+nohup: ignoring input
+Project: natureswaysoil-video | Region: us-east1 | Time zone: America/New_York
+Updated property [core/project].
+Enabling required services...
+Operation "operations/acat.p2-993533990327-8fa264c1-5ba6-43dd-bc17-65c77d595ac4" finished successfully.
+Creating Artifact Registry (if not exists)...
+Building and pushing image to us-east1-docker.pkg.dev/natureswaysoil-video/natureswaysoil-video/app:latest ...
+Creating temporary archive of 6054 file(s) totalling 152.0 MiB before compression.
+Some files were not included in the source upload.
+
+Check the gcloud log [/home/codespace/.config/gcloud/logs/2025.10.16/23.05.47.907942.log] to see which files and the contents of the
+default gcloudignore file used (see `$ gcloud topic gcloudignore` to learn
+more).
+
+Uploading tarball of [.] to [gs://natureswaysoil-video_cloudbuild/source/1760655948.101262-36d3d15e4d844bcd97438cb0c0c603fb.tgz]
+Created [https://cloudbuild.googleapis.com/v1/projects/natureswaysoil-video/locations/global/builds/7c5dcf1e-71d7-4488-811f-e84690058c50].
+Logs are available at [ https://console.cloud.google.com/cloud-build/builds/7c5dcf1e-71d7-4488-811f-e84690058c50?project=993533990327 ].
+Waiting for build to complete. Polling interval: 1 second(s).
+-------------------------- REMOTE BUILD OUTPUT --------------------------
+starting build "7c5dcf1e-71d7-4488-811f-e84690058c50"
+
+FETCHSOURCE
+Fetching storage object: gs://natureswaysoil-video_cloudbuild/source/1760655948.101262-36d3d15e4d844bcd97438cb0c0c603fb.tgz#1760655965568836
+Copying gs://natureswaysoil-video_cloudbuild/source/1760655948.101262-36d3d15e4d844bcd97438cb0c0c603fb.tgz#1760655965568836...
+/ [0 files][    0.0 B/ 20.8 MiB]                                                / [1 files][ 20.8 MiB/ 20.8 MiB]                                                
+Operation completed over 1 objects/20.8 MiB.
+BUILD
+Already have image (with digest): gcr.io/cloud-builders/gcb-internal
+Sending build context to Docker daemon  953.9kB
+Step 1/15 : FROM node:20-slim AS build
+20-slim: Pulling from library/node
+5c32499ab806: Pulling fs layer
+c236995d12f2: Pulling fs layer
+ab9c5ae25e4d: Pulling fs layer
+997b350cffa1: Pulling fs layer
+cc663995c53d: Pulling fs layer
+997b350cffa1: Waiting
+cc663995c53d: Waiting
+c236995d12f2: Verifying Checksum
+c236995d12f2: Download complete
+5c32499ab806: Verifying Checksum
+5c32499ab806: Download complete
+ab9c5ae25e4d: Verifying Checksum
+ab9c5ae25e4d: Download complete
+997b350cffa1: Download complete
+cc663995c53d: Verifying Checksum
+cc663995c53d: Download complete
+5c32499ab806: Pull complete
+c236995d12f2: Pull complete
+ab9c5ae25e4d: Pull complete
+997b350cffa1: Pull complete
+cc663995c53d: Pull complete
+Digest: sha256:f679d7699517426eb148a5698c717477fd3f8a48f6c1eaf771e390a9bb8268c8
+Status: Downloaded newer image for node:20-slim
+ ---> 66044c209f92
+Step 2/15 : WORKDIR /app
+ ---> Running in 6dcb658f9723
+Removing intermediate container 6dcb658f9723
+ ---> f5132ce3578f
+Step 3/15 : COPY package*.json ./
+ ---> 93fab317140c
+Step 4/15 : RUN npm ci --no-audit --no-fund
+ ---> Running in 57cd89362c4f
+[91mnpm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+[0m
+added 166 packages in 6s
+[91mnpm notice
+npm notice New major version of npm available! 10.8.2 -> 11.6.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.6.2
+npm notice To update run: npm install -g npm@11.6.2
+npm notice
+[0mRemoving intermediate container 57cd89362c4f
+ ---> 8d3c370b4998
+Step 5/15 : COPY tsconfig.json ./
+ ---> 0fb2103507ad
+Step 6/15 : COPY src ./src
+ ---> 47ce8d748d42
+Step 7/15 : RUN npm run build
+ ---> Running in 3212cd51c6f0
+
+> video@0.1.0 build
+> tsc -p tsconfig.json
+Removing intermediate container 3212cd51c6f0
+ ---> dcbc1d34e5a1
+Step 8/15 : FROM node:20-slim
+ ---> 66044c209f92
+Step 9/15 : WORKDIR /app
+ ---> Running in 7a280f7631ac
+Removing intermediate container 7a280f7631ac
+ ---> 64cb7bdd5ba2
+Step 10/15 : ENV NODE_ENV=production
+ ---> Running in 93f3e1c81239
+Removing intermediate container 93f3e1c81239
+ ---> 15c1fbf8eecf
+Step 11/15 : COPY --from=build /app/package*.json ./
+ ---> 2489c31e9711
+Step 12/15 : RUN npm ci --omit=dev --no-audit --no-fund
+ ---> Running in 1766d44c3f6e
+[91mnpm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+[0m
+added 137 packages in 5s
+[91mnpm notice
+npm notice New major version of npm available! 10.8.2 -> 11.6.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.6.2
+npm notice To update run: npm install -g npm@11.6.2
+npm notice
+[0mRemoving intermediate container 1766d44c3f6e
+ ---> ae3b238b77e5
+Step 13/15 : COPY --from=build /app/dist ./dist
+ ---> e5010a6525ea
+Step 14/15 : ENV NODE_ENV=production
+ ---> Running in ee81af2be5b7
+Removing intermediate container ee81af2be5b7
+ ---> cec97fb933d2
+Step 15/15 : CMD ["node", "dist/blog-server.js"]
+ ---> Running in 53119ded6394
+Removing intermediate container 53119ded6394
+ ---> 3961cd25e6ae
+Successfully built 3961cd25e6ae
+Successfully tagged us-east1-docker.pkg.dev/natureswaysoil-video/natureswaysoil-video/app:latest
+PUSH
+Pushing us-east1-docker.pkg.dev/natureswaysoil-video/natureswaysoil-video/app:latest
+The push refers to repository [us-east1-docker.pkg.dev/natureswaysoil-video/natureswaysoil-video/app]
+2d6b43e10c49: Preparing
+c3ad9bde6400: Preparing
+ec0f6c6ff827: Preparing
+d988b4bea72d: Preparing
+5172397fbcd4: Preparing
+e07dd166a3a3: Preparing
+7ace34a4ad78: Preparing
+8ee6722b9ed5: Preparing
+aca836066730: Preparing
+e07dd166a3a3: Waiting
+7ace34a4ad78: Waiting
+8ee6722b9ed5: Waiting
+aca836066730: Waiting
+5172397fbcd4: Layer already exists
+e07dd166a3a3: Layer already exists
+7ace34a4ad78: Layer already exists
+2d6b43e10c49: Pushed
+8ee6722b9ed5: Layer already exists
+ec0f6c6ff827: Pushed
+d988b4bea72d: Pushed
+aca836066730: Pushed
+c3ad9bde6400: Pushed
+latest: digest: sha256:44320addb13898e6641a4920ba6dee374373522ece3d91014b5726be353e03d4 size: 2204
+DONE
+-------------------------------------------------------------------------
+ID                                    CREATE_TIME                DURATION  SOURCE                                                                                              IMAGES                                                                           STATUS
+7c5dcf1e-71d7-4488-811f-e84690058c50  2025-10-16T23:06:05+00:00  1M2S      gs://natureswaysoil-video_cloudbuild/source/1760655948.101262-36d3d15e4d844bcd97438cb0c0c603fb.tgz  us-east1-docker.pkg.dev/natureswaysoil-video/natureswaysoil-video/app (+1 more)  SUCCESS
+Creating job service account (if not exists)...
+Granting roles to job SA...
+Updated IAM policy for project [natureswaysoil-video].
+Updated IAM policy for project [natureswaysoil-video].
+Updated IAM policy for project [natureswaysoil-video].
+Updated IAM policy for project [natureswaysoil-video].
+Preparing secret mappings (only secrets with enabled versions will be attached)...
+Skipping PINTEREST_BOARD_ID (no enabled versions)
+Creating Cloud Run Job (or updating if exists)...
+Updating Cloud Run job [[1mnatureswaysoil-video-job[m] in project [[1mnatureswaysoil-video[m] region [[1mus-east1[m]
+Updating job...
+Done.
+Job [[1mnatureswaysoil-video-job[m] has successfully been updated.
+
+To execute this job, use:
+gcloud run jobs execute natureswaysoil-video-job
+Creating Scheduler invoker service account (if not exists)...
+Granting invoker roles...
+Updated IAM policy for project [natureswaysoil-video].
+Updated IAM policy for project [natureswaysoil-video].
+Creating or updating Cloud Scheduler job (natureswaysoil-video-2x) for 9:00 and 18:00 Eastern...
+attemptDeadline: 1800s
+httpTarget:
+  headers:
+    User-Agent: Google-Cloud-Scheduler
+  httpMethod: POST
+  oidcToken:
+    audience: https://us-east1-run.googleapis.com/
+    serviceAccountEmail: scheduler-invoker@natureswaysoil-video.iam.gserviceaccount.com
+  uri: https://us-east1-run.googleapis.com/apis/run.googleapis.com/v1/projects/natureswaysoil-video/locations/us-east1/jobs/natureswaysoil-video-job:run
+lastAttemptTime: '2025-10-16T23:03:18.233308Z'
+name: projects/natureswaysoil-video/locations/us-east1/jobs/natureswaysoil-video-2x
+retryConfig:
+  maxBackoffDuration: 3600s
+  maxDoublings: 5
+  maxRetryDuration: 0s
+  minBackoffDuration: 5s
+schedule: 0 9,18 * * *
+scheduleTime: '2025-10-17T13:00:00.289768Z'
+state: ENABLED
+timeZone: America/New_York
+userUpdateTime: '2025-10-16T23:07:56Z'
+Done. Tip: Share your Google Sheet with video-job-sa@natureswaysoil-video.iam.gserviceaccount.com as Editor for writeback.

@@ -313,12 +313,62 @@ ppc campaign 2 hour process
     </div>
   
     <script>
-        // Sample data - will be replaced with real data from log files
-        function loadDashboardData() {
-            // Update timestamp
-            document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date().toLocaleString();
-          
-            // Sample stats
+        // API Configuration
+        const API_BASE_URL = 'https://amazon-ppc-optimizer-1009540130231.us-central1.run.app';
+        
+        // Fetch data from API
+        async function loadDashboardData() {
+            try {
+                // Update timestamp
+                document.getElementById('lastUpdated').textContent = 'Loading...';
+                
+                // Fetch metrics from API
+                const response = await fetch(`${API_BASE_URL}/api/metrics`);
+                
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                const summary = data.summary || {};
+                
+                // Update timestamp
+                document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date(data.last_updated || Date.now()).toLocaleString();
+                
+                // Update stats with real data
+                document.getElementById('totalCampaigns').textContent = summary.total_campaigns || '0';
+                document.getElementById('campaignsChange').textContent = `${summary.active_campaigns || 0} active`;
+                
+                document.getElementById('activeKeywords').textContent = summary.clicks ? (summary.clicks / 10).toFixed(0) : '0';
+                document.getElementById('keywordsChange').textContent = `${summary.impressions || 0} impressions`;
+                
+                document.getElementById('avgAcos').textContent = summary.acos ? `${summary.acos.toFixed(1)}%` : '--';
+                document.getElementById('acosChange').textContent = summary.acos < 45 ? '✓ On target' : '⚠ Above target';
+                document.getElementById('acosChange').className = summary.acos < 45 ? 'change' : 'change negative';
+                
+                document.getElementById('totalSpend').textContent = summary.total_spend ? `$${summary.total_spend.toFixed(2)}` : '$0';
+                document.getElementById('spendChange').textContent = `CTR: ${summary.ctr ? (summary.ctr * 100).toFixed(2) : 0}%`;
+                
+                document.getElementById('totalSales').textContent = summary.total_sales ? `$${summary.total_sales.toFixed(2)}` : '$0';
+                document.getElementById('salesChange').textContent = summary.roas ? `ROAS: ${summary.roas.toFixed(2)}x` : 'ROAS: --';
+                document.getElementById('salesChange').className = 'change';
+                
+                document.getElementById('bidsOptimized').textContent = summary.clicks || '0';
+                
+                // Store campaigns data for charts
+                window.campaignsData = data.campaigns || [];
+                
+            } catch (error) {
+                console.error('Error loading data:', error);
+                document.getElementById('lastUpdated').textContent = 'Error loading data - showing demo';
+                
+                // Fallback to sample data
+                loadSampleData();
+            }
+        }
+        
+        function loadSampleData() {
+            // Sample stats (fallback)
             document.getElementById('totalCampaigns').textContent = '12';
             document.getElementById('campaignsChange').textContent = '+2 new campaigns';
           
@@ -336,7 +386,10 @@ ppc campaign 2 hour process
             document.getElementById('salesChange').className = 'change';
           
             document.getElementById('bidsOptimized').textContent = '47';
-          
+        }
+        
+        // Render charts with sample or real data
+        function renderCharts() {
             // Bid Changes Chart
             const bidChangesData = [{
                 x: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
@@ -463,11 +516,17 @@ ppc campaign 2 hour process
             document.getElementById('recentActivity').innerHTML = activityHTML;
         }
       
-        // Load data on page load
-        window.onload = loadDashboardData;
+        // Load data and render charts on page load
+        window.onload = async function() {
+            await loadDashboardData();
+            renderCharts();
+        };
       
         // Auto-refresh every 5 minutes
-        setInterval(loadDashboardData, 300000);
+        setInterval(async function() {
+            await loadDashboardData();
+            renderCharts();
+        }, 300000);
     </script>
 </body>
 </html>
