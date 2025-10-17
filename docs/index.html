@@ -314,7 +314,7 @@ ppc campaign 2 hour process
   
     <script>
         // API Configuration
-        const API_BASE_URL = 'https://amazon-ppc-optimizer-1009540130231.us-central1.run.app';
+        const API_BASE_URL = 'https://amazon-ppc-optimizer-nucguq3dba-uc.a.run.app';
         
         // Fetch data from API
         async function loadDashboardData() {
@@ -322,41 +322,51 @@ ppc campaign 2 hour process
                 // Update timestamp
                 document.getElementById('lastUpdated').textContent = 'Loading...';
                 
-                // Fetch metrics from API
-                const response = await fetch(`${API_BASE_URL}/api/metrics`);
+                // Fetch metrics from API (root endpoint returns optimizer results)
+                const response = await fetch(`${API_BASE_URL}/`);
                 
                 if (!response.ok) {
                     throw new Error(`API error: ${response.status}`);
                 }
                 
                 const data = await response.json();
-                const summary = data.summary || {};
+                const results = data.results || {};
                 
                 // Update timestamp
-                document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date(data.last_updated || Date.now()).toLocaleString();
+                document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date(data.timestamp || Date.now()).toLocaleString();
+                
+                // Extract metrics from optimizer results
+                const bidOpt = results.bid_optimization || {};
+                const campaignMgmt = results.campaign_management || {};
+                const dayparting = results.dayparting || {};
+                const keywordDiscovery = results.keyword_discovery || {};
                 
                 // Update stats with real data
-                document.getElementById('totalCampaigns').textContent = summary.total_campaigns || '0';
-                document.getElementById('campaignsChange').textContent = `${summary.active_campaigns || 0} active`;
+                const totalCampaigns = campaignMgmt.no_change || 0;
+                document.getElementById('totalCampaigns').textContent = totalCampaigns;
+                document.getElementById('campaignsChange').textContent = `${campaignMgmt.campaigns_activated || 0} activated, ${campaignMgmt.campaigns_paused || 0} paused`;
                 
-                document.getElementById('activeKeywords').textContent = summary.clicks ? (summary.clicks / 10).toFixed(0) : '0';
-                document.getElementById('keywordsChange').textContent = `${summary.impressions || 0} impressions`;
+                const keywordsAnalyzed = bidOpt.keywords_analyzed || 0;
+                document.getElementById('activeKeywords').textContent = keywordsAnalyzed;
+                document.getElementById('keywordsChange').textContent = `${keywordDiscovery.keywords_added || 0} new keywords added`;
                 
-                document.getElementById('avgAcos').textContent = summary.acos ? `${summary.acos.toFixed(1)}%` : '--';
-                document.getElementById('acosChange').textContent = summary.acos < 45 ? '✓ On target' : '⚠ Above target';
-                document.getElementById('acosChange').className = summary.acos < 45 ? 'change' : 'change negative';
+                // Calculate estimated ACOS (we don't have real ACOS from this endpoint)
+                document.getElementById('avgAcos').textContent = '--';
+                document.getElementById('acosChange').textContent = 'Data not available from optimizer';
+                document.getElementById('acosChange').className = 'change';
                 
-                document.getElementById('totalSpend').textContent = summary.total_spend ? `$${summary.total_spend.toFixed(2)}` : '$0';
-                document.getElementById('spendChange').textContent = `CTR: ${summary.ctr ? (summary.ctr * 100).toFixed(2) : 0}%`;
+                // Spend/sales not available from optimizer endpoint
+                document.getElementById('totalSpend').textContent = '--';
+                document.getElementById('spendChange').textContent = 'See Amazon Ads console';
                 
-                document.getElementById('totalSales').textContent = summary.total_sales ? `$${summary.total_sales.toFixed(2)}` : '$0';
-                document.getElementById('salesChange').textContent = summary.roas ? `ROAS: ${summary.roas.toFixed(2)}x` : 'ROAS: --';
+                document.getElementById('totalSales').textContent = '--';
+                document.getElementById('salesChange').textContent = 'See Amazon Ads console';
                 document.getElementById('salesChange').className = 'change';
                 
-                document.getElementById('bidsOptimized').textContent = summary.clicks || '0';
-                
-                // Store campaigns data for charts
-                window.campaignsData = data.campaigns || [];
+                // Bids optimized
+                const bidsOptimized = bidOpt.bids_increased + bidOpt.bids_decreased;
+                document.getElementById('bidsOptimized').textContent = bidsOptimized;
+                document.getElementById('bidsChange').textContent = `↑ ${bidOpt.bids_increased} increased, ↓ ${bidOpt.bids_decreased} decreased`;
                 
             } catch (error) {
                 console.error('Error loading data:', error);
