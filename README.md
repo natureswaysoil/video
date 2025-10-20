@@ -3,12 +3,25 @@
 ## Features
 - Fetch products from a Google Sheet (CSV export URL)
 - Generate marketing scripts with OpenAI
-- Submit image-to-video or text-to-video jobs to WaveSpeed
-- Posts generated video to Instagram, Twitter, and Pinterest
- - Optional: uploads to YouTube channel via OAuth2
-- Iterates through all CSV rows; skips those without a WaveSpeed job ID or disabled status
- - Skips rows marked as Posted; respects Ready/Enabled when present
- - Video URL resolution is configurable: prefer a CSV "video_url" column, otherwise build from a template
+- **Primary**: Create videos with Pictory AI (storyboard → render flow)
+- **Fallback**: Use WaveSpeed for video generation if Pictory fails or is unavailable
+- Posts generated video to Instagram, Twitter, Pinterest, and optionally YouTube
+- Iterates through all CSV rows; skips those without a job ID or disabled status
+- Skips rows marked as Posted; respects Ready/Enabled when present
+- Video URL resolution is configurable: prefer a CSV "video_url" column, otherwise build from a template
+
+## Architecture
+
+```
+Google Sheet (CSV) → OpenAI (script generation)
+                    ↓
+                Pictory (PRIMARY video generation)
+                    ↓ (fallback if Pictory fails)
+                WaveSpeed (BACKUP video generation)
+                    ↓
+            Social Media Posts
+            (Instagram, Twitter, Pinterest, YouTube)
+```
 
 ## Setup
 
@@ -17,7 +30,11 @@
    ```
    npm install
    ```
-3. Run the CLI:
+3. Configure video generation:
+   - **Pictory (Primary)**: Set `PICTORY_CLIENT_ID`, `PICTORY_CLIENT_SECRET`, `X_PICTORY_USER_ID`
+     - Or use GCP Secret Manager: `GCP_SECRET_PICTORY_CLIENT_ID`, etc.
+   - **WaveSpeed (Fallback)**: Set `WAVE_SPEED_API_KEY` or `WAVESPEED_API_KEY`
+4. Run the CLI:
    ```
    npm run dev
    ```
@@ -58,7 +75,8 @@ Note: For Google Sheets, use the CSV export URL form:
 - WaveSpeed job/video URL logic may require refinement based on latest API responses.
  - Twitter: If you only set TWITTER_BEARER_TOKEN, tweets will be text with a link. Set TWITTER_API_KEY/SECRET and TWITTER_ACCESS_TOKEN/SECRET to upload video natively.
 
-### WaveSpeed API (optional)
+### WaveSpeed API (fallback video generation)
+- WaveSpeed is used as a fallback if Pictory fails or credentials are not configured.
 - You can configure an API lookup to fetch the final video URL by `jobId` before posting.
 - Env to set:
    - `WAVE_SPEED_API_KEY`
@@ -73,6 +91,18 @@ Note: For Google Sheets, use the CSV export URL form:
    - Body: rendered from the template with the jobId
    - Path can be templated with `{jobId}`/`{asin}` when the endpoint expects it.
    - You can also set `WAVESPEED_API_KEY` instead of `WAVE_SPEED_API_KEY`.
+
+### Pictory API (primary video generation)
+- Pictory is the primary video generation service. The system will:
+  1. Generate a marketing script with OpenAI
+  2. Create a Pictory storyboard from the script
+  3. Wait for storyboard processing (up to 5 minutes)
+  4. Request video render
+  5. Poll for render completion (up to 20 minutes)
+- Configure via environment variables or GCP Secret Manager:
+  - Direct: `PICTORY_CLIENT_ID`, `PICTORY_CLIENT_SECRET`, `X_PICTORY_USER_ID`
+  - GCP Secret Manager: `GCP_SECRET_PICTORY_CLIENT_ID`, `GCP_SECRET_PICTORY_CLIENT_SECRET`, `GCP_SECRET_X_PICTORY_USER_ID`
+- If Pictory fails or credentials are missing, the system automatically falls back to WaveSpeed.
 
 ## License
 

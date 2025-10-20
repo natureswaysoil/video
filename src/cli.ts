@@ -5,6 +5,7 @@ import { postToTwitter } from './twitter'
 import { postToPinterest } from './pinterest'
 import { postToYouTube } from './youtube'
 import { createWaveSpeedPrediction, pollWaveSpeedUntilReady, fetchVideoUrlFromWaveSpeed } from './wavespeed'
+import { createClientWithSecrets } from './pictory'
 import { generateScript } from './openai'
 import { markRowPosted, writeColumnValues } from './sheets'
 import { updateStatus, incrementSuccessfulPost, incrementFailedPost, addError } from './health-server'
@@ -75,7 +76,7 @@ async function main() {
           // Step 1: Try to get existing video URL
           let videoUrl = await resolveVideoUrlAsync({ jobId, record })
           
-          // Step 2: If no video exists, create one with OpenAI + WaveSpeed
+          // Step 2: If no video exists, create one with OpenAI + Pictory (primary) or WaveSpeed (fallback)
           if (!videoUrl || !(await urlLooksReachable(videoUrl))) {
             console.log('No existing video found. Creating new video...')
             
@@ -92,48 +93,98 @@ async function main() {
               console.log('⚠️  OPENAI_API_KEY not set, skipping script generation')
             }
             
-            // 2b: Create WaveSpeed video
-            let predictionId: string | undefined
-            if (script && (process.env.WAVE_SPEED_API_KEY || process.env.WAVESPEED_API_KEY || process.env.GS_API_KEY)) {
+            // 2b: Try Pictory first (primary video generator)
+            let pictoryVideoUrl: string | undefined
+            const hasPictoryCreds = process.env.PICTORY_CLIENT_ID || process.env.GCP_SECRET_PICTORY_CLIENT_ID
+            
+            if (script && hasPictoryCreds) {
               try {
-                const { id } = await createWaveSpeedPrediction({ script, jobId })
-                predictionId = id
-                console.log('✅ Created WaveSpeed prediction:', id)
+                console.log('🎬 Creating video with Pictory (primary)...')
+                const pictoryClient = await createClientWithSecrets()
+                const token = await pictoryClient.getAccessToken()
+                
+                // Create storyboard payload from script
+                const storyboardPayload = {
+                  title: product?.title || product?.name || 'Product Video',
+                  scenes: [
+                    {
+                      type: 'text',
+                      text: script,
+                      duration: 5 // Adjust as needed
+                    }
+                  ]
+                }
+                
+                const storyboardJobId = await pictoryClient.createStoryboard(token, storyboardPayload)
+                console.log('✅ Created Pictory storyboard:', storyboardJobId)
+                
+                // Poll for render params
+                console.log('⏳ Waiting for Pictory render params...')
+                await pictoryClient.pollJobForRenderParams(storyboardJobId, token, {
+                  timeoutMs: 5 * 60_000 // 5 minutes for storyboard processing
+                })
+                console.log('✅ Pictory storyboard ready')
+                
+                // Request render
+                const renderJobId = await pictoryClient.renderVideo(token, storyboardJobId)
+                console.log('✅ Started Pictory render:', renderJobId)
+                
+                // Poll for render completion
+                console.log('⏳ Waiting for Pictory render completion...')
+                const renderResult = await pictoryClient.pollRenderJob(renderJobId, token, {
+                  timeoutMs: 20 * 60_000 // 20 minutes for render
+                })
+                
+                pictoryVideoUrl = renderResult?.videoUrl || renderResult?.url
+                if (pictoryVideoUrl) {
+                  console.log('✅ Pictory video ready:', pictoryVideoUrl)
+                  videoUrl = pictoryVideoUrl
+                }
               } catch (e: any) {
-                console.error('❌ WaveSpeed create failed:', e?.message || e)
+                console.error('❌ Pictory video generation failed:', e?.message || e)
+                console.log('⚠️  Will try WaveSpeed as fallback...')
               }
+            } else if (!script) {
+              console.log('⚠️  Skipping Pictory: no script available')
             } else {
-              console.log('⚠️  Cannot create video: missing script or WaveSpeed API key')
+              console.log('⚠️  Skipping Pictory: credentials not configured')
             }
             
-            // 2c: Poll for video completion
-            if (predictionId) {
+            // 2c: Fallback to WaveSpeed if Pictory failed or unavailable
+            if (!videoUrl && script && (process.env.WAVE_SPEED_API_KEY || process.env.WAVESPEED_API_KEY || process.env.GS_API_KEY)) {
               try {
-                videoUrl = await pollWaveSpeedUntilReady(predictionId, { 
+                console.log('🌊 Creating video with WaveSpeed (fallback)...')
+                const { id } = await createWaveSpeedPrediction({ script, jobId })
+                console.log('✅ Created WaveSpeed prediction:', id)
+                
+                // Poll for video completion
+                videoUrl = await pollWaveSpeedUntilReady(id, { 
                   timeoutMs: 25 * 60_000, // 25 minutes (Cloud Scheduler max is 30, keep margin)
                   intervalMs: 15_000 // Check every 15 seconds
                 })
-                console.log('✅ Video ready:', videoUrl)
-                
-                // 2d: Write video URL back to sheet
-                if (videoUrl && (process.env.GS_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
-                  try {
-                    const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
-                    const sheetGid = extractGidFromCsv(csvUrl)
-                    await writeColumnValues({
-                      spreadsheetId,
-                      sheetGid,
-                      headers,
-                      columnName: process.env.CSV_COL_VIDEO_URL || 'Video URL',
-                      rows: [{ rowNumber, value: videoUrl }],
-                    })
-                    console.log('✅ Wrote video URL to sheet')
-                  } catch (e: any) {
-                    console.error('⚠️  Failed to write video URL to sheet:', e?.message || e)
-                  }
-                }
+                console.log('✅ WaveSpeed video ready:', videoUrl)
               } catch (e: any) {
-                console.error('❌ WaveSpeed polling failed:', e?.message || e)
+                console.error('❌ WaveSpeed create/poll failed:', e?.message || e)
+              }
+            } else if (!videoUrl) {
+              console.log('⚠️  Cannot create video with WaveSpeed: missing script or API key')
+            }
+            
+            // 2d: Write video URL back to sheet
+            if (videoUrl && (process.env.GS_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+              try {
+                const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
+                const sheetGid = extractGidFromCsv(csvUrl)
+                await writeColumnValues({
+                  spreadsheetId,
+                  sheetGid,
+                  headers,
+                  columnName: process.env.CSV_COL_VIDEO_URL || 'Video URL',
+                  rows: [{ rowNumber, value: videoUrl }],
+                })
+                console.log('✅ Wrote video URL to sheet')
+              } catch (e: any) {
+                console.error('⚠️  Failed to write video URL to sheet:', e?.message || e)
               }
             }
           } else {

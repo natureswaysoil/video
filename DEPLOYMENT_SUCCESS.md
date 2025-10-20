@@ -66,9 +66,17 @@
 
 All secrets stored in Google Cloud Secret Manager:
 
-- ✅ `OPENAI_API_KEY` - For GPT-4 content generation
-- ✅ `WAVE_SPEED_API_KEY` - For video generation
+### Core Services
+- ✅ `OPENAI_API_KEY` - For GPT-4 content generation and script writing
+
+### Video Generation (Primary + Fallback)
+- ✅ `PICTORY_CLIENT_ID` - Primary video generation service
+- ✅ `PICTORY_CLIENT_SECRET` - Pictory authentication
+- ✅ `X_PICTORY_USER_ID` - Pictory user identifier
+- ✅ `WAVE_SPEED_API_KEY` - Fallback video generation (WaveSpeed)
 - ✅ `WAVESPEED_API_KEY` - Alternate key format
+
+### Database
 - ✅ `NEXT_PUBLIC_SUPABASE_URL` - Database URL
 - ✅ `SUPABASE_SERVICE_ROLE_KEY` - Database auth
 
@@ -81,11 +89,24 @@ Cloud Scheduler (every 2 days)
     ↓
 Blog Generator Service (Cloud Run)
     ↓
-┌───────────────┬───────────────┬──────────────┐
-│  GPT-4 API    │  WaveSpeed    │  Supabase    │
-│  (Articles)   │  (Videos)     │  (Storage)   │
-└───────────────┴───────────────┴──────────────┘
+┌───────────────┬─────────────────────┬──────────────┐
+│  GPT-4 API    │  Pictory (Primary)  │  Supabase    │
+│  (Articles)   │  WaveSpeed (Backup) │  (Storage)   │
+│  (Scripts)    │  (Videos)           │              │
+└───────────────┴─────────────────────┴──────────────┘
 ```
+
+### Video Generation Flow
+1. **Script Generation**: OpenAI GPT-4 creates marketing script
+2. **Primary (Pictory)**: 
+   - Create storyboard from script
+   - Poll for render params (up to 5 min)
+   - Request render
+   - Poll for completion (up to 20 min)
+3. **Fallback (WaveSpeed)**: If Pictory fails or unavailable
+   - Create prediction with script
+   - Poll for completion (up to 25 min)
+4. **Distribution**: Post to Instagram, Twitter, Pinterest, YouTube
 
 ---
 

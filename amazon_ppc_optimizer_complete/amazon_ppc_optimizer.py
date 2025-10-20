@@ -1427,6 +1427,16 @@ class PPCOptimizer:
                 self.config = json.load(f)
         except Exception:
             self.config = {}
+        
+        # Override with environment variables if available
+        if os.getenv('AMAZON_CLIENT_ID'):
+            if 'amazon_api' not in self.config:
+                self.config['amazon_api'] = {}
+            self.config['amazon_api']['client_id'] = os.getenv('AMAZON_CLIENT_ID')
+            self.config['amazon_api']['client_secret'] = os.getenv('AMAZON_CLIENT_SECRET')
+            self.config['amazon_api']['refresh_token'] = os.getenv('AMAZON_REFRESH_TOKEN')
+            self.config['amazon_api']['profile_id'] = os.getenv('AMAZON_PROFILE_ID')
+            self.config['amazon_api']['region'] = os.getenv('AMAZON_REGION', 'NA')
 
     def get_summary_metrics(self) -> dict:
         """Return a small summary suitable for dashboards.
@@ -1434,32 +1444,64 @@ class PPCOptimizer:
         Tries to run minimal read-only operations if credentials exist, otherwise
         returns placeholder metrics derived from config or static samples.
         """
-        # If a lightweight report method exists, use it
-        try:
-            # If PPCAutomation exists and can run in read-only mode, use it
-            profile_id = self.config.get('profile_id')
-            if profile_id:
-                try:
-                    automation = PPCAutomation(self.config_path, profile_id, dry_run=True)
-                    results = automation.run(features=['bid_optimization'])
-                    # Extract simple aggregates
-                    summary = {
-                        'campaigns_checked': results.get('bid_optimization', {}).get('campaigns_checked', 0),
-                        'keywords_optimized': results.get('bid_optimization', {}).get('keywords_optimized', 0),
-                        'timestamp': datetime.utcnow().isoformat() + 'Z'
-                    }
-                    return summary
-                except Exception:
-                    # if automation is heavy, fall through to sample
-                    pass
-
-        except Exception:
-            pass
+        # Check if we have valid Amazon API credentials
+        api_config = self.config.get('amazon_api', {})
+        profile_id = api_config.get('profile_id')
+        
+        if profile_id and profile_id != 'YOUR_PROFILE_ID_HERE':
+            try:
+                # Create API client directly to fetch basic stats
+                client_id = api_config.get('client_id')
+                client_secret = api_config.get('client_secret')
+                refresh_token = api_config.get('refresh_token')
+                region = api_config.get('region', 'NA')
+                
+                # Get access token
+                from amazon_ppc_optimizer import AmazonAdsAPI
+                api = AmazonAdsAPI(client_id, client_secret, refresh_token, profile_id, region)
+                
+                # Fetch campaigns
+                campaigns = api.get_campaigns()
+                active_campaigns = [c for c in campaigns if c.get('state') == 'enabled']
+                
+                # Fetch keywords for active campaigns
+                total_keywords = 0
+                for campaign in active_campaigns[:10]:  # Limit to first 10 to avoid timeout
+                    try:
+                        campaign_id = campaign.get('campaignId')
+                        if campaign_id:
+                            # Get ad groups for this campaign
+                            ad_groups = api.get_ad_groups(campaign_id)
+                            for ag in ad_groups:
+                                if ag.get('state') == 'enabled':
+                                    # Get keywords for this ad group
+                                    keywords = api.get_keywords(ag.get('adGroupId'))
+                                    total_keywords += len([k for k in keywords if k.get('state') == 'enabled'])
+                    except Exception:
+                        continue
+                
+                summary = {
+                    'total_campaigns': len(campaigns),
+                    'active_campaigns': len(active_campaigns),
+                    'active_keywords': total_keywords,
+                    'campaigns_checked': len(active_campaigns),
+                    'keywords_optimized': 0,  # Would need performance data to know
+                    'timestamp': datetime.utcnow().isoformat() + 'Z',
+                    'source': 'live_amazon_api'
+                }
+                return summary
+                        
+            except Exception as e:
+                logger.error(f"Failed to get live metrics: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                # Fall through to sample data
 
         # Fallback sample data
         return {
             'campaigns_checked': 12,
             'keywords_optimized': 247,
-            'timestamp': datetime.utcnow().isoformat() + 'Z'
+            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'source': 'sample'
         }
 
