@@ -97,6 +97,42 @@ export async function writeColumnValues(params: {
   })
 }
 
+export async function writeColumnLetterValues(params: {
+  spreadsheetId: string
+  sheetGid?: string | number
+  columnLetter: string
+  rows: Array<{ rowNumber: number; value: string | undefined }>
+}) {
+  const { spreadsheetId, sheetGid, columnLetter, rows } = params
+  const clientEmail = process.env.GS_SERVICE_ACCOUNT_EMAIL as string | undefined
+  const privateKey = (process.env.GS_SERVICE_ACCOUNT_KEY || '').replace(/\\n/g, '\n') || undefined
+  const scopes = ['https://www.googleapis.com/auth/spreadsheets']
+  let authClient: any
+  if (clientEmail && privateKey) {
+    authClient = new google.auth.JWT({ email: clientEmail, key: privateKey, scopes })
+  } else {
+    const ga = new GoogleAuth({ scopes })
+    authClient = await ga.getClient()
+  }
+  const sheets = google.sheets({ version: 'v4', auth: authClient })
+
+  const sheetName = await resolveSheetName(sheets, spreadsheetId, sheetGid)
+  const data: any[] = []
+  for (const r of rows) {
+    if (typeof r.value !== 'string' || r.value.length === 0) continue
+    const cell = `${sheetName}!${columnLetter}${r.rowNumber}`
+    data.push({ range: cell, values: [[r.value]] })
+  }
+  if (data.length === 0) return
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: 'RAW',
+      data,
+    },
+  })
+}
+
 async function resolveSheetName(sheets: any, spreadsheetId: string, gid?: string | number): Promise<string> {
   if (!gid) return 'Sheet1'
   const meta = await sheets.spreadsheets.get({ spreadsheetId })

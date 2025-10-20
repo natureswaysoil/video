@@ -6,6 +6,7 @@ import { postToPinterest } from './pinterest'
 import { postToYouTube } from './youtube'
 import { createWaveSpeedPrediction, pollWaveSpeedUntilReady, fetchVideoUrlFromWaveSpeed } from './wavespeed'
 import { createClientWithSecrets } from './pictory'
+import { addContext, setRenderJobId } from './webhook-cache'
 import { generateScript } from './openai'
 import { markRowPosted, writeColumnValues } from './sheets'
 import { updateStatus, incrementSuccessfulPost, incrementFailedPost, addError } from './health-server'
@@ -61,6 +62,10 @@ async function main() {
   const intervalMs = Number(process.env.POLL_INTERVAL_MS ?? '60000')
   const runOnce = String(process.env.RUN_ONCE || '').toLowerCase() === 'true'
   const dryRun = String(process.env.DRY_RUN_LOG_ONLY || '').toLowerCase() === 'true'
+  const enabledPlatformsEnv = (process.env.ENABLE_PLATFORMS || '').toLowerCase()
+  const enabledPlatforms = new Set(enabledPlatformsEnv.split(',').map(s => s.trim()).filter(Boolean))
+  const enforcePostingWindows = String(process.env.ENFORCE_POSTING_WINDOWS || 'false').toLowerCase() === 'true'
+  const targetColumnLetter = (process.env.SHEET_VIDEO_TARGET_COLUMN_LETTER || 'AB').toUpperCase()
   const cycle = async () => {
     try {
       updateStatus({ status: 'processing', rowsProcessed: 0 })
@@ -75,6 +80,9 @@ async function main() {
           
           // Step 1: Try to get existing video URL
           let videoUrl = await resolveVideoUrlAsync({ jobId, record })
+
+          // Prefer ASIN from the sheet for identification
+          const asin = getValueFromRecord(record, process.env.CSV_COL_ASIN || 'ASIN,Parent_ASIN,SKU,Product_ID') || jobId
           
           // Step 2: If no video exists, create one with OpenAI + Pictory (primary) or WaveSpeed (fallback)
           if (!videoUrl || !(await urlLooksReachable(videoUrl))) {
@@ -104,19 +112,30 @@ async function main() {
                 const token = await pictoryClient.getAccessToken()
                 
                 // Create storyboard payload from script
+                const durationSeconds = Math.max(5, Number(process.env.PICTORY_VIDEO_DURATION_SECONDS || '30'))
+                const scenes = buildPictoryScenesFromScript(script, durationSeconds)
                 const storyboardPayload = {
-                  title: product?.title || product?.name || 'Product Video',
-                  scenes: [
-                    {
-                      type: 'text',
-                      text: script,
-                      duration: 5 // Adjust as needed
-                    }
-                  ]
-                }
+                  title: `${product?.title || product?.name || 'Product Video'} (${asin})`,
+                  meta: { asin },
+                  durationSeconds,
+                  scenes
+                } as any
                 
                 const storyboardJobId = await pictoryClient.createStoryboard(token, storyboardPayload)
                 console.log('✅ Created Pictory storyboard:', storyboardJobId)
+                // Prepare caption early for webhook cache
+                const _captionForCache: string = (product?.details ?? product?.title ?? product?.name ?? '').toString()
+                // Cache context for webhook posting
+                const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
+                const sheetGid = extractGidFromCsv(csvUrl)
+                addContext(storyboardJobId, {
+                  spreadsheetId,
+                  sheetGid,
+                  rowNumber,
+                  headers,
+                  caption: _captionForCache,
+                  enabledPlatformsCsv: enabledPlatformsEnv,
+                })
                 
                 // Poll for render params
                 console.log('⏳ Waiting for Pictory render params...')
@@ -126,8 +145,9 @@ async function main() {
                 console.log('✅ Pictory storyboard ready')
                 
                 // Request render
-                const renderJobId = await pictoryClient.renderVideo(token, storyboardJobId)
+                const renderJobId = await pictoryClient.renderVideo(token, storyboardJobId, { webhook: process.env.PICTORY_WEBHOOK_URL })
                 console.log('✅ Started Pictory render:', renderJobId)
+                setRenderJobId(storyboardJobId, renderJobId)
                 
                 // Poll for render completion
                 console.log('⏳ Waiting for Pictory render completion...')
@@ -170,18 +190,28 @@ async function main() {
               console.log('⚠️  Cannot create video with WaveSpeed: missing script or API key')
             }
             
-            // 2d: Write video URL back to sheet
+            // 2d: Write video URL back to sheet (prefer fixed column letter if configured)
             if (videoUrl && (process.env.GS_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
               try {
                 const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
                 const sheetGid = extractGidFromCsv(csvUrl)
-                await writeColumnValues({
-                  spreadsheetId,
-                  sheetGid,
-                  headers,
-                  columnName: process.env.CSV_COL_VIDEO_URL || 'Video URL',
-                  rows: [{ rowNumber, value: videoUrl }],
-                })
+                if (targetColumnLetter) {
+                  const { writeColumnLetterValues } = await import('./sheets')
+                  await writeColumnLetterValues({
+                    spreadsheetId,
+                    sheetGid,
+                    columnLetter: targetColumnLetter,
+                    rows: [{ rowNumber, value: videoUrl }]
+                  })
+                } else {
+                  await writeColumnValues({
+                    spreadsheetId,
+                    sheetGid,
+                    headers,
+                    columnName: process.env.CSV_COL_VIDEO_URL || 'Video URL',
+                    rows: [{ rowNumber, value: videoUrl }],
+                  })
+                }
                 console.log('✅ Wrote video URL to sheet')
               } catch (e: any) {
                 console.error('⚠️  Failed to write video URL to sheet:', e?.message || e)
@@ -212,14 +242,20 @@ async function main() {
           console.log('✅ Video URL validated successfully')
           
           const caption: string = (product?.details ?? product?.title ?? product?.name ?? '').toString()
+
+          // Respect posting windows: 9:00 AM and 5:00 PM Eastern
+          const canPostNow = !enforcePostingWindows || isWithinPostingWindow()
+          if (!canPostNow) {
+            console.log('🕘 Outside posting window (9AM/5PM ET). Will not post, but video URL is ready:', videoUrl)
+          }
           let postedAtLeastOne = false
           const platformResults: Record<string, { success: boolean; result?: any; error?: string }> = {}
           
           // Instagram
-          if (dryRun) {
+          if (dryRun || !canPostNow) {
             console.log('[DRY RUN] Would post to Instagram:', { videoUrl, caption })
             platformResults.instagram = { success: true, result: 'DRY_RUN' }
-          } else if (process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID) {
+          } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')) && process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID) {
             const result = await retryWithBackoff(
               () => postToInstagram(videoUrl!, caption, process.env.INSTAGRAM_ACCESS_TOKEN!, process.env.INSTAGRAM_IG_ID!),
               { 
@@ -241,10 +277,10 @@ async function main() {
             }
           }
           // Twitter
-          if (dryRun) {
+          if (dryRun || !canPostNow) {
             console.log('[DRY RUN] Would post to Twitter:', { videoUrl, caption })
             platformResults.twitter = { success: true, result: 'DRY_RUN' }
-          } else if (process.env.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds()) {
+          } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')) && (process.env.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds())) {
             const result = await retryWithBackoff(
               async () => {
                 if (hasTwitterUploadCreds()) {
@@ -272,10 +308,10 @@ async function main() {
             }
           }
           // Pinterest
-          if (dryRun) {
+          if (dryRun || !canPostNow) {
             console.log('[DRY RUN] Would post to Pinterest:', { videoUrl, caption })
             platformResults.pinterest = { success: true, result: 'DRY_RUN' }
-          } else if (process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID) {
+          } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')) && process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID) {
             const result = await retryWithBackoff(
               () => postToPinterest(videoUrl!, caption, process.env.PINTEREST_ACCESS_TOKEN!, process.env.PINTEREST_BOARD_ID!),
               { 
@@ -297,10 +333,10 @@ async function main() {
             }
           }
           // YouTube
-          if (dryRun) {
+          if (dryRun || !canPostNow) {
             console.log('[DRY RUN] Would upload to YouTube:', { videoUrl, caption })
             platformResults.youtube = { success: true, result: 'DRY_RUN' }
-          } else if (process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN) {
+          } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')) && process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN) {
             const result = await retryWithBackoff(
               () => postToYouTube(
                 videoUrl!,
@@ -499,4 +535,57 @@ async function urlLooksReachable(url: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+// Posting windows: allow posting within 5 minutes of 9:00 AM or 5:00 PM Eastern
+function isWithinPostingWindow(): boolean {
+  try {
+    const nowUtc = new Date()
+    // Offsets to Eastern Time (naive: use -4 in DST, -5 otherwise); allow override via env
+    const offset = Number(process.env.EASTERN_UTC_OFFSET_HOURS || '-4')
+    const nowEt = new Date(nowUtc.getTime() + offset * 3600 * 1000)
+    const hour = nowEt.getUTCHours()
+    const minute = nowEt.getUTCMinutes()
+    // 9:00 and 17:00 ET with 5-minute window
+    const windows = [
+      { h: (9 - offset + 24) % 24, m: 0 },
+      { h: (17 - offset + 24) % 24, m: 0 },
+    ]
+    for (const w of windows) {
+      if (hour === w.h && Math.abs(minute - w.m) <= 5) return true
+    }
+    return false
+  } catch {
+    return true // fail-open to avoid blocking
+  }
+}
+
+// Helper: pull first non-empty value for comma-separated header candidates
+function getValueFromRecord(record: Record<string, string> | undefined, columnsCsv: string): string | undefined {
+  if (!record) return undefined
+  for (const key of columnsCsv.split(',').map(s => s.trim())) {
+    const v = record[key]
+    if (v && String(v).trim().length > 0) return v
+  }
+  return undefined
+}
+
+// Build Pictory scenes to approximately match the requested duration
+function buildPictoryScenesFromScript(script: string, totalSeconds: number) {
+  const sentences = script
+    .split(/(?<=[.!?])\s+/)
+    .map(s => s.trim())
+    .filter(Boolean)
+  const minScene = 3
+  const maxScenes = Math.max(1, Math.floor(totalSeconds / minScene))
+  const chosen = sentences.slice(0, Math.max(1, Math.min(sentences.length, maxScenes)))
+  const perScene = Math.max(minScene, Math.floor(totalSeconds / chosen.length))
+  const scenes = chosen.map((text) => ({ type: 'text', text, duration: perScene }))
+  // Adjust the last scene to absorb any remaining seconds
+  const used = perScene * scenes.length
+  const delta = totalSeconds - used
+  if (delta > 0) {
+    scenes[scenes.length - 1].duration += delta
+  }
+  return scenes
 }

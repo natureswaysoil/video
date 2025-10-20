@@ -9,8 +9,8 @@ export async function generateScript(product: Product, opts?: {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) throw new Error('OPENAI_API_KEY not set')
   const model = opts?.model || process.env.OPENAI_MODEL || 'gpt-4o-mini'
-  const systemPrompt = opts?.systemPrompt || process.env.OPENAI_SYSTEM_PROMPT || 'You are a concise marketing script writer for 15-30s social videos.'
-  const userTemplate = opts?.userTemplate || process.env.OPENAI_USER_TEMPLATE || 'Write a short, upbeat 20-30 second voiceover script for this product. Focus on benefits and a clear call-to-action. Product: {title}. Details: {details}.'
+  const systemPrompt = opts?.systemPrompt || process.env.OPENAI_SYSTEM_PROMPT || "You are a concise 'how-to' script writer for ~30 second social videos about gardening products by Nature's Way Soil. Use clear steps and keep it friendly and practical."
+  const userTemplate = opts?.userTemplate || process.env.OPENAI_USER_TEMPLATE || "Write a how-to style voiceover script about {title}. Length: about 30 seconds. Give 3-5 quick, actionable steps the viewer can follow. Keep it approachable and helpful. End with exactly: 'Visit natureswaysoil.com for more info'. Product details to incorporate where helpful: {details}."
 
   const title = String(product.title || product.name || product.id || '').trim()
   const details = String(product.details || '').trim()

@@ -35,9 +35,10 @@ export async function processCsvUrl(csvUrl: string): Promise<{ skipped: boolean;
       ...rec,
     }
     // Optional gating: skip if already posted; require ready/enabled if present
+    const alwaysNew = String(process.env.ALWAYS_GENERATE_NEW_VIDEO || '').toLowerCase() === 'true'
     const posted = pickFirst(rec, envKeys('CSV_COL_POSTED')) || pickFirst(rec, ['Posted','posted'])
-    if (posted && isTruthy(posted, process.env.CSV_STATUS_TRUE_VALUES)) {
-      continue // don't process already-posted rows
+    if (!alwaysNew && posted && isTruthy(posted, process.env.CSV_STATUS_TRUE_VALUES)) {
+      continue // don't process already-posted rows unless alwaysNew
     }
     const ready = pickFirst(rec, envKeys('CSV_COL_READY')) || pickFirst(rec, ['Ready','ready','Status','status','Enabled','enabled','Post','post'])
     if (ready && !isTruthy(ready, process.env.CSV_STATUS_TRUE_VALUES)) {
