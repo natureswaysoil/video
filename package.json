@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json",
     "run:once": "ts-node scripts/run-once.ts",
+    "validate": "ts-node scripts/validate-system.ts",
     "test:csv": "ts-node scripts/test-csv-processing.ts",
     "test:openai": "ts-node scripts/test-openai-script.ts",
     "test:heygen": "ts-node scripts/test-heygen-integration.ts",
