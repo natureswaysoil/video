@@ -8,6 +8,20 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json",
     "run:once": "ts-node scripts/run-once.ts"
+    
+*** Begin Patch
+*** Update File: package.json
+@@
+   "dependencies": {
+-    /* existing dependencies here */
++    /* existing dependencies here */
++    "yargs": "^17.7.2",
++    "node-fetch": "2.6.7"
+   },
+*** End Patch
+
+
+    
   },
   "dependencies": {
     "axios": "^1.7.7",
