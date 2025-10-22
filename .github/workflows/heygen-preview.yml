@@ -1,0 +1,28 @@
+name: HeyGen Preview
+on:
+  push:
+    branches:
+      - feature/heygen-integration
+  workflow_dispatch:
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install dependencies
+        run: |
+          npm ci --prefer-offline --no-audit --no-fund || npm install
+      - name: Run HeyGen preview
+        run: |
+          npx ts-node --prefer-ts-exts scripts/map-products-to-heygen.ts --sheetId=1LU2ahpzMqLB5FLYqiyDbXOfjTxbdp8U8 --gid=1712974299
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: heygen-preview-output
+          path: out/heygen-mapping.*
