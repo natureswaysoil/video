@@ -90,7 +90,7 @@ SECRETS_LIST=(
   YT_CLIENT_ID
   YT_CLIENT_SECRET
   YT_REFRESH_TOKEN
-  WAVE_SPEED_API_KEY
+  HEYGEN_API_KEY
   OPENAI_API_KEY
   GS_SERVICE_ACCOUNT_EMAIL
   GS_SERVICE_ACCOUNT_KEY
@@ -121,7 +121,7 @@ if gcloud run jobs describe "$JOB_NAME" --region="$REGION" >/dev/null 2>&1; then
     --image="$IMG" \
     --region="$REGION" \
     --service-account="$JOB_SA" \
-    --set-env-vars=RUN_ONCE=true,CSV_URL="${CSV_URL_DEFAULT}",CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title,WAVE_CREATE_PATH=/api/v3/alibaba/wan-2.5/text-to-video \
+    --set-env-vars=RUN_ONCE=true,CSV_URL="${CSV_URL_DEFAULT}",CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title,VIDEO_URL_TEMPLATE=https://heygen.ai/jobs/{jobId}/video.mp4,HEYGEN_VIDEO_DURATION_SECONDS=30 \
     "${SET_SECRETS_FLAG[@]}"; then
       echo "Update failed (likely due to stale secret references). Recreating job without secrets..."
       gcloud run jobs delete "$JOB_NAME" --region="$REGION" --quiet || true
@@ -129,21 +129,21 @@ if gcloud run jobs describe "$JOB_NAME" --region="$REGION" >/dev/null 2>&1; then
         --image="$IMG" \
         --region="$REGION" \
         --service-account="$JOB_SA" \
-        --set-env-vars=RUN_ONCE=true,CSV_URL="${CSV_URL_DEFAULT}",CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title,WAVE_CREATE_PATH=/api/v3/alibaba/wan-2.5/text-to-video
+        --set-env-vars=RUN_ONCE=true,CSV_URL="${CSV_URL_DEFAULT}",CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title,VIDEO_URL_TEMPLATE=https://heygen.ai/jobs/{jobId}/video.mp4,HEYGEN_VIDEO_DURATION_SECONDS=30
   fi
 else
   if ! gcloud run jobs create "$JOB_NAME" \
     --image="$IMG" \
     --region="$REGION" \
     --service-account="$JOB_SA" \
-    --set-env-vars=RUN_ONCE=true,CSV_URL="${CSV_URL_DEFAULT}",CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title,WAVE_CREATE_PATH=/api/v3/alibaba/wan-2.5/text-to-video \
+    --set-env-vars=RUN_ONCE=true,CSV_URL="${CSV_URL_DEFAULT}",CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title,VIDEO_URL_TEMPLATE=https://heygen.ai/jobs/{jobId}/video.mp4,HEYGEN_VIDEO_DURATION_SECONDS=30 \
     "${SET_SECRETS_FLAG[@]}"; then
       echo "Create with secrets failed. Retrying without secrets..."
       gcloud run jobs create "$JOB_NAME" \
         --image="$IMG" \
         --region="$REGION" \
         --service-account="$JOB_SA" \
-        --set-env-vars=RUN_ONCE=true,CSV_URL="${CSV_URL_DEFAULT}",CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title,WAVE_CREATE_PATH=/api/v3/alibaba/wan-2.5/text-to-video
+        --set-env-vars=RUN_ONCE=true,CSV_URL="${CSV_URL_DEFAULT}",CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title,VIDEO_URL_TEMPLATE=https://heygen.ai/jobs/{jobId}/video.mp4,HEYGEN_VIDEO_DURATION_SECONDS=30
   fi
 fi
 
