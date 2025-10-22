@@ -7,7 +7,14 @@
     "dev": "ts-node src/cli.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json",
-    "run:once": "ts-node scripts/run-once.ts"
+    "run:once": "ts-node scripts/run-once.ts",
+    "test:csv": "ts-node scripts/test-csv-processing.ts",
+    "test:openai": "ts-node scripts/test-openai-script.ts",
+    "test:heygen": "ts-node scripts/test-heygen-integration.ts",
+    "test:platforms": "ts-node scripts/test-all-platforms.ts",
+    "test:e2e": "ts-node scripts/test-e2e-integration.ts",
+    "test:e2e:dry": "DRY_RUN=true ts-node scripts/test-e2e-integration.ts",
+    "test:all": "npm run test:csv && npm run test:openai && npm run test:e2e:dry"
   },
   "dependencies": {
     "@google-cloud/secret-manager": "^6.1.1",
