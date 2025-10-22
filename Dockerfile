@@ -16,4 +16,5 @@ RUN npm ci --omit=dev --no-audit --no-fund
 COPY --from=build /app/dist ./dist
 # Default envs can be overridden at deploy time
 ENV NODE_ENV=production
-CMD ["node", "dist/blog-server.js"]
+ENV RUN_ONCE=true
+CMD ["node", "dist/cli.js"]
