@@ -114,11 +114,21 @@ async function validateGoogleSheets() {
     return
   }
   
-  // Check CSV URL format
-  if (csvUrl.includes('docs.google.com') && csvUrl.includes('/export')) {
-    addResult('CSV Format', 'pass', 'URL format looks correct')
-  } else {
-    addResult('CSV Format', 'warn', 'URL format may be incorrect (should be CSV export URL)')
+  // Check CSV URL format - validate it's actually a Google Sheets URL
+  try {
+    const url = new URL(csvUrl)
+    const isGoogleSheets = url.hostname === 'docs.google.com' && url.pathname.includes('/spreadsheets/')
+    const hasExport = url.pathname.includes('/export')
+    
+    if (isGoogleSheets && hasExport) {
+      addResult('CSV Format', 'pass', 'URL format looks correct')
+    } else if (isGoogleSheets) {
+      addResult('CSV Format', 'warn', 'Google Sheets URL but missing /export path')
+    } else {
+      addResult('CSV Format', 'warn', 'Not a standard Google Sheets CSV export URL')
+    }
+  } catch (error) {
+    addResult('CSV Format', 'fail', 'Invalid URL format')
   }
   
   // Try to fetch CSV
