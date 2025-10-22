@@ -10,6 +10,8 @@ import { addContext, setRenderJobId } from './webhook-cache'
 import { generateScript } from './openai'
 import { markRowPosted, writeColumnValues } from './sheets'
 import { updateStatus, incrementSuccessfulPost, incrementFailedPost, addError } from './health-server'
+import HeyGenClient from './heygen'
+import { mapProductToHeyGenPayload } from './heygen-adapter'
 
 // Start health check server
 import './health-server'
@@ -84,7 +86,7 @@ async function main() {
           // Prefer ASIN from the sheet for identification
           const asin = getValueFromRecord(record, process.env.CSV_COL_ASIN || 'ASIN,Parent_ASIN,SKU,Product_ID') || jobId
           
-          // Step 2: If no video exists, create one with OpenAI + Pictory (primary) or WaveSpeed (fallback)
+          // Step 2: If no video exists, create one with OpenAI + HeyGen (primary) or Pictory/WaveSpeed (fallback)
           if (!videoUrl || !(await urlLooksReachable(videoUrl))) {
             console.log('No existing video found. Creating new video...')
             
@@ -101,13 +103,63 @@ async function main() {
               console.log('⚠️  OPENAI_API_KEY not set, skipping script generation')
             }
             
-            // 2b: Try Pictory first (primary video generator)
+            // 2b: Try HeyGen first (primary video generator with smart mapping)
+            let heygenVideoUrl: string | undefined
+            const hasHeyGenCreds = process.env.HEYGEN_API_KEY || process.env.GCP_SECRET_HEYGEN_API_KEY
+            
+            if (script && hasHeyGenCreds) {
+              try {
+                console.log('🎭 Creating video with HeyGen (primary with smart mapping)...')
+                const heygenClient = await HeyGenClient.createClientWithSecrets()
+                
+                // Apply smart mapping based on product keywords
+                const mapping = mapProductToHeyGenPayload(record)
+                console.log('✅ Product mapping:', {
+                  avatar: mapping.avatar,
+                  voice: mapping.voice,
+                  length: mapping.lengthSeconds,
+                  reason: mapping.reason
+                })
+                
+                // Create HeyGen job with mapped settings
+                const heygenPayload = {
+                  script,
+                  avatar: mapping.avatar,
+                  voice: mapping.voice,
+                  lengthSeconds: mapping.lengthSeconds
+                }
+                
+                const heygenJobId = await heygenClient.createVideoJob(heygenPayload)
+                console.log('✅ Created HeyGen job:', heygenJobId)
+                
+                // Poll for video completion
+                console.log('⏳ Waiting for HeyGen video completion...')
+                heygenVideoUrl = await heygenClient.pollJobForVideoUrl(heygenJobId, {
+                  timeoutMs: 15 * 60_000, // 15 minutes
+                  intervalMs: 10_000 // Check every 10 seconds
+                })
+                
+                if (heygenVideoUrl) {
+                  console.log('✅ HeyGen video ready:', heygenVideoUrl)
+                  videoUrl = heygenVideoUrl
+                }
+              } catch (e: any) {
+                console.error('❌ HeyGen video generation failed:', e?.message || e)
+                console.log('⚠️  Will try Pictory as fallback...')
+              }
+            } else if (!script) {
+              console.log('⚠️  Skipping HeyGen: no script available')
+            } else {
+              console.log('⚠️  Skipping HeyGen: credentials not configured')
+            }
+            
+            // 2c: Try Pictory as fallback if HeyGen failed
             let pictoryVideoUrl: string | undefined
             const hasPictoryCreds = process.env.PICTORY_CLIENT_ID || process.env.GCP_SECRET_PICTORY_CLIENT_ID
             
-            if (script && hasPictoryCreds) {
+            if (!videoUrl && script && hasPictoryCreds) {
               try {
-                console.log('🎬 Creating video with Pictory (primary)...')
+                console.log('🎬 Creating video with Pictory (fallback)...')
                 const pictoryClient = await createClientWithSecrets()
                 const token = await pictoryClient.getAccessToken()
                 
@@ -162,18 +214,18 @@ async function main() {
                 }
               } catch (e: any) {
                 console.error('❌ Pictory video generation failed:', e?.message || e)
-                console.log('⚠️  Will try WaveSpeed as fallback...')
+                console.log('⚠️  Will try WaveSpeed as second fallback...')
               }
-            } else if (!script) {
+            } else if (!videoUrl && !script) {
               console.log('⚠️  Skipping Pictory: no script available')
-            } else {
+            } else if (!videoUrl) {
               console.log('⚠️  Skipping Pictory: credentials not configured')
             }
             
-            // 2c: Fallback to WaveSpeed if Pictory failed or unavailable
+            // 2d: Final fallback to WaveSpeed if HeyGen and Pictory both failed
             if (!videoUrl && script && (process.env.WAVE_SPEED_API_KEY || process.env.WAVESPEED_API_KEY || process.env.GS_API_KEY)) {
               try {
-                console.log('🌊 Creating video with WaveSpeed (fallback)...')
+                console.log('🌊 Creating video with WaveSpeed (final fallback)...')
                 const { id } = await createWaveSpeedPrediction({ script, jobId })
                 console.log('✅ Created WaveSpeed prediction:', id)
                 
@@ -457,13 +509,19 @@ async function main() {
         updateStatus({ status: 'idle-no-products' })
       }
     } catch (e: any) {
-      console.error('Polling error:', e)
+      console.error('❌ Cycle error:', e)
       addError(`Cycle error: ${e?.message || String(e)}`)
       updateStatus({ status: 'error' })
+      
+      // In RUN_ONCE mode, propagate the error to fail the job
+      if (runOnce) {
+        throw e
+      }
     }
   }
   if (runOnce) {
     await cycle()
+    console.log('✅ Single run completed successfully')
     return
   }
   while (true) {
@@ -472,7 +530,10 @@ async function main() {
   }
 }
 
-main().catch(e => console.error(e))
+main().catch(e => {
+  console.error('❌ Fatal error in main():', e)
+  process.exit(1)
+})
 
 function hasTwitterUploadCreds(): boolean {
   return Boolean(process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env.TWITTER_ACCESS_TOKEN && process.env.TWITTER_ACCESS_SECRET)
