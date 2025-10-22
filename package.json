@@ -17,16 +17,9 @@
     "twitter-api-v2": "^1.17.2",
     "openai": "^4.67.3",
     "@supabase/supabase-js": "^2.45.4",
-    "express": "^4.21.1"
-
-{
-  "dependencies": {
+    "express": "^4.21.1",
     "yargs": "^17.7.2",
     "node-fetch": "2.6.7"
-  }
-}
-
-    
   },
   "devDependencies": {
     "ts-node": "^10.9.2",
