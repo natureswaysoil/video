@@ -73,7 +73,7 @@ See `.env.example` for a full list. Most important:
 	2) Else build from `VIDEO_URL_TEMPLATE` with `{jobId}`/`{asin}`
 	3) Validate URL via HEAD or ranged GET (skip with `SKIP_VIDEO_EXISTS_CHECK=true`)
 - Generation path:
-	- If no video URL exists/reachable, generate with HeyGen using an OpenAI-produced script and avatar/voice mapping; poll for completion (up to ~25 min); write URL back to sheet
+	- If no video URL exists/reachable, generate with HeyGen using an OpenAI-produced script and avatar/voice mapping; poll for completion (up to ~25 min; this is a hard limit imposed by HeyGen and is not configurable); write URL back to sheet
 - Posting path:
 	- For each enabled platform with credentials, attempt post with retries and exponential backoff
 	- On at least one success and writeback configured, mark row as `Posted` and `Posted_At`
