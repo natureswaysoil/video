@@ -38,7 +38,7 @@ See `.env.example` for a full list. Most important:
 - Input data
 	- `CSV_URL` — Google Sheets CSV export URL (required)
 	- `CSV_COL_*` — Optional CSV header overrides (e.g., `CSV_COL_VIDEO_URL`, `CSV_COL_ASIN`)
-	- `VIDEO_URL_TEMPLATE` — Template for building a video URL when not provided (default: `https://heygen.ai/jobs/{jobId}/video.mp4`)
+	- `VIDEO_URL_TEMPLATE` — Template for building a video URL when not provided (default: `https://heygen.com/jobs/{jobId}/video.mp4`)
 	- `SKIP_VIDEO_EXISTS_CHECK` — If true, skip HEAD/range probe when validating remote video URL
 	- `SHEET_VIDEO_TARGET_COLUMN_LETTER` — Writeback column letter for video URL (default `AB`)
 
