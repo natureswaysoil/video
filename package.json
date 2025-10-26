@@ -7,7 +7,12 @@
     "dev": "ts-node src/cli.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json",
-    "run:once": "ts-node scripts/run-once.ts"
+    "run:once": "ts-node scripts/run-once.ts",
+    "verify": "ts-node scripts/verify-social-posting.ts",
+    "test:instagram": "ts-node scripts/test-instagram.ts",
+    "test:twitter": "ts-node scripts/test-twitter.ts",
+    "test:pinterest": "ts-node scripts/test-pinterest.ts",
+    "test:youtube": "ts-node scripts/test-youtube.ts"
   },
   "dependencies": {
     "@google-cloud/secret-manager": "^6.1.1",
