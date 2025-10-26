@@ -5,7 +5,7 @@
 
 import 'dotenv/config'
 import { generateScript } from './openai'
-import { HeyGenClient } from './heygen'
+import { createClientWithSecrets } from './heygen'
 import { postToYouTube } from './youtube'
 import { postToInstagram } from './instagram'
 import { postToTwitter } from './twitter'
@@ -147,16 +147,21 @@ export async function generateBlogVideo(blogPost: BlogPost): Promise<string | nu
 
     console.log('Creating HeyGen video job...')
     
-    // Initialize HeyGen client
-    const heygen = new HeyGenClient()
+    // Initialize HeyGen client with secrets support
+    const heygen = await createClientWithSecrets()
+    
+    // Get avatar and voice settings with fallback defaults
+    const avatar = process.env.HEYGEN_DEFAULT_AVATAR || 'garden_expert_01'
+    const voice = process.env.HEYGEN_DEFAULT_VOICE || 'en_us_warm_female_01'
+    const lengthSeconds = parseInt(process.env.HEYGEN_VIDEO_DURATION_SECONDS || '30')
     
     // Create video generation job
     const jobId = await heygen.createVideoJob({
       script: videoScript,
       title: blogPost.title,
-      lengthSeconds: parseInt(process.env.HEYGEN_VIDEO_DURATION_SECONDS || '30'),
-      avatar: process.env.HEYGEN_DEFAULT_AVATAR,
-      voice: process.env.HEYGEN_DEFAULT_VOICE,
+      lengthSeconds,
+      avatar,
+      voice,
       music: {
         style: 'nature',
         volume: 0.15
