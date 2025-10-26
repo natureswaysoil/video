@@ -5,7 +5,7 @@
 
 import 'dotenv/config'
 import { generateScript } from './openai'
-import { createWaveSpeedPrediction, pollWaveSpeedUntilReady } from './wavespeed'
+import { HeyGenClient } from './heygen'
 import { postToYouTube } from './youtube'
 import { postToInstagram } from './instagram'
 import { postToTwitter } from './twitter'
@@ -131,13 +131,13 @@ The content should use Markdown formatting with ## for headings.`
 }
 
 /**
- * Generate video for the blog post using WaveSpeed
+ * Generate video for the blog post using HeyGen
  */
 export async function generateBlogVideo(blogPost: BlogPost): Promise<string | null> {
   console.log(`\n🎬 Generating video for: ${blogPost.title}`)
   
-  if (!process.env.WAVE_SPEED_API_KEY && !process.env.WAVESPEED_API_KEY) {
-    console.log('⚠️  WaveSpeed API key not configured, skipping video generation')
+  if (!process.env.HEYGEN_API_KEY && !process.env.GCP_SECRET_HEYGEN_API_KEY) {
+    console.log('⚠️  HeyGen API key not configured, skipping video generation')
     return null
   }
 
@@ -145,16 +145,41 @@ export async function generateBlogVideo(blogPost: BlogPost): Promise<string | nu
     // Create a compelling video script from the blog content
     const videoScript = `${blogPost.videoPrompt}. Professional, cinematic style. Nature, garden, soil close-ups. Vibrant green plants. Healthy soil texture.`
 
-    console.log('Creating WaveSpeed prediction...')
-    const { id: predictionId } = await createWaveSpeedPrediction({
+    console.log('Creating HeyGen video job...')
+    
+    // Initialize HeyGen client
+    const heygen = new HeyGenClient()
+    
+    // Create video generation job
+    const jobId = await heygen.createVideoJob({
       script: videoScript,
-      jobId: `blog-${blogPost.slug}`
+      title: blogPost.title,
+      lengthSeconds: parseInt(process.env.HEYGEN_VIDEO_DURATION_SECONDS || '30'),
+      avatar: process.env.HEYGEN_DEFAULT_AVATAR,
+      voice: process.env.HEYGEN_DEFAULT_VOICE,
+      music: {
+        style: 'nature',
+        volume: 0.15
+      },
+      subtitles: {
+        enabled: true,
+        style: 'modern'
+      },
+      webhook: process.env.HEYGEN_WEBHOOK_URL,
+      meta: {
+        blogSlug: blogPost.slug,
+        category: blogPost.category
+      }
     })
 
-    console.log(`✅ Prediction created: ${predictionId}`)
+    console.log(`✅ HeyGen job created: ${jobId}`)
     console.log('⏳ Waiting for video to be ready...')
 
-    const videoUrl = await pollWaveSpeedUntilReady(predictionId)
+    // Poll for completion (timeout 20 minutes)
+    const videoUrl = await heygen.pollJobForVideoUrl(jobId, {
+      timeoutMs: 20 * 60_000,
+      intervalMs: 10_000
+    })
     
     if (videoUrl) {
       console.log(`✅ Video ready: ${videoUrl}`)
