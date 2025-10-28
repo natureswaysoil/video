@@ -116,12 +116,16 @@ else
 fi
 
 echo "Creating Cloud Run Job (or updating if exists)..."
+# Environment variables for HeyGen-based video generation
+ENV_VARS="RUN_ONCE=true,CSV_URL=${CSV_URL_DEFAULT},CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title,HEYGEN_VIDEO_DURATION_SECONDS=30,SHEET_VIDEO_TARGET_COLUMN_LETTER=AB"
+
 if gcloud run jobs describe "$JOB_NAME" --region="$REGION" >/dev/null 2>&1; then
   if ! gcloud run jobs update "$JOB_NAME" \
     --image="$IMG" \
     --region="$REGION" \
     --service-account="$JOB_SA" \
-    --set-env-vars=RUN_ONCE=true,CSV_URL="${CSV_URL_DEFAULT}",CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title,VIDEO_URL_TEMPLATE=https://heygen.ai/jobs/{jobId}/video.mp4,HEYGEN_VIDEO_DURATION_SECONDS=30 \
+    --task-timeout=3600 \
+    --set-env-vars="${ENV_VARS}" \
     "${SET_SECRETS_FLAG[@]}"; then
       echo "Update failed (likely due to stale secret references). Recreating job without secrets..."
       gcloud run jobs delete "$JOB_NAME" --region="$REGION" --quiet || true
@@ -129,21 +133,24 @@ if gcloud run jobs describe "$JOB_NAME" --region="$REGION" >/dev/null 2>&1; then
         --image="$IMG" \
         --region="$REGION" \
         --service-account="$JOB_SA" \
-        --set-env-vars=RUN_ONCE=true,CSV_URL="${CSV_URL_DEFAULT}",CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title,VIDEO_URL_TEMPLATE=https://heygen.ai/jobs/{jobId}/video.mp4,HEYGEN_VIDEO_DURATION_SECONDS=30
+        --task-timeout=3600 \
+        --set-env-vars="${ENV_VARS}"
   fi
 else
   if ! gcloud run jobs create "$JOB_NAME" \
     --image="$IMG" \
     --region="$REGION" \
     --service-account="$JOB_SA" \
-    --set-env-vars=RUN_ONCE=true,CSV_URL="${CSV_URL_DEFAULT}",CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title,VIDEO_URL_TEMPLATE=https://heygen.ai/jobs/{jobId}/video.mp4,HEYGEN_VIDEO_DURATION_SECONDS=30 \
+    --task-timeout=3600 \
+    --set-env-vars="${ENV_VARS}" \
     "${SET_SECRETS_FLAG[@]}"; then
       echo "Create with secrets failed. Retrying without secrets..."
       gcloud run jobs create "$JOB_NAME" \
         --image="$IMG" \
         --region="$REGION" \
         --service-account="$JOB_SA" \
-        --set-env-vars=RUN_ONCE=true,CSV_URL="${CSV_URL_DEFAULT}",CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title,VIDEO_URL_TEMPLATE=https://heygen.ai/jobs/{jobId}/video.mp4,HEYGEN_VIDEO_DURATION_SECONDS=30
+        --task-timeout=3600 \
+        --set-env-vars="${ENV_VARS}"
   fi
 fi
 

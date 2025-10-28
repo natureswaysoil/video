@@ -1,6 +1,6 @@
 /**
  * Cloud Function entry point for automated blog generation
- * Triggered by Cloud Scheduler every 2 days
+ * Triggered by Cloud Scheduler daily
  */
 
 import 'dotenv/config'
