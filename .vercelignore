@@ -1,0 +1,17 @@
+node_modules
+dist
+.git
+.github
+src
+scripts
+*.log
+.env
+.env.*
+!.env.example
+deploy.log
+amazon-ppc-fixed
+amazon_ppc_optimizer_complete
+docs
+*.ts
+tsconfig.json
+package-lock.json
