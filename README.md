@@ -93,6 +93,79 @@ Note: For Google Sheets, use the CSV export URL form:
 
 MIT
 
+## Complete Automation Setup
+
+**⭐ For comprehensive deployment and automation instructions, see [COMPLETE_AUTOMATION_GUIDE.md](./COMPLETE_AUTOMATION_GUIDE.md) ⭐**
+
+The complete guide includes:
+- 📋 Step-by-step deployment instructions
+- ☁️ Google Cloud configuration with twice-daily scheduling (9 AM & 6 PM ET)
+- 🔐 Security best practices and credential management
+- 📊 Monitoring, maintenance, and troubleshooting
+- 💰 Cost estimates and optimization tips
+- ✅ Deployment verification procedures
+
+### Quick Deploy
+
+Automated deployment in 5 steps:
+
+```bash
+# 1. Set environment variables
+export PROJECT_ID="your-gcp-project-id"
+export REGION="us-east1"
+export TIME_ZONE="America/New_York"
+
+# 2. Configure credentials in .env file
+cp .env.example .env
+# Edit .env with your API keys (HeyGen, OpenAI, social media)
+
+# 3. Create secrets in Google Secret Manager
+source .env
+./scripts/create-secrets-from-env.sh
+
+# 4. Deploy to Google Cloud (builds image, creates job, sets up scheduler)
+./scripts/deploy-gcp.sh
+
+# 5. Verify deployment
+PROJECT_ID=$PROJECT_ID ./scripts/verify-deployment.sh
+```
+
+This automatically:
+- ✅ Builds and deploys Docker image to Cloud Run
+- ✅ Sets up Cloud Scheduler for twice-daily execution (9 AM & 6 PM ET)
+- ✅ Configures all secrets and IAM permissions
+- ✅ Verifies deployment health and configuration
+
+### Local Testing
+
+Test locally before deploying to the cloud:
+
+```bash
+# Dry run (generates videos, skips social media posting)
+DRY_RUN_LOG_ONLY=true RUN_ONCE=true npm run dev
+
+# Full test (processes one product end-to-end)
+RUN_ONCE=true npm run dev
+```
+
+### Monitoring & Maintenance
+
+```bash
+# View recent job executions
+gcloud run jobs executions list --job=natureswaysoil-video-job --region=$REGION
+
+# Stream logs in real-time
+gcloud logging tail 'resource.type="cloud_run_job"'
+
+# Verify deployment health
+PROJECT_ID=$PROJECT_ID ./scripts/verify-deployment.sh
+
+# Cleanup analysis
+SPREADSHEET_ID=your_id GID=your_gid ./scripts/cleanup-stray-files.sh
+```
+
+---
+
 ## Deploying on Google Cloud
 
 ### Cloud Run (container, long-running or on-demand)

@@ -1,101 +1,180 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Deployment Verification Script for Video Generation System
-# Verifies that all components are correctly configured for production deployment
-
-PROJECT_ID=${PROJECT_ID:-natureswaysoil-video}
-REGION=${REGION:-us-east1}
-JOB_NAME=${JOB_NAME:-natureswaysoil-video-job}
-SCHED_NAME=${SCHED_NAME:-natureswaysoil-video-2x}
-
-echo "=========================================="
-echo "🔍 Video Generation System - Deployment Verification"
-echo "=========================================="
-echo "Project: $PROJECT_ID"
-echo "Region: $REGION"
-echo "Job Name: $JOB_NAME"
-echo "Scheduler: $SCHED_NAME"
-echo ""
+# Deployment Verification Script
+# Checks all aspects of the automated video generation system
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-pass_count=0
-fail_count=0
-warn_count=0
+PROJECT_ID=${PROJECT_ID:-""}
+REGION=${REGION:-"us-east1"}
+JOB_NAME=${JOB_NAME:-"natureswaysoil-video-job"}
+SCHED_NAME=${SCHED_NAME:-"natureswaysoil-video-2x"}
 
-check_pass() {
-  echo -e "${GREEN}✓${NC} $1"
-  ((pass_count++))
-}
-
-check_fail() {
-  echo -e "${RED}✗${NC} $1"
-  ((fail_count++))
-}
-
-check_warn() {
-  echo -e "${YELLOW}⚠${NC} $1"
-  ((warn_count++))
-}
-
-# Check 1: gcloud authentication
-echo "Checking gcloud authentication..."
-if gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q .; then
-  check_pass "gcloud is authenticated"
-else
-  check_fail "gcloud is not authenticated. Run: gcloud auth login"
+if [[ -z "$PROJECT_ID" ]]; then
+  echo -e "${RED}Error: PROJECT_ID not set${NC}"
+  echo "Usage: PROJECT_ID=your-project-id ./scripts/verify-deployment.sh"
   exit 1
 fi
 
-# Check 2: Project exists and is set
+echo -e "${BLUE}╔════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║   Video Generation System - Deployment Verification   ║${NC}"
+echo -e "${BLUE}╚════════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo "Checking project configuration..."
-CURRENT_PROJECT=$(gcloud config get-value project 2>/dev/null || true)
-if [[ "$CURRENT_PROJECT" == "$PROJECT_ID" ]]; then
-  check_pass "Project is set correctly: $PROJECT_ID"
+echo "Project: $PROJECT_ID"
+echo "Region: $REGION"
+echo "Job: $JOB_NAME"
+echo "Scheduler: $SCHED_NAME"
+echo ""
+
+PASS_COUNT=0
+FAIL_COUNT=0
+WARN_COUNT=0
+
+check_pass() {
+  echo -e "${GREEN}✅ PASS${NC} - $1"
+  ((PASS_COUNT++))
+}
+
+check_fail() {
+  echo -e "${RED}❌ FAIL${NC} - $1"
+  ((FAIL_COUNT++))
+}
+
+check_warn() {
+  echo -e "${YELLOW}⚠️  WARN${NC} - $1"
+  ((WARN_COUNT++))
+}
+
+echo -e "${BLUE}=== 1. Google Cloud Project Configuration ===${NC}"
+echo ""
+
+# Check project exists
+if gcloud projects describe "$PROJECT_ID" >/dev/null 2>&1; then
+  check_pass "Project $PROJECT_ID exists and is accessible"
 else
-  check_warn "Current project is '$CURRENT_PROJECT', expected '$PROJECT_ID'"
-  gcloud config set project "$PROJECT_ID" 2>/dev/null || true
+  check_fail "Cannot access project $PROJECT_ID"
+  exit 1
 fi
 
-# Check 3: Required APIs are enabled
+# Check required APIs
 echo ""
-echo "Checking required Google Cloud APIs..."
+echo -e "${BLUE}Checking required APIs...${NC}"
 REQUIRED_APIS=(
   "run.googleapis.com"
-  "artifactregistry.googleapis.com"
   "cloudbuild.googleapis.com"
+  "artifactregistry.googleapis.com"
   "cloudscheduler.googleapis.com"
   "secretmanager.googleapis.com"
 )
 
 for api in "${REQUIRED_APIS[@]}"; do
-  if gcloud services list --enabled --filter="name:$api" --format="value(name)" 2>/dev/null | grep -q "$api"; then
+  if gcloud services list --enabled --project="$PROJECT_ID" --filter="name:$api" --format="value(name)" | grep -q "$api"; then
     check_pass "API enabled: $api"
   else
-    check_fail "API not enabled: $api (enable with: gcloud services enable $api)"
+    check_fail "API not enabled: $api"
   fi
 done
 
-# Check 4: Required secrets exist
 echo ""
-echo "Checking required secrets in Secret Manager..."
+echo -e "${BLUE}=== 2. Cloud Run Job Configuration ===${NC}"
+echo ""
+
+# Check job exists
+if gcloud run jobs describe "$JOB_NAME" --region="$REGION" >/dev/null 2>&1; then
+  check_pass "Cloud Run Job exists: $JOB_NAME"
+  
+  # Check job configuration
+  JOB_IMAGE=$(gcloud run jobs describe "$JOB_NAME" --region="$REGION" --format="value(spec.template.spec.template.spec.containers[0].image)")
+  JOB_TIMEOUT=$(gcloud run jobs describe "$JOB_NAME" --region="$REGION" --format="value(spec.template.spec.template.spec.timeoutSeconds)")
+  JOB_SA=$(gcloud run jobs describe "$JOB_NAME" --region="$REGION" --format="value(spec.template.spec.template.spec.serviceAccountName)")
+  
+  echo ""
+  echo "  Image: $JOB_IMAGE"
+  echo "  Timeout: $JOB_TIMEOUT seconds"
+  echo "  Service Account: $JOB_SA"
+  echo ""
+  
+  # Check timeout is adequate (should be 3600 seconds = 60 minutes)
+  if [[ "$JOB_TIMEOUT" -ge 3600 ]]; then
+    check_pass "Job timeout is adequate: ${JOB_TIMEOUT}s (60 min)"
+  elif [[ "$JOB_TIMEOUT" -ge 1800 ]]; then
+    check_warn "Job timeout is marginal: ${JOB_TIMEOUT}s (may timeout during video generation)"
+  else
+    check_fail "Job timeout is too short: ${JOB_TIMEOUT}s (need 3600s minimum)"
+  fi
+  
+  # Check service account
+  if [[ -n "$JOB_SA" ]]; then
+    check_pass "Service account configured: $JOB_SA"
+  else
+    check_warn "No custom service account (using default)"
+  fi
+else
+  check_fail "Cloud Run Job not found: $JOB_NAME"
+fi
+
+echo ""
+echo -e "${BLUE}=== 3. Cloud Scheduler Configuration ===${NC}"
+echo ""
+
+# Check scheduler exists
+if gcloud scheduler jobs describe "$SCHED_NAME" --location="$REGION" >/dev/null 2>&1; then
+  check_pass "Cloud Scheduler job exists: $SCHED_NAME"
+  
+  # Check scheduler configuration
+  SCHED_STATUS=$(gcloud scheduler jobs describe "$SCHED_NAME" --location="$REGION" --format="value(state)")
+  SCHED_SCHEDULE=$(gcloud scheduler jobs describe "$SCHED_NAME" --location="$REGION" --format="value(schedule)")
+  SCHED_TZ=$(gcloud scheduler jobs describe "$SCHED_NAME" --location="$REGION" --format="value(timeZone)")
+  SCHED_NEXT=$(gcloud scheduler jobs describe "$SCHED_NAME" --location="$REGION" --format="value(scheduleTime)" 2>/dev/null || echo "Not scheduled")
+  
+  echo ""
+  echo "  Status: $SCHED_STATUS"
+  echo "  Schedule: $SCHED_SCHEDULE ($SCHED_TZ)"
+  echo "  Next run: $SCHED_NEXT"
+  echo ""
+  
+  if [[ "$SCHED_STATUS" == "ENABLED" ]]; then
+    check_pass "Scheduler is enabled"
+  else
+    check_fail "Scheduler is not enabled: $SCHED_STATUS"
+  fi
+  
+  # Check schedule is twice daily
+  if [[ "$SCHED_SCHEDULE" == "0 9,18 * * *" ]]; then
+    check_pass "Schedule is correct: 9 AM and 6 PM daily"
+  else
+    check_warn "Schedule differs from expected: $SCHED_SCHEDULE"
+  fi
+  
+  # Check timezone
+  if [[ "$SCHED_TZ" == "America/New_York" ]]; then
+    check_pass "Timezone is Eastern Time"
+  else
+    check_warn "Timezone is not Eastern Time: $SCHED_TZ"
+  fi
+else
+  check_fail "Cloud Scheduler job not found: $SCHED_NAME"
+fi
+
+echo ""
+echo -e "${BLUE}=== 4. Secrets Configuration ===${NC}"
+echo ""
+
+# Check required secrets
 REQUIRED_SECRETS=(
   "HEYGEN_API_KEY"
   "OPENAI_API_KEY"
-  "INSTAGRAM_ACCESS_TOKEN"
-  "INSTAGRAM_IG_ID"
-  "GS_SERVICE_ACCOUNT_EMAIL"
-  "GS_SERVICE_ACCOUNT_KEY"
 )
 
 OPTIONAL_SECRETS=(
-  "TWITTER_BEARER_TOKEN"
+  "INSTAGRAM_ACCESS_TOKEN"
+  "INSTAGRAM_IG_ID"
   "TWITTER_API_KEY"
   "TWITTER_API_SECRET"
   "TWITTER_ACCESS_TOKEN"
@@ -105,15 +184,19 @@ OPTIONAL_SECRETS=(
   "YT_CLIENT_ID"
   "YT_CLIENT_SECRET"
   "YT_REFRESH_TOKEN"
+  "GS_SERVICE_ACCOUNT_EMAIL"
+  "GS_SERVICE_ACCOUNT_KEY"
 )
 
+echo "Checking required secrets..."
 for secret in "${REQUIRED_SECRETS[@]}"; do
-  if gcloud secrets describe "$secret" >/dev/null 2>&1; then
-    # Check for enabled versions
-    if gcloud secrets versions list "$secret" --filter="state=ENABLED" --format="value(name)" --limit=1 2>/dev/null | grep -q .; then
-      check_pass "Required secret configured: $secret"
+  if gcloud secrets describe "$secret" --project="$PROJECT_ID" >/dev/null 2>&1; then
+    # Check for enabled version
+    VERSION=$(gcloud secrets versions list "$secret" --filter="state=ENABLED" --format="value(name)" --limit=1 2>/dev/null || echo "")
+    if [[ -n "$VERSION" ]]; then
+      check_pass "Secret exists with enabled version: $secret"
     else
-      check_fail "Secret exists but has no enabled versions: $secret"
+      check_fail "Secret exists but no enabled version: $secret"
     fi
   else
     check_fail "Required secret missing: $secret"
@@ -121,158 +204,149 @@ for secret in "${REQUIRED_SECRETS[@]}"; do
 done
 
 echo ""
-echo "Checking optional secrets (for additional platforms)..."
+echo "Checking optional secrets..."
+OPTIONAL_PRESENT=0
 for secret in "${OPTIONAL_SECRETS[@]}"; do
-  if gcloud secrets describe "$secret" >/dev/null 2>&1; then
-    if gcloud secrets versions list "$secret" --filter="state=ENABLED" --format="value(name)" --limit=1 2>/dev/null | grep -q .; then
-      check_pass "Optional secret configured: $secret"
-    else
-      check_warn "Secret exists but has no enabled versions: $secret"
+  if gcloud secrets describe "$secret" --project="$PROJECT_ID" >/dev/null 2>&1; then
+    VERSION=$(gcloud secrets versions list "$secret" --filter="state=ENABLED" --format="value(name)" --limit=1 2>/dev/null || echo "")
+    if [[ -n "$VERSION" ]]; then
+      ((OPTIONAL_PRESENT++))
     fi
-  else
-    check_warn "Optional secret not configured: $secret (platform will be skipped)"
   fi
 done
 
-# Check 5: Cloud Run Job exists
-echo ""
-echo "Checking Cloud Run Job deployment..."
-if gcloud run jobs describe "$JOB_NAME" --region="$REGION" >/dev/null 2>&1; then
-  check_pass "Cloud Run Job exists: $JOB_NAME"
-  
-  # Get job details
-  JOB_IMAGE=$(gcloud run jobs describe "$JOB_NAME" --region="$REGION" --format="value(spec.template.spec.containers[0].image)" 2>/dev/null || echo "unknown")
-  echo "  Image: $JOB_IMAGE"
-  
-  # Check environment variables
-  ENV_VARS=$(gcloud run jobs describe "$JOB_NAME" --region="$REGION" --format="yaml(spec.template.spec.containers[0].env)" 2>/dev/null || true)
-  if echo "$ENV_VARS" | grep -q "RUN_ONCE"; then
-    check_pass "RUN_ONCE environment variable is set"
-  else
-    check_warn "RUN_ONCE environment variable not found"
-  fi
-  
-  if echo "$ENV_VARS" | grep -q "CSV_URL"; then
-    check_pass "CSV_URL environment variable is set"
-  else
-    check_fail "CSV_URL environment variable not found"
-  fi
+if [[ $OPTIONAL_PRESENT -gt 0 ]]; then
+  check_pass "$OPTIONAL_PRESENT optional secrets configured"
 else
-  check_fail "Cloud Run Job does not exist: $JOB_NAME"
-  echo "  Deploy with: ./scripts/deploy-gcp.sh"
+  check_warn "No optional secrets configured (social media posting will be skipped)"
 fi
 
-# Check 6: Cloud Scheduler job exists
 echo ""
-echo "Checking Cloud Scheduler configuration..."
-if gcloud scheduler jobs describe "$SCHED_NAME" --location="$REGION" >/dev/null 2>&1; then
-  check_pass "Scheduler job exists: $SCHED_NAME"
-  
-  # Get schedule details
-  SCHEDULE=$(gcloud scheduler jobs describe "$SCHED_NAME" --location="$REGION" --format="value(schedule)" 2>/dev/null || echo "unknown")
-  TIMEZONE=$(gcloud scheduler jobs describe "$SCHED_NAME" --location="$REGION" --format="value(timeZone)" 2>/dev/null || echo "unknown")
-  STATE=$(gcloud scheduler jobs describe "$SCHED_NAME" --location="$REGION" --format="value(state)" 2>/dev/null || echo "unknown")
-  
-  echo "  Schedule: $SCHEDULE"
-  echo "  Timezone: $TIMEZONE"
-  echo "  State: $STATE"
-  
-  if [[ "$STATE" == "ENABLED" ]]; then
-    check_pass "Scheduler is enabled"
-  else
-    check_warn "Scheduler state is: $STATE"
-  fi
-else
-  check_fail "Scheduler job does not exist: $SCHED_NAME"
-fi
-
-# Check 7: Service accounts exist
-echo ""
-echo "Checking service accounts..."
-SA_NAME=${SA_NAME:-video-job-sa}
-JOB_SA="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
-if gcloud iam service-accounts describe "$JOB_SA" >/dev/null 2>&1; then
-  check_pass "Job service account exists: $JOB_SA"
-else
-  check_fail "Job service account does not exist: $JOB_SA"
-fi
-
-SCHED_SA_NAME=${SCHED_SA_NAME:-scheduler-invoker}
-SCHED_SA="${SCHED_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
-if gcloud iam service-accounts describe "$SCHED_SA" >/dev/null 2>&1; then
-  check_pass "Scheduler service account exists: $SCHED_SA"
-else
-  check_fail "Scheduler service account does not exist: $SCHED_SA"
-fi
-
-# Check 8: Local build verification
-echo ""
-echo "Checking local build..."
-if [[ -f "package.json" ]]; then
-  check_pass "package.json exists"
-  
-  if [[ -d "node_modules" ]]; then
-    check_pass "node_modules directory exists"
-  else
-    check_warn "node_modules not found (run: npm install)"
-  fi
-  
-  if [[ -d "dist" ]] && [[ -f "dist/cli.js" ]]; then
-    check_pass "Built distribution exists (dist/cli.js)"
-  else
-    check_warn "Built distribution not found (run: npm run build)"
-  fi
-else
-  check_fail "package.json not found - are you in the project root?"
-fi
-
-# Check 9: Dockerfile verification
-echo ""
-echo "Checking Dockerfile configuration..."
-if [[ -f "Dockerfile" ]]; then
-  check_pass "Dockerfile exists"
-  
-  if grep -q "CMD.*dist/cli.js" Dockerfile; then
-    check_pass "Dockerfile CMD points to cli.js (video generation)"
-  else
-    check_fail "Dockerfile CMD does not point to cli.js"
-  fi
-  
-  if grep -q "RUN_ONCE=true" Dockerfile; then
-    check_pass "Dockerfile sets RUN_ONCE=true by default"
-  else
-    check_warn "Dockerfile does not set RUN_ONCE=true"
-  fi
-else
-  check_fail "Dockerfile not found"
-fi
-
-# Summary
-echo ""
-echo "=========================================="
-echo "Summary"
-echo "=========================================="
-echo -e "${GREEN}✓ Passed:${NC} $pass_count"
-if [[ $warn_count -gt 0 ]]; then
-  echo -e "${YELLOW}⚠ Warnings:${NC} $warn_count"
-fi
-if [[ $fail_count -gt 0 ]]; then
-  echo -e "${RED}✗ Failed:${NC} $fail_count"
-fi
+echo -e "${BLUE}=== 5. Recent Executions ===${NC}"
 echo ""
 
-if [[ $fail_count -eq 0 ]]; then
-  echo -e "${GREEN}✅ System is ready for deployment!${NC}"
+# Check recent executions
+RECENT_EXEC=$(gcloud run jobs executions list \
+  --job="$JOB_NAME" \
+  --region="$REGION" \
+  --limit=1 \
+  --format="value(metadata.name,status.completionTime,status.succeededCount,status.failedCount)" 2>/dev/null || echo "")
+
+if [[ -n "$RECENT_EXEC" ]]; then
+  EXEC_NAME=$(echo "$RECENT_EXEC" | awk '{print $1}')
+  EXEC_TIME=$(echo "$RECENT_EXEC" | awk '{print $2}')
+  EXEC_SUCCESS=$(echo "$RECENT_EXEC" | awk '{print $3}')
+  EXEC_FAILED=$(echo "$RECENT_EXEC" | awk '{print $4}')
+  
+  echo "Most recent execution:"
+  echo "  Name: $EXEC_NAME"
+  echo "  Completed: $EXEC_TIME"
+  echo "  Success: $EXEC_SUCCESS"
+  echo "  Failed: $EXEC_FAILED"
   echo ""
-  echo "Next steps:"
-  echo "  1. Review configuration: gcloud run jobs describe $JOB_NAME --region=$REGION"
-  echo "  2. Test manually: gcloud run jobs execute $JOB_NAME --region=$REGION"
-  echo "  3. Check logs: gcloud run jobs executions logs read --job=$JOB_NAME --region=$REGION"
-  echo "  4. Monitor scheduler: gcloud scheduler jobs describe $SCHED_NAME --location=$REGION"
+  
+  if [[ "$EXEC_SUCCESS" -gt 0 ]]; then
+    check_pass "Recent execution completed successfully"
+  elif [[ "$EXEC_FAILED" -gt 0 ]]; then
+    check_fail "Recent execution failed"
+  else
+    check_warn "Recent execution status unclear"
+  fi
+else
+  check_warn "No recent executions found (job may not have run yet)"
+fi
+
+echo ""
+echo -e "${BLUE}=== 6. Error Logs Check ===${NC}"
+echo ""
+
+# Check for recent errors
+RECENT_ERRORS=$(gcloud logging read \
+  "resource.type=\"cloud_run_job\"
+   resource.labels.job_name=\"$JOB_NAME\"
+   severity>=ERROR
+   timestamp>\"$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:%M:%S')\"" \
+  --limit=5 \
+  --format="value(textPayload)" 2>/dev/null || echo "")
+
+if [[ -z "$RECENT_ERRORS" ]]; then
+  check_pass "No errors in last 24 hours"
+else
+  ERROR_COUNT=$(echo "$RECENT_ERRORS" | wc -l)
+  check_warn "$ERROR_COUNT error(s) in last 24 hours"
+  echo ""
+  echo "Recent errors:"
+  echo "$RECENT_ERRORS" | head -3
+  if [[ $ERROR_COUNT -gt 3 ]]; then
+    echo "... (and $((ERROR_COUNT - 3)) more)"
+  fi
+fi
+
+echo ""
+echo -e "${BLUE}=== 7. Service Account Permissions ===${NC}"
+echo ""
+
+if [[ -n "$JOB_SA" ]]; then
+  # Check key IAM roles
+  ROLES_TO_CHECK=(
+    "roles/secretmanager.secretAccessor"
+    "roles/logging.logWriter"
+  )
+  
+  for role in "${ROLES_TO_CHECK[@]}"; do
+    if gcloud projects get-iam-policy "$PROJECT_ID" \
+      --flatten="bindings[].members" \
+      --filter="bindings.role:$role AND bindings.members:serviceAccount:$JOB_SA" \
+      --format="value(bindings.role)" | grep -q "$role"; then
+      check_pass "Service account has role: $role"
+    else
+      check_warn "Service account missing role: $role"
+    fi
+  done
+else
+  check_warn "Cannot check service account permissions (no custom SA configured)"
+fi
+
+echo ""
+echo -e "${BLUE}=== 8. Artifact Registry ===${NC}"
+echo ""
+
+# Check if image exists
+if [[ -n "$JOB_IMAGE" ]]; then
+  # Extract repository from image
+  REPO=$(echo "$JOB_IMAGE" | cut -d'/' -f4)
+  
+  if gcloud artifacts repositories describe "$REPO" --location="$REGION" >/dev/null 2>&1; then
+    check_pass "Artifact Registry repository exists: $REPO"
+    
+    # Check if image exists
+    if gcloud artifacts docker images list "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}" --filter="package:${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/app" --limit=1 >/dev/null 2>&1; then
+      check_pass "Docker image exists in registry"
+    else
+      check_warn "Docker image may not exist in registry"
+    fi
+  else
+    check_fail "Artifact Registry repository not found: $REPO"
+  fi
+fi
+
+echo ""
+echo -e "${BLUE}╔════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║                  Verification Summary                  ║${NC}"
+echo -e "${BLUE}╚════════════════════════════════════════════════════════╝${NC}"
+echo ""
+echo -e "  ${GREEN}✅ Passed: $PASS_COUNT${NC}"
+echo -e "  ${YELLOW}⚠️  Warnings: $WARN_COUNT${NC}"
+echo -e "  ${RED}❌ Failed: $FAIL_COUNT${NC}"
+echo ""
+
+if [[ $FAIL_COUNT -eq 0 ]] && [[ $WARN_COUNT -eq 0 ]]; then
+  echo -e "${GREEN}🎉 All checks passed! System is ready for production.${NC}"
+  exit 0
+elif [[ $FAIL_COUNT -eq 0 ]]; then
+  echo -e "${YELLOW}⚠️  System is functional but has warnings. Review recommended.${NC}"
   exit 0
 else
-  echo -e "${RED}❌ Deployment verification failed!${NC}"
-  echo ""
-  echo "Fix the issues above and run this script again."
+  echo -e "${RED}❌ System has failures that need to be addressed.${NC}"
   exit 1
 fi
