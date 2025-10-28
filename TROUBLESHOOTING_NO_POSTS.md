@@ -114,7 +114,7 @@ gcloud scheduler jobs describe natureswaysoil-video-2x --location=$REGION
 
 # Should show:
 # - Schedule: "0 9,18 * * *" (9 AM and 6 PM)
-# - Time zone: America/New_York
+# - Timezone: America/New_York
 # - State: ENABLED
 ```
 
