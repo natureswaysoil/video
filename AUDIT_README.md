@@ -228,11 +228,11 @@ This PR demonstrates production-ready quality that exceeds typical standards for
 - GitHub PR: https://github.com/natureswaysoil/video/pull/8
 
 **Documentation (from PR #8):**
-- [Complete Automation Guide](../COMPLETE_AUTOMATION_GUIDE.md)
-- [Quick Start](../QUICKSTART.md)
-- [Operations Runbook](../OPERATIONS_RUNBOOK.md)
-- [Rollback Procedures](../ROLLBACK.md)
-- [Automation Complete](../AUTOMATION_COMPLETE.md)
+- [Complete Automation Guide](COMPLETE_AUTOMATION_GUIDE.md)
+- [Quick Start](QUICKSTART.md)
+- [Operations Runbook](OPERATIONS_RUNBOOK.md)
+- [Rollback Procedures](ROLLBACK.md)
+- [Automation Complete](AUTOMATION_COMPLETE.md)
 
 **Deployment:**
 - Deploy script: `scripts/deploy-gcp.sh`
