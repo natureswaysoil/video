@@ -1,9 +1,6 @@
 {
-  "buildCommand": "echo 'Static documentation - no build needed'",
+  "buildCommand": "echo 'Documentation already in public/' && ls -la public/",
   "outputDirectory": "public",
-  "devCommand": "echo 'Documentation preview'",
-  "installCommand": "echo 'No dependencies needed for docs'",
-  "framework": null,
   "rewrites": [
     {
       "source": "/(.*)",
