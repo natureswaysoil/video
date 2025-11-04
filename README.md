@@ -9,6 +9,31 @@
 - Skips rows marked as Posted; respects Ready/Enabled when present
 - Video URL resolution is configurable: prefer a CSV "video_url" column, otherwise build from a template
 
+## Quick Start - Verification
+
+To verify the video posting system works correctly:
+
+```bash
+# Install dependencies
+npm install
+
+# Configure credentials (copy .env.example to .env and add your API keys)
+cp .env.example .env
+
+# Run verification for all platforms
+npm run verify
+
+# Or test individual platforms
+npm run test:instagram
+npm run test:twitter
+npm run test:pinterest
+npm run test:youtube
+```
+
+**📚 Detailed Guides:**
+- **[VERIFICATION_QUICKSTART.md](./VERIFICATION_QUICKSTART.md)** - 5-minute quick start guide
+- **[VERIFICATION_GUIDE.md](./VERIFICATION_GUIDE.md)** - Complete verification documentation
+
 ## Architecture
 
 ```
