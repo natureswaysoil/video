@@ -1,5 +1,7 @@
 {
-  "buildCommand": "echo 'Documentation already in public/' && ls -la public/",
+  "framework": null,
+  "installCommand": "echo 'No dependencies needed for docs'",
+  "buildCommand": "npm run build:docs",
   "outputDirectory": "public",
   "rewrites": [
     {
