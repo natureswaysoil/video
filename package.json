@@ -7,30 +7,37 @@
     "dev": "ts-node src/cli.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json",
-    "build:docs": "echo 'Documentation already in public/' && ls -la public/",
-    "run:once": "ts-node scripts/run-once.ts",
-    "verify": "ts-node scripts/verify-social-posting.ts",
-    "test:instagram": "ts-node scripts/test-instagram.ts",
-    "test:twitter": "ts-node scripts/test-twitter.ts",
-    "test:pinterest": "ts-node scripts/test-pinterest.ts",
-    "test:youtube": "ts-node scripts/test-youtube.ts"
+    "run:once": "ts-node scripts/run-once.ts"
+    
+*** Begin Patch
+*** Update File: package.json
+@@
+   "dependencies": {
+-    /* existing dependencies here */
++    /* existing dependencies here */
++    "yargs": "^17.7.2",
++    "node-fetch": "2.6.7"
+   },
+*** End Patch
+
+
+    
   },
   "dependencies": {
-    "@google-cloud/secret-manager": "^6.1.1",
     "@supabase/supabase-js": "^2.45.4",
     "axios": "^1.7.7",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
     "google-auth-library": "^9.15.0",
     "googleapis": "^137.0.0",
-    "node-fetch": "2.6.7",
     "openai": "^4.67.3",
     "twitter-api-v2": "^1.17.2",
-    "yargs": "^17.7.2"
+    "yargs": "^18.0.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^20.16.10",
+    "@types/yargs": "^17.0.33",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.3"
   }

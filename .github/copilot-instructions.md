@@ -1,97 +1,241 @@
-## Copilot Instructions for Nature's Way Soil – Video Automation
+# Copilot Instructions - Nature's Way Soil Video Automation
 
-Purpose: Automate product video generation with HeyGen and post to Instagram, Twitter, Pinterest, and optionally YouTube. Built with TypeScript (Node 20). This guide helps a coding agent make changes, validate locally, and ship updates safely.
+## Repository Overview
+Automated product video generation and social media posting for Nature's Way Soil products. Built with TypeScript, Node.js 20, deployed on Google Cloud Run Jobs.
 
-## What’s in this repo
-- Runtime: Node.js 20, TypeScript
-- Entrypoint loop: `src/cli.ts` (reads a Google Sheet CSV, ensures a video URL exists via HeyGen, then posts to enabled platforms)
-- Health/status server: `src/health-server.ts` exposes `GET /health` and `GET /status` on `PORT` (default 8080)
-- Key modules:
-	- Data: `src/core.ts` (reads CSV), `src/sheets.ts` (Google Sheets writeback)
-	- Generation: `src/openai.ts` (script), `src/heygen.ts` + `src/heygen-adapter.ts` (avatar/voice mapping + job polling)
-	- Platforms: `src/instagram.ts`, `src/twitter.ts`, `src/pinterest.ts`, `src/youtube.ts`
-	- Utilities: `src/webhook-cache.ts`, `src/wavespeed.ts`, `src/pictory.ts`
+**Tech Stack**: TypeScript 5.6.3 (strict), Node 20, HeyGen (primary video), OpenAI (scripts), Pictory/WaveSpeed (fallback), Google Sheets (products), Twitter/YouTube/Instagram/Pinterest APIs.
 
-## Run and validate locally
-1) Install deps
-	 - Ensure Node 20+
-	 - Install: `npm ci` (or `npm install`)
-2) Configure env
-	 - Copy `.env.example` to `.env` and fill required values (see “Critical env vars”)
-3) Build and typecheck
-	 - `npm run typecheck`
-	 - `npm run build`
-4) Run
-	 - Continuous loop: `npm run dev` (starts health server on `:8080`)
-	 - Single pass: set `RUN_ONCE=true` in `.env` then `npm run dev`, or `npx ts-node src/cli.ts`
-5) Quick health checks
-	 - Open http://localhost:8080/health and http://localhost:8080/status
+## Build Commands (ALWAYS RUN THESE)
 
-Notes
-- Posting is gated by tokens; missing credentials for a platform means it’s skipped.
-- Set `DRY_RUN_LOG_ONLY=true` to log intended actions without posting.
-- Respect posting windows with `ENFORCE_POSTING_WINDOWS=true` (9:00 and 17:00 Eastern, adjustable via `EASTERN_UTC_OFFSET_HOURS`).
+### Before Any Code Changes
+```bash
+npm run typecheck    # MUST pass - strict TypeScript validation
+npm run build        # MUST succeed - compiles to dist/*.js (18 files)
+```
 
-## Critical env vars
-See `.env.example` for a full list. Most important:
+### After Code Changes - Full Validation
+```bash
+npm run typecheck                          # Must show "No errors"
+npm run build                              # Must create dist/cli.js
+bash scripts/verify-workflow.sh            # Must show all ✅
+npx ts-node scripts/test-heygen-mapping.ts # Must pass 6/6 tests
+```
 
-- Input data
-	- `CSV_URL` — Google Sheets CSV export URL (required)
-	- `CSV_COL_*` — Optional CSV header overrides (e.g., `CSV_COL_VIDEO_URL`, `CSV_COL_ASIN`)
-	- `VIDEO_URL_TEMPLATE` — Template for building a video URL when not provided (default: `https://heygen.com/jobs/{jobId}/video.mp4`)
-	- `SKIP_VIDEO_EXISTS_CHECK` — If true, skip HEAD/range probe when validating remote video URL
-	- `SHEET_VIDEO_TARGET_COLUMN_LETTER` — Writeback column letter for video URL (default `AB`)
+**CRITICAL**: All four must pass before committing. Build failures block deployment.
 
-- Control
-	- `RUN_ONCE` — Single cycle then exit (useful for Jobs)
-	- `POLL_INTERVAL_MS` — Delay between cycles in continuous mode (default 60000)
-	- `DRY_RUN_LOG_ONLY` — Don’t post; only log
-	- `ENABLE_PLATFORMS` — Comma-separated allowlist (e.g., `twitter,youtube`); empty means “all available by credentials”
-	- `ENFORCE_POSTING_WINDOWS`, `EASTERN_UTC_OFFSET_HOURS`
+### Known Build Issues & Solutions
+1. **npm install fails**: Delete `package-lock.json` and `node_modules/`, run `npm install` again
+2. **TypeScript errors**: Add explicit types; avoid `any`; strict mode catches all mismatches
+3. **Regex fails silently**: Use `/\b.../i` NOT `/\\b.../i` in `src/heygen-adapter.ts` (lines 19-23)
 
-- HeyGen (video generation)
-	- Direct: `HEYGEN_API_KEY`, `HEYGEN_API_ENDPOINT`, `HEYGEN_VIDEO_DURATION_SECONDS`
-	- Webhook (optional): `HEYGEN_WEBHOOK_URL`
-	- Or via GCP Secret Manager: `GCP_SECRET_HEYGEN_API_KEY`
+## Architecture & Workflow (DO NOT CHANGE ORDER)
 
-- Google Sheets writeback (optional)
-	- `GS_SERVICE_ACCOUNT_EMAIL`, `GS_SERVICE_ACCOUNT_KEY` (Editor access to the sheet required)
+### Execution Flow
+```
+1. processCsvUrl() [src/core.ts]
+   ↓ reads Google Sheets CSV export
+2. Extract product (title, details, ASIN)
+   ↓
+3. generateScript(product) [src/openai.ts]
+   ↓ creates marketing script using product data
+4. Video Generation (3-tier fallback):
+   - HeyGen [src/heygen.ts] + smart mapping [src/heygen-adapter.ts]
+   - Pictory [src/pictory.ts] if HeyGen fails
+   - WaveSpeed [src/wavespeed.ts] if Pictory fails
+   ↓
+5. Post to social [src/twitter.ts, youtube.ts, instagram.ts, pinterest.ts]
+   ↓
+6. writeBackToSheet() [src/sheets.ts] - mark Posted
+```
 
-- Platforms
-	- Instagram: `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_IG_ID`
-	- Twitter/X: simple link-tweet via `TWITTER_BEARER_TOKEN`; native upload prefers `TWITTER_API_KEY`, `TWITTER_API_SECRET`, `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_SECRET`
-	- Pinterest: `PINTEREST_ACCESS_TOKEN`, `PINTEREST_BOARD_ID`
-	- YouTube: `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REFRESH_TOKEN` (+ optional `YT_PRIVACY_STATUS`)
+**Script generation MUST use product data from sheet row** (verified in step 4 of verify-workflow.sh).
 
-- Optional blog posting
-	- `ENABLE_BLOG_POSTING=true`, `GITHUB_TOKEN`, `GITHUB_REPO`, `GITHUB_BRANCH`
+### Key Files
+- **src/cli.ts** (644 lines) - Main orchestrator
+  - Lines 60-520: Complete workflow in main()
+  - Line 527: Error handling - MUST call `process.exit(1)` on failure for Cloud Run
+  - Env: `RUN_ONCE=true` for serverless, `false` for continuous
+  
+- **src/heygen-adapter.ts** - Smart product mapping
+  - `mapProductToHeyGenPayload()`: Maps keywords → avatars
+  - Rules: kelp→garden_expert_01, bone meal→farm_expert_02, hay→pasture_specialist_01
+  - **REGEX BUG**: Use `\b` NOT `\\b` (lines 19-23)
 
-## Behavior and contracts
-- Input: CSV rows → `{ product, jobId, rowNumber, headers, record }`
-- Video resolution:
-	1) Use direct video URL column if present (`CSV_COL_VIDEO_URL` candidates)
-	2) Else build from `VIDEO_URL_TEMPLATE` with `{jobId}`/`{asin}`
-	3) Validate URL via HEAD or ranged GET (skip with `SKIP_VIDEO_EXISTS_CHECK=true`)
-- Generation path:
-	- If no video URL exists/reachable, generate with HeyGen using an OpenAI-produced script and avatar/voice mapping; poll for completion (up to ~25 min; this is a hard limit imposed by HeyGen and is not configurable); write URL back to sheet
-- Posting path:
-	- For each enabled platform with credentials, attempt post with retries and exponential backoff
-	- On at least one success and writeback configured, mark row as `Posted` and `Posted_At`
-- Health endpoints:
-	- `/health`: summary (uptime, env flags)
-	- `/status`: last run status (rowsProcessed, successes, failures, recent errors)
+- **src/heygen.ts** - HeyGen client (primary video)
+  - `createVideoJob()`, `pollJobForVideoUrl()` (15 min timeout)
+  
+- **src/pictory.ts** - Pictory client (fallback 1)
+  - `createStoryboard()`, `renderVideo()` (20 min timeout)
+  
+- **src/wavespeed.ts** - WaveSpeed client (fallback 2)
 
-## Extending
-- New platform: add `src/<platform>.ts` exporting `postTo<Platform>(videoUrl, caption, ...auth): Promise<any>` and wire in `src/cli.ts`
-- New generators/providers: mirror the HeyGen pattern (adapter + client + polling)
-- Keep `cli.ts` orchestration-focused; isolate API details per module
+- **src/openai.ts** - GPT-4o-mini script generation
+  - Template: "Create a {length} second script for {title}. {details}"
 
-## Common pitfalls (and fixes)
-- 403/405 on HEAD: the reachability check accepts these as “likely exists”; falls back to ranged GET
-- Twitter without upload creds: falls back to text tweet with link when only `TWITTER_BEARER_TOKEN` is set
-- Posting windows block posts: set `ENFORCE_POSTING_WINDOWS=false` during testing
-- Missing writeback permissions: ensure the service account has Editor on the spreadsheet
+- **Platform clients**: twitter.ts, youtube.ts, instagram.ts, pinterest.ts
+  - Pattern: `postTo<Platform>(videoUrl, caption, ...auth)` returns ID
 
-## Deploy (summary)
-- Prefer Cloud Run Jobs with `RUN_ONCE=true` for scheduled posting; see `README.md` and `PRODUCTION_DEPLOYMENT.md` for full commands
-- Health server can be exposed for liveness checks; adjust `PORT`
+### Directory Structure
+```
+src/           # 19 TypeScript files
+  cli.ts       # Entry point ⭐
+  core.ts      # CSV processing
+  heygen*.ts   # HeyGen integration (2 files)
+  openai.ts    # Script generation
+  pictory.ts, wavespeed.ts  # Fallbacks
+  twitter.ts, youtube.ts, instagram.ts, pinterest.ts
+  sheets.ts    # Writeback
+scripts/       # 30+ utility scripts
+  deploy-gcp.sh              # GCP deployment ⭐
+  verify-workflow.sh         # Workflow validation ⭐
+  test-heygen-mapping.ts     # HeyGen tests ⭐
+dist/          # Compiled JS (gitignored)
+Dockerfile     # Multi-stage build, CMD ["node", "dist/cli.js"]
+.env           # Secrets (gitignored, NEVER commit)
+```
+
+## Deployment
+
+### Google Cloud Run Jobs (Production)
+```bash
+PROJECT_ID=natureswaysoil-video \
+REGION=us-east1 \
+TIME_ZONE=America/New_York \
+bash scripts/deploy-gcp.sh
+```
+
+Creates:
+- Job: `natureswaysoil-video-job`
+- Scheduler: 9 AM & 6 PM Eastern
+- Service account: `video-job-sa@natureswaysoil-video.iam.gserviceaccount.com`
+
+Required secrets in Secret Manager: `HEYGEN_API_KEY`, `OPENAI_API_KEY`, `INSTAGRAM_ACCESS_TOKEN`, `TWITTER_BEARER_TOKEN`, etc.
+
+### Local Development
+```bash
+cp .env.example .env  # Edit with your API keys
+npm install
+npm run dev           # Run single cycle
+```
+
+### Testing
+```bash
+# HeyGen mapping (must pass 6/6)
+npx ts-node scripts/test-heygen-mapping.ts
+
+# Workflow validation (must show all ✅)
+bash scripts/verify-workflow.sh
+
+# Full local test
+npm run dev
+```
+
+## Critical Patterns
+
+### Error Handling for Cloud Run
+```typescript
+// CORRECT ✅ - exits with failure code
+main().catch(e => {
+  console.error('❌ Fatal error:', e)
+  process.exit(1)  // Required for Cloud Run failure detection
+})
+
+// WRONG ❌ - silent failure
+main().catch(e => console.error(e))
+```
+
+### HeyGen Smart Mapping
+```typescript
+// CORRECT ✅ - use adapter
+const mapping = mapProductToHeyGenPayload(record)
+const payload = {
+  avatar: mapping.avatar,  // Auto-selected by keywords
+  voice: mapping.voice
+}
+
+// WRONG ❌ - hardcoded
+const payload = { avatar: 'some_id' }
+```
+
+### Async Retry Pattern
+```typescript
+const result = await retryWithBackoff(
+  () => postToTwitter(videoUrl, caption),
+  { maxRetries: 3, operation: 'Twitter post' }
+)
+```
+
+## Environment Variables
+
+### Required Core
+```bash
+CSV_URL="https://docs.google.com/spreadsheets/d/{id}/export?format=csv&gid={gid}"
+OPENAI_API_KEY="sk-..."
+HEYGEN_API_KEY="..."
+```
+
+### Social Media
+```bash
+# Twitter (option 1: text + link)
+TWITTER_BEARER_TOKEN="..."
+
+# Twitter (option 2: native upload - PREFERRED)
+TWITTER_API_KEY="..."
+TWITTER_API_SECRET="..."
+TWITTER_ACCESS_TOKEN="..."
+TWITTER_ACCESS_SECRET="..."
+
+# YouTube
+YT_CLIENT_ID="..."
+YT_CLIENT_SECRET="..."
+YT_REFRESH_TOKEN="..."
+
+# Instagram
+INSTAGRAM_ACCESS_TOKEN="..."
+INSTAGRAM_IG_ID="..."
+
+# Pinterest
+PINTEREST_ACCESS_TOKEN="..."
+PINTEREST_BOARD_ID="..."
+```
+
+### Behavior
+```bash
+RUN_ONCE=true                 # Cloud Run Jobs mode
+ALWAYS_GENERATE_NEW_VIDEO=true
+ENABLE_PLATFORMS="twitter,youtube"  # Filter platforms
+```
+
+## Validation
+
+### Pre-Commit Checklist
+1. ✅ `npm run typecheck` - No errors
+2. ✅ `npm run build` - 18 files in dist/
+3. ✅ `bash scripts/verify-workflow.sh` - All ✅
+4. ✅ `npx ts-node scripts/test-heygen-mapping.ts` - 6/6 pass
+5. ✅ No `.env` in git diff
+
+### Deployment Verification
+```bash
+# Job status
+gcloud run jobs describe natureswaysoil-video-job --region=us-east1
+
+# Recent executions
+gcloud run jobs executions list --job=natureswaysoil-video-job --region=us-east1 --limit=5
+
+# Error logs
+gcloud logging read "resource.type=cloud_run_job AND severity>=ERROR" --limit=50
+
+# Manual test
+gcloud run jobs execute natureswaysoil-video-job --region=us-east1 --wait
+```
+
+## Special Notes
+
+- **Dockerfile entry**: `CMD ["node", "dist/cli.js"]` NOT `blog-server.js`
+- **CSV columns**: Flexible mapping via `CSV_COL_*` env vars (see .env.example)
+- **Video URL priority**: CSV column → WaveSpeed API → template → preflight check
+- **Timeouts**: HeyGen 15 min, Pictory 20 min, Cloud Run Jobs 1 hour max
+
+## Trust These Instructions
+This document is validated (last verified: Oct 2025). Only search if instructions conflict with observed behavior. Run verification scripts first—they are the source of truth.
