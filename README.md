@@ -3,21 +3,43 @@
 ## Features
 - Fetch products from a Google Sheet (CSV export URL)
 - Generate marketing scripts with OpenAI
-- **Primary**: Create videos with Pictory AI (storyboard → render flow)
-- **Fallback**: Use WaveSpeed for video generation if Pictory fails or is unavailable
+- **Create videos with HeyGen AI** (avatar-based video generation with intelligent voice/avatar mapping)
 - Posts generated video to Instagram, Twitter, Pinterest, and optionally YouTube
 - Iterates through all CSV rows; skips those without a job ID or disabled status
 - Skips rows marked as Posted; respects Ready/Enabled when present
 - Video URL resolution is configurable: prefer a CSV "video_url" column, otherwise build from a template
+
+## Quick Start - Verification
+
+To verify the video posting system works correctly:
+
+```bash
+# Install dependencies
+npm install
+
+# Configure credentials (copy .env.example to .env and add your API keys)
+cp .env.example .env
+
+# Run verification for all platforms
+npm run verify
+
+# Or test individual platforms
+npm run test:instagram
+npm run test:twitter
+npm run test:pinterest
+npm run test:youtube
+```
+
+**📚 Detailed Guides:**
+- **[VERIFICATION_QUICKSTART.md](./VERIFICATION_QUICKSTART.md)** - 5-minute quick start guide
+- **[VERIFICATION_GUIDE.md](./VERIFICATION_GUIDE.md)** - Complete verification documentation
 
 ## Architecture
 
 ```
 Google Sheet (CSV) → OpenAI (script generation)
                     ↓
-                Pictory (PRIMARY video generation)
-                    ↓ (fallback if Pictory fails)
-                WaveSpeed (BACKUP video generation)
+                HeyGen (video generation with avatars)
                     ↓
             Social Media Posts
             (Instagram, Twitter, Pinterest, YouTube)
@@ -31,9 +53,8 @@ Google Sheet (CSV) → OpenAI (script generation)
    npm install
    ```
 3. Configure video generation:
-   - **Pictory (Primary)**: Set `PICTORY_CLIENT_ID`, `PICTORY_CLIENT_SECRET`, `X_PICTORY_USER_ID`
-     - Or use GCP Secret Manager: `GCP_SECRET_PICTORY_CLIENT_ID`, etc.
-   - **WaveSpeed (Fallback)**: Set `WAVE_SPEED_API_KEY` or `WAVESPEED_API_KEY`
+   - **HeyGen**: Set `HEYGEN_API_KEY`
+     - Or use GCP Secret Manager: `GCP_SECRET_HEYGEN_API_KEY`
 4. Run the CLI:
    ```
    npm run dev
@@ -59,7 +80,7 @@ Note: For Google Sheets, use the CSV export URL form:
 - Title is taken from `Title`; details/caption fallback to `Short_Name`.
 - You can override with env vars: `CSV_COL_*`.
    - If your CSV has a direct video URL column, set `CSV_COL_VIDEO_URL` (comma-separated header names, first match wins).
-   - Otherwise, the video URL is built from `WAVE_VIDEO_URL_TEMPLATE` (defaults to `https://wavespeed.ai/jobs/{jobId}/video.mp4`).
+   - Otherwise, the video URL is built from `VIDEO_URL_TEMPLATE` (defaults to `https://heygen.ai/jobs/{jobId}/video.mp4`).
    - The URL is preflight-checked via HEAD or a small ranged GET unless `SKIP_VIDEO_EXISTS_CHECK=true`.
 - Set `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REFRESH_TOKEN` from your Google Cloud OAuth2 client (Desktop or Web, with YouTube Data API v3 enabled).
 - Optional `YT_PRIVACY_STATUS` (public | unlisted | private), default is `unlisted`.
@@ -72,41 +93,103 @@ Note: For Google Sheets, use the CSV export URL form:
 ## Troubleshooting
 
 - If social posts fail, check your tokens and permissions.
-- WaveSpeed job/video URL logic may require refinement based on latest API responses.
- - Twitter: If you only set TWITTER_BEARER_TOKEN, tweets will be text with a link. Set TWITTER_API_KEY/SECRET and TWITTER_ACCESS_TOKEN/SECRET to upload video natively.
+- Twitter: If you only set TWITTER_BEARER_TOKEN, tweets will be text with a link. Set TWITTER_API_KEY/SECRET and TWITTER_ACCESS_TOKEN/SECRET to upload video natively.
 
-### WaveSpeed API (fallback video generation)
-- WaveSpeed is used as a fallback if Pictory fails or credentials are not configured.
-- You can configure an API lookup to fetch the final video URL by `jobId` before posting.
-- Env to set:
-   - `WAVE_SPEED_API_KEY`
-   - `WAVE_API_BASE_URL` (optional; defaults to `https://api.wavespeed.ai`)
-   - `WAVE_VIDEO_LOOKUP_PATH` (e.g., `/v1/endpoint`)
-   - `WAVE_VIDEO_LOOKUP_METHOD` (default `POST`)
-   - `WAVE_VIDEO_LOOKUP_BODY_TEMPLATE` (JSON string, supports `{jobId}` substitution)
-   - `WAVE_VIDEO_LOOKUP_JSON_POINTER` (JSON Pointer path to the URL field, default `/video_url`)
-- This mirrors the cURL pattern:
-   - POST to `${WAVE_API_BASE_URL}${WAVE_VIDEO_LOOKUP_PATH}`
-   - Headers: `Authorization: Bearer <WAVE_SPEED_API_KEY>`, `Content-Type: application/json`
-   - Body: rendered from the template with the jobId
-   - Path can be templated with `{jobId}`/`{asin}` when the endpoint expects it.
-   - You can also set `WAVESPEED_API_KEY` instead of `WAVE_SPEED_API_KEY`.
-
-### Pictory API (primary video generation)
-- Pictory is the primary video generation service. The system will:
+### HeyGen API (video generation)
+- HeyGen is the primary video generation service. The system will:
   1. Generate a marketing script with OpenAI
-  2. Create a Pictory storyboard from the script
-  3. Wait for storyboard processing (up to 5 minutes)
-  4. Request video render
-  5. Poll for render completion (up to 20 minutes)
+  2. Map the product to the best avatar/voice combination based on product keywords
+  3. Create a HeyGen video generation job
+  4. Poll for video completion (up to 25 minutes)
+  5. Write the video URL back to the Google Sheet
 - Configure via environment variables or GCP Secret Manager:
-  - Direct: `PICTORY_CLIENT_ID`, `PICTORY_CLIENT_SECRET`, `X_PICTORY_USER_ID`
-  - GCP Secret Manager: `GCP_SECRET_PICTORY_CLIENT_ID`, `GCP_SECRET_PICTORY_CLIENT_SECRET`, `GCP_SECRET_X_PICTORY_USER_ID`
-- If Pictory fails or credentials are missing, the system automatically falls back to WaveSpeed.
+  - Direct: `HEYGEN_API_KEY`
+  - GCP Secret Manager: `GCP_SECRET_HEYGEN_API_KEY`
+- The system uses intelligent avatar/voice mapping based on product categories:
+  - Kelp/seaweed products → garden expert avatar with warm female voice
+  - Bone meal products → farm expert avatar with deep male voice
+  - Hay/pasture products → pasture specialist with neutral voice
+  - Humic/fulvic products → eco gardener with warm female voice
+  - Compost/soil products → eco gardener with warm female voice
+- Mappings are written back to the sheet in HEYGEN_* columns for tracking
+- Video duration is configurable via `HEYGEN_VIDEO_DURATION_SECONDS` (default: 30)
 
 ## License
 
 MIT
+
+## Complete Automation Setup
+
+**⭐ For comprehensive deployment and automation instructions, see [COMPLETE_AUTOMATION_GUIDE.md](./COMPLETE_AUTOMATION_GUIDE.md) ⭐**
+
+The complete guide includes:
+- 📋 Step-by-step deployment instructions
+- ☁️ Google Cloud configuration with twice-daily scheduling (9 AM & 6 PM ET)
+- 🔐 Security best practices and credential management
+- 📊 Monitoring, maintenance, and troubleshooting
+- 💰 Cost estimates and optimization tips
+- ✅ Deployment verification procedures
+
+### Quick Deploy
+
+Automated deployment in 5 steps:
+
+```bash
+# 1. Set environment variables
+export PROJECT_ID="your-gcp-project-id"
+export REGION="us-east1"
+export TIME_ZONE="America/New_York"
+
+# 2. Configure credentials in .env file
+cp .env.example .env
+# Edit .env with your API keys (HeyGen, OpenAI, social media)
+
+# 3. Create secrets in Google Secret Manager
+source .env
+./scripts/create-secrets-from-env.sh
+
+# 4. Deploy to Google Cloud (builds image, creates job, sets up scheduler)
+./scripts/deploy-gcp.sh
+
+# 5. Verify deployment
+PROJECT_ID=$PROJECT_ID ./scripts/verify-deployment.sh
+```
+
+This automatically:
+- ✅ Builds and deploys Docker image to Cloud Run
+- ✅ Sets up Cloud Scheduler for twice-daily execution (9 AM & 6 PM ET)
+- ✅ Configures all secrets and IAM permissions
+- ✅ Verifies deployment health and configuration
+
+### Local Testing
+
+Test locally before deploying to the cloud:
+
+```bash
+# Dry run (generates videos, skips social media posting)
+DRY_RUN_LOG_ONLY=true RUN_ONCE=true npm run dev
+
+# Full test (processes one product end-to-end)
+RUN_ONCE=true npm run dev
+```
+
+### Monitoring & Maintenance
+
+```bash
+# View recent job executions
+gcloud run jobs executions list --job=natureswaysoil-video-job --region=$REGION
+
+# Stream logs in real-time
+gcloud logging tail 'resource.type="cloud_run_job"'
+
+# Verify deployment health
+PROJECT_ID=$PROJECT_ID ./scripts/verify-deployment.sh
+
+# Cleanup analysis
+SPREADSHEET_ID=your_id GID=your_gid ./scripts/cleanup-stray-files.sh
+```
+
+---
 
 ## Deploying on Google Cloud
 
@@ -152,3 +235,39 @@ MIT
    ```
    gcloud run jobs execute naturesway-video-job --region=REGION
    ```
+---
+
+## 🚀 Quick Deployment Guide
+
+The system is production-ready and designed to run on Google Cloud Platform as a scheduled Cloud Run Job.
+
+### Automated Deployment
+
+```bash
+# 1. Configure secrets in Google Cloud Secret Manager
+# 2. Run automated deployment script
+export PROJECT_ID=natureswaysoil-video
+export REGION=us-east1
+./scripts/deploy-gcp.sh
+
+# 3. Verify deployment
+./scripts/verify-deployment.sh
+```
+
+### Comprehensive Documentation
+
+- **[DEPLOYMENT_QUICKSTART.md](./DEPLOYMENT_QUICKSTART.md)** - Essential commands and rapid deployment
+- **[PRODUCTION_DEPLOYMENT.md](./PRODUCTION_DEPLOYMENT.md)** - Complete deployment guide (18KB)
+- **[DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md)** - Step-by-step verification checklist
+
+### System Status
+
+✅ **Production Ready** - Fully tested and validated for live deployment
+- HeyGen AI video generation with intelligent avatar/voice mapping
+- Multi-platform social media distribution
+- Automated twice-daily scheduling (9am, 6pm ET)
+- Google Sheets integration with writeback
+- Comprehensive monitoring and logging
+- Cost: ~$20-130/month
+
+See [PRODUCTION_DEPLOYMENT.md](./PRODUCTION_DEPLOYMENT.md) for complete deployment instructions.

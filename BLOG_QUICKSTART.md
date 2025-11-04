@@ -11,7 +11,7 @@
 ### Step 2: Configure Secrets (1 minute)
 Make sure these secrets exist in Google Cloud Secret Manager:
 - `OPENAI_API_KEY`
-- `WAVE_SPEED_API_KEY` or `WAVESPEED_API_KEY`
+- `HEYGEN_API_KEY`
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
@@ -21,13 +21,13 @@ cd /workspaces/video
 ./scripts/deploy-blog-automation.sh
 ```
 
-Done! Your blog system will now generate articles every 2 days at 9 AM EST.
+Done! Your blog system will now generate articles daily at 9 AM EST.
 
 ## 📊 What You Get
 
-### Every 2 Days
+### Daily
 - ✅ New 800-1200 word blog article
-- ✅ Professional video (15-30 seconds)
+- ✅ Professional video with AI avatar (15-30 seconds)
 - ✅ SEO-optimized content
 - ✅ Auto-published to database
 
@@ -44,7 +44,7 @@ Rotating through:
 
 ### Run Manually
 ```bash
-gcloud scheduler jobs run blog-generation-every-2-days --location=us-east1
+gcloud scheduler jobs run blog-generation-daily --location=us-east1
 ```
 
 ### View Results
@@ -63,7 +63,7 @@ gcloud run services logs read blog-generator --region=us-east1 --limit=50
 gcloud run services describe blog-generator --region=us-east1
 
 # Next scheduled run
-gcloud scheduler jobs describe blog-generation-every-2-days --location=us-east1
+gcloud scheduler jobs describe blog-generation-daily --location=us-east1
 
 # Recent activity
 gcloud run services logs read blog-generator --region=us-east1 --limit=20
@@ -88,11 +88,11 @@ const BLOG_TOPICS = [
 
 ## 💰 Costs
 
-~$16-21/month for:
+~$61-136/month for:
 - Cloud Run hosting
 - OpenAI content generation  
 - Cloud Scheduler
-- (Plus WaveSpeed video costs)
+- HeyGen video generation
 
 ## 📞 Support
 
@@ -103,4 +103,4 @@ Questions? Check logs or file an issue!
 ---
 
 **Status**: Production Ready ✅  
-**Last Updated**: October 16, 2025
+**Last Updated**: October 26, 2025

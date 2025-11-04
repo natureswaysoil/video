@@ -2,9 +2,9 @@
 
 ## Overview
 
-This system automatically generates high-quality blog articles with matching videos every 2 days using:
+This system automatically generates high-quality blog articles with matching videos every day using:
 - **OpenAI GPT-4** for content generation
-- **WaveSpeed AI** for video creation  
+- **HeyGen AI** for video creation  
 - **Cloud Run** for serverless execution
 - **Cloud Scheduler** for automated scheduling
 - **Supabase** for content storage
@@ -12,13 +12,13 @@ This system automatically generates high-quality blog articles with matching vid
 ## Architecture
 
 ```
-Cloud Scheduler (Every 2 days)
+Cloud Scheduler (Daily at 9 AM)
     ↓
 Cloud Run Service (blog-generator)
     ↓
 ┌─────────────────────────────────┐
 │ 1. Generate Blog Article (GPT-4)│
-│ 2. Create Video (WaveSpeed)     │
+│ 2. Create Video (HeyGen)        │
 │ 3. Save to Database (Supabase)  │
 └─────────────────────────────────┘
     ↓
@@ -35,12 +35,12 @@ Nature's Way Soil Website
 
 ### 🎬 Video Creation
 - **AI-Generated**: Creates matching videos for each article
-- **WaveSpeed Integration**: Uses your existing video generation system
+- **HeyGen Integration**: Uses AI avatars with natural voice synthesis
 - **Professional Quality**: Cinematic garden and soil visuals
 - **Auto-Storage**: Videos saved with article metadata
 
 ### ⏰ Scheduled Automation
-- **Frequency**: Every 2 days at 9:00 AM EST
+- **Frequency**: Daily at 9:00 AM EST
 - **Unattended**: Fully automatic, no manual intervention
 - **Reliable**: Cloud-based with automatic retries
 - **Scalable**: Can adjust frequency as needed
@@ -51,7 +51,7 @@ Nature's Way Soil Website
 
 Required API keys (add to Google Cloud Secret Manager):
 - `OPENAI_API_KEY` - OpenAI API key for content generation
-- `WAVE_SPEED_API_KEY` or `WAVESPEED_API_KEY` - WaveSpeed video generation
+- `HEYGEN_API_KEY` - HeyGen API key for video generation
 - `NEXT_PUBLIC_SUPABASE_URL` - Supabase project URL
 - `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key
 
@@ -97,7 +97,7 @@ This will:
 gcloud run services describe blog-generator --region=us-east1
 
 # Check scheduler status
-gcloud scheduler jobs describe blog-generation-every-2-days --location=us-east1
+gcloud scheduler jobs describe blog-generation-daily --location=us-east1
 
 # View logs
 gcloud run services logs read blog-generator --region=us-east1 --limit=50
@@ -112,7 +112,7 @@ cd /workspaces/video
 
 # Set environment variables
 export OPENAI_API_KEY="your-key"
-export WAVE_SPEED_API_KEY="your-key"
+export HEYGEN_API_KEY="your-key"
 export NEXT_PUBLIC_SUPABASE_URL="your-url"
 export SUPABASE_SERVICE_ROLE_KEY="your-key"
 
@@ -124,7 +124,7 @@ npx ts-node src/blog-generator.ts
 
 ```bash
 # Trigger manually (requires authentication)
-gcloud scheduler jobs run blog-generation-every-2-days --location=us-east1
+gcloud scheduler jobs run blog-generation-daily --location=us-east1
 
 # Or trigger via HTTP
 SERVICE_URL=$(gcloud run services describe blog-generator --region=us-east1 --format="value(status.url)")
@@ -141,7 +141,7 @@ curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
 │   ├── blog-generator.ts          # Core blog generation logic
 │   ├── blog-cloud-function.ts     # Cloud Function entry point
 │   ├── openai.ts                  # OpenAI integration (existing)
-│   └── wavespeed.ts               # WaveSpeed integration (existing)
+│   └── heygen.ts                  # HeyGen integration (existing)
 ├── scripts/
 │   ├── deploy-blog-automation.sh  # Deployment script
 │   └── create-blog-table.sql      # Database migration
@@ -249,13 +249,13 @@ ls -la generated-blogs/
 gcloud scheduler jobs list --location=us-east1
 
 # Describe specific job
-gcloud scheduler jobs describe blog-generation-every-2-days --location=us-east1
+gcloud scheduler jobs describe blog-generation-daily --location=us-east1
 
 # Pause scheduler
-gcloud scheduler jobs pause blog-generation-every-2-days --location=us-east1
+gcloud scheduler jobs pause blog-generation-daily --location=us-east1
 
 # Resume scheduler
-gcloud scheduler jobs resume blog-generation-every-2-days --location=us-east1
+gcloud scheduler jobs resume blog-generation-daily --location=us-east1
 ```
 
 ## Customization
@@ -265,11 +265,14 @@ gcloud scheduler jobs resume blog-generation-every-2-days --location=us-east1
 Edit the cron expression in `scripts/deploy-blog-automation.sh`:
 
 ```bash
-# Every 2 days at 9 AM
---schedule="0 9 */2 * *"
+# Daily at 9 AM (current)
+--schedule="0 9 * * *"
 
 # Daily at 8 AM
 --schedule="0 8 * * *"
+
+# Every 2 days at 9 AM
+--schedule="0 9 */2 * *"
 
 # Weekly on Monday at 10 AM
 --schedule="0 10 * * 1"
@@ -321,9 +324,9 @@ Modify the prompt in `generateBlogArticle()`:
 
 ### Video Not Creating
 
-1. **Check WaveSpeed API Key**
+1. **Check HeyGen API Key**
    ```bash
-   gcloud secrets versions access latest --secret="WAVE_SPEED_API_KEY"
+   gcloud secrets versions access latest --secret="HEYGEN_API_KEY"
    ```
 
 2. **Test Video Generation Manually**
@@ -331,10 +334,9 @@ Modify the prompt in `generateBlogArticle()`:
    npx ts-node src/blog-generator.ts
    ```
 
-3. **Check WaveSpeed Service Status**
-   ```bash
-   curl https://n1212-993533990327.us-east1.run.app/health
-   ```
+3. **Check HeyGen API Status**
+   - Visit HeyGen dashboard to check API quota
+   - Verify API key has video generation permissions
 
 ### Database Errors
 
@@ -355,15 +357,15 @@ Modify the prompt in `generateBlogArticle()`:
 
 ## Cost Estimates
 
-### Monthly Costs (Every 2 days = ~15 generations/month)
+### Monthly Costs (Daily = ~30 generations/month)
 
-- **Cloud Run**: ~$0.50/month (minimal usage)
+- **Cloud Run**: ~$1.00/month (minimal usage)
 - **Cloud Scheduler**: $0.10/month
-- **OpenAI GPT-4**: ~$15-20/month (15 articles × $1-1.50)
-- **WaveSpeed Videos**: Varies by plan
+- **OpenAI GPT-4**: ~$30-45/month (30 articles × $1-1.50)
+- **HeyGen Videos**: Varies by plan (typically ~$30-90/month)
 - **Supabase**: Free tier (< 500MB storage)
 
-**Total**: ~$16-21/month + WaveSpeed costs
+**Total**: ~$61-136/month (including HeyGen)
 
 ## Scaling
 
@@ -395,6 +397,12 @@ To generate more content:
 
 ## Changelog
 
+### Version 1.1.0 (2025-10-26)
+- **Updated**: Switched from WaveSpeed to HeyGen for video generation
+- **Updated**: Changed schedule from every 2 days to daily
+- Improved video quality with AI avatars
+- More frequent content generation
+
 ### Version 1.0.0 (2025-10-16)
 - Initial release
 - Automated blog generation with GPT-4
@@ -405,6 +413,6 @@ To generate more content:
 
 ---
 
-**Last Updated**: October 16, 2025  
+**Last Updated**: October 26, 2025  
 **Status**: Production Ready ✅  
-**Next Scheduled Run**: Check with `gcloud scheduler jobs describe blog-generation-every-2-days --location=us-east1`
+**Next Scheduled Run**: Check with `gcloud scheduler jobs describe blog-generation-daily --location=us-east1`

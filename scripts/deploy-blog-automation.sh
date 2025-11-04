@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # Deploy Blog Automation to Google Cloud
-# Runs every 2 days to generate blog articles and videos
+# Runs daily to generate blog articles and videos
 
 set -e
 
 PROJECT_ID="natureswaysoil-video"
 REGION="us-east1"
 SERVICE_NAME="blog-generator"
-SCHEDULER_JOB="blog-generation-every-2-days"
+SCHEDULER_JOB="blog-generation-daily"
 
 echo "=========================================="
 echo "🚀 Deploying Blog Automation System"
@@ -39,8 +39,7 @@ gcloud run deploy $SERVICE_NAME \
   --no-allow-unauthenticated \
   --set-env-vars="NODE_ENV=production" \
   --set-secrets="OPENAI_API_KEY=OPENAI_API_KEY:latest" \
-  --set-secrets="WAVE_SPEED_API_KEY=WAVE_SPEED_API_KEY:latest" \
-  --set-secrets="WAVESPEED_API_KEY=WAVESPEED_API_KEY:latest" \
+  --set-secrets="HEYGEN_API_KEY=HEYGEN_API_KEY:latest" \
   --set-secrets="NEXT_PUBLIC_SUPABASE_URL=NEXT_PUBLIC_SUPABASE_URL:latest" \
   --set-secrets="SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest"
 
@@ -59,7 +58,7 @@ if ! gcloud iam service-accounts describe $SA_EMAIL &>/dev/null; then
     echo "📝 Creating service account for Cloud Scheduler..."
     gcloud iam service-accounts create $SA_NAME \
         --display-name="Blog Generation Scheduler" \
-        --description="Service account for triggering blog generation every 2 days"
+        --description="Service account for triggering blog generation daily"
     
     # Grant Cloud Run Invoker role
     gcloud run services add-iam-policy-binding $SERVICE_NAME \
@@ -79,18 +78,18 @@ if gcloud scheduler jobs describe $SCHEDULER_JOB --location=$REGION &>/dev/null;
     gcloud scheduler jobs delete $SCHEDULER_JOB --location=$REGION --quiet
 fi
 
-# Create Cloud Scheduler job (every 2 days at 9 AM)
+# Create Cloud Scheduler job (daily at 9 AM)
 echo ""
-echo "⏰ Creating Cloud Scheduler job (every 2 days at 9 AM)..."
+echo "⏰ Creating Cloud Scheduler job (daily at 9 AM)..."
 gcloud scheduler jobs create http $SCHEDULER_JOB \
     --location=$REGION \
-    --schedule="0 9 */2 * *" \
+    --schedule="0 9 * * *" \
     --time-zone="America/New_York" \
     --uri="${SERVICE_URL}/generateBlog" \
     --http-method=POST \
     --oidc-service-account-email=$SA_EMAIL \
     --oidc-token-audience=$SERVICE_URL \
-    --description="Generate blog article and video every 2 days"
+    --description="Generate blog article and video daily"
 
 echo "✅ Cloud Scheduler job created!"
 echo ""
@@ -100,7 +99,7 @@ echo "=========================================="
 echo ""
 echo "📋 Summary:"
 echo "   Service URL: $SERVICE_URL"
-echo "   Schedule: Every 2 days at 9:00 AM EST"
+echo "   Schedule: Daily at 9:00 AM EST"
 echo "   Next run: Check with 'gcloud scheduler jobs describe $SCHEDULER_JOB --location=$REGION'"
 echo ""
 echo "🧪 Test the service manually:"

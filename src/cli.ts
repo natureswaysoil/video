@@ -4,9 +4,8 @@ import { postToInstagram } from './instagram'
 import { postToTwitter } from './twitter'
 import { postToPinterest } from './pinterest'
 import { postToYouTube } from './youtube'
-import { createWaveSpeedPrediction, pollWaveSpeedUntilReady, fetchVideoUrlFromWaveSpeed } from './wavespeed'
-import { createClientWithSecrets } from './pictory'
-import { addContext, setRenderJobId } from './webhook-cache'
+import { createClientWithSecrets as createHeyGenClient } from './heygen'
+import { mapProductToHeyGenPayload } from './heygen-adapter'
 import { generateScript } from './openai'
 import { markRowPosted, writeColumnValues } from './sheets'
 import { updateStatus, incrementSuccessfulPost, incrementFailedPost, addError } from './health-server'
@@ -88,7 +87,7 @@ async function main() {
           
           // Step 2: If no video exists, create one with OpenAI + HeyGen (primary) or Pictory/WaveSpeed (fallback)
           if (!videoUrl || !(await urlLooksReachable(videoUrl))) {
-            console.log('No existing video found. Creating new video...')
+            console.log('No existing video found. Creating new video with HeyGen...')
             
             // 2a: Generate marketing script with OpenAI
             let script: string | undefined
@@ -100,7 +99,8 @@ async function main() {
                 console.error('❌ OpenAI script generation failed:', e?.message || e)
               }
             } else {
-              console.log('⚠️  OPENAI_API_KEY not set, skipping script generation')
+              console.log('⚠️  OPENAI_API_KEY not set, using product description as script')
+              script = (product?.details ?? product?.title ?? product?.name ?? '').toString()
             }
             
             // 2b: Try HeyGen first (primary video generator with smart mapping)
@@ -163,54 +163,43 @@ async function main() {
                 const pictoryClient = await createClientWithSecrets()
                 const token = await pictoryClient.getAccessToken()
                 
-                // Create storyboard payload from script
-                const durationSeconds = Math.max(5, Number(process.env.PICTORY_VIDEO_DURATION_SECONDS || '30'))
-                const scenes = buildPictoryScenesFromScript(script, durationSeconds)
-                const storyboardPayload = {
+                // Map product to HeyGen payload with avatar/voice selection
+                const mapping = mapProductToHeyGenPayload(record)
+                const payload = {
+                  ...mapping.payload,
+                  script,
                   title: `${product?.title || product?.name || 'Product Video'} (${asin})`,
-                  meta: { asin },
-                  durationSeconds,
-                  scenes
-                } as any
+                  meta: { asin, jobId }
+                }
                 
-                const storyboardJobId = await pictoryClient.createStoryboard(token, storyboardPayload)
-                console.log('✅ Created Pictory storyboard:', storyboardJobId)
-                // Prepare caption early for webhook cache
-                const _captionForCache: string = (product?.details ?? product?.title ?? product?.name ?? '').toString()
-                // Cache context for webhook posting
-                const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
-                const sheetGid = extractGidFromCsv(csvUrl)
-                addContext(storyboardJobId, {
-                  spreadsheetId,
-                  sheetGid,
-                  rowNumber,
-                  headers,
-                  caption: _captionForCache,
-                  enabledPlatformsCsv: enabledPlatformsEnv,
+                console.log('📝 HeyGen mapping:', {
+                  avatar: mapping.avatar,
+                  voice: mapping.voice,
+                  lengthSeconds: mapping.lengthSeconds,
+                  reason: mapping.reason
                 })
                 
-                // Poll for render params
-                console.log('⏳ Waiting for Pictory render params...')
-                await pictoryClient.pollJobForRenderParams(storyboardJobId, token, {
-                  timeoutMs: 5 * 60_000 // 5 minutes for storyboard processing
-                })
-                console.log('✅ Pictory storyboard ready')
+                // Create video job
+                const heygenJobId = await heygenClient.createVideoJob(payload)
+                console.log('✅ Created HeyGen video job:', heygenJobId)
                 
-                // Request render
-                const renderJobId = await pictoryClient.renderVideo(token, storyboardJobId, { webhook: process.env.PICTORY_WEBHOOK_URL })
-                console.log('✅ Started Pictory render:', renderJobId)
-                setRenderJobId(storyboardJobId, renderJobId)
-                
-                // Poll for render completion
-                console.log('⏳ Waiting for Pictory render completion...')
-                const renderResult = await pictoryClient.pollRenderJob(renderJobId, token, {
-                  timeoutMs: 20 * 60_000 // 20 minutes for render
-                })
-                
-                pictoryVideoUrl = renderResult?.videoUrl || renderResult?.url
-                if (pictoryVideoUrl) {
-                  console.log('✅ Pictory video ready:', pictoryVideoUrl)
-                  videoUrl = pictoryVideoUrl
+                // Write HeyGen mapping info back to sheet (optional)
+                if (process.env.GS_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+                  try {
+                    const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
+                    const sheetGid = extractGidFromCsv(csvUrl)
+                    const { writeBackMappingsToSheet } = await import('./heygen-adapter')
+                    await writeBackMappingsToSheet(spreadsheetId, String(sheetGid || 0), [{
+                      HEYGEN_AVATAR: mapping.avatar,
+                      HEYGEN_VOICE: mapping.voice,
+                      HEYGEN_LENGTH_SECONDS: String(mapping.lengthSeconds),
+                      HEYGEN_MAPPING_REASON: mapping.reason,
+                      HEYGEN_MAPPED_AT: new Date().toISOString()
+                    }])
+                    console.log('✅ Wrote HeyGen mapping to sheet')
+                  } catch (e: any) {
+                    console.error('⚠️  Failed to write HeyGen mapping to sheet:', e?.message || e)
+                  }
                 }
               } catch (e: any) {
                 console.error('❌ Pictory video generation failed:', e?.message || e)
@@ -230,19 +219,25 @@ async function main() {
                 console.log('✅ Created WaveSpeed prediction:', id)
                 
                 // Poll for video completion
-                videoUrl = await pollWaveSpeedUntilReady(id, { 
-                  timeoutMs: 25 * 60_000, // 25 minutes (Cloud Scheduler max is 30, keep margin)
+                console.log('⏳ Waiting for HeyGen video completion...')
+                videoUrl = await heygenClient.pollJobForVideoUrl(heygenJobId, {
+                  timeoutMs: 25 * 60_000, // 25 minutes
                   intervalMs: 15_000 // Check every 15 seconds
                 })
-                console.log('✅ WaveSpeed video ready:', videoUrl)
+                console.log('✅ HeyGen video ready:', videoUrl)
               } catch (e: any) {
-                console.error('❌ WaveSpeed create/poll failed:', e?.message || e)
+                console.error('❌ HeyGen video generation failed:', e?.message || e)
+                console.warn('⏭️  Skipping row - video generation failed')
+                addError(`HeyGen: ${product?.title || jobId} - ${e?.message || String(e)}`)
+                continue
               }
-            } else if (!videoUrl) {
-              console.log('⚠️  Cannot create video with WaveSpeed: missing script or API key')
+            } else {
+              console.error('❌ No script available for video generation')
+              console.warn('⏭️  Skipping row - cannot generate video without script')
+              continue
             }
             
-            // 2d: Write video URL back to sheet (prefer fixed column letter if configured)
+            // 2c: Write video URL back to sheet (prefer fixed column letter if configured)
             if (videoUrl && (process.env.GS_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
               try {
                 const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
@@ -555,14 +550,9 @@ function extractGidFromCsv(csvUrl: string): number | undefined {
   return m ? Number(m[1]) : undefined
 }
 
-// Build the video URL from WaveSpeed API (optional), CSV, or template
+// Build the video URL from CSV or template
 async function resolveVideoUrlAsync(params: { jobId: string; record?: Record<string, string> }): Promise<string | undefined> {
   const { jobId, record } = params
-  // 0) Try WaveSpeed API lookup if configured
-  try {
-    const viaApi = await fetchVideoUrlFromWaveSpeed(jobId)
-    if (viaApi) return viaApi
-  } catch {}
   // 1) If CSV provides a direct video URL column (configurable), prefer that
   const directCol = (process.env.CSV_COL_VIDEO_URL || 'video_url,Video URL,VideoURL').split(',').map(s => s.trim())
   if (record) {
@@ -571,8 +561,8 @@ async function resolveVideoUrlAsync(params: { jobId: string; record?: Record<str
       if (v && /^https?:\/\//i.test(v)) return v
     }
   }
-  // 2) Template-based resolution
-  const template = process.env.WAVE_VIDEO_URL_TEMPLATE || 'https://wavespeed.ai/jobs/{jobId}/video.mp4'
+  // 2) Template-based resolution (for backward compatibility with existing sheets)
+  const template = process.env.VIDEO_URL_TEMPLATE || process.env.WAVE_VIDEO_URL_TEMPLATE || 'https://heygen.ai/jobs/{jobId}/video.mp4'
   return template
     .replaceAll('{jobId}', jobId)
     .replaceAll('{asin}', jobId)
@@ -629,24 +619,4 @@ function getValueFromRecord(record: Record<string, string> | undefined, columnsC
     if (v && String(v).trim().length > 0) return v
   }
   return undefined
-}
-
-// Build Pictory scenes to approximately match the requested duration
-function buildPictoryScenesFromScript(script: string, totalSeconds: number) {
-  const sentences = script
-    .split(/(?<=[.!?])\s+/)
-    .map(s => s.trim())
-    .filter(Boolean)
-  const minScene = 3
-  const maxScenes = Math.max(1, Math.floor(totalSeconds / minScene))
-  const chosen = sentences.slice(0, Math.max(1, Math.min(sentences.length, maxScenes)))
-  const perScene = Math.max(minScene, Math.floor(totalSeconds / chosen.length))
-  const scenes = chosen.map((text) => ({ type: 'text', text, duration: perScene }))
-  // Adjust the last scene to absorb any remaining seconds
-  const used = perScene * scenes.length
-  const delta = totalSeconds - used
-  if (delta > 0) {
-    scenes[scenes.length - 1].duration += delta
-  }
-  return scenes
 }
