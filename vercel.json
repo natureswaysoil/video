@@ -1,5 +1,5 @@
 {
-  "buildCommand": "echo 'Documentation already in public/' && ls -la public/",
+  "buildCommand": "echo 'Static site ready'",
   "outputDirectory": "public",
   "rewrites": [
     {
