@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build:docs",
+  "buildCommand": "echo 'Static documentation - no build needed'",
   "outputDirectory": "public",
   "devCommand": "echo 'Documentation preview'",
   "installCommand": "echo 'No dependencies needed for docs'",
