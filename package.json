@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "build:docs": "echo 'Documentation already in public/' && ls -la public/",
     "run:once": "ts-node scripts/run-once.ts",
+    "audit": "ts-node scripts/audit-posting-system.ts",
     "verify": "ts-node scripts/verify-social-posting.ts",
     "test:instagram": "ts-node scripts/test-instagram.ts",
     "test:twitter": "ts-node scripts/test-twitter.ts",

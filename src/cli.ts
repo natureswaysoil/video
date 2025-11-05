@@ -9,6 +9,7 @@ import { mapProductToHeyGenPayload } from './heygen-adapter'
 import { generateScript } from './openai'
 import { markRowPosted, writeColumnValues } from './sheets'
 import { updateStatus, incrementSuccessfulPost, incrementFailedPost, addError } from './health-server'
+import { auditLogger } from './audit-logger'
 
 // Start health check server
 import './health-server'
@@ -65,6 +66,36 @@ async function main() {
   const enabledPlatforms = new Set(enabledPlatformsEnv.split(',').map(s => s.trim()).filter(Boolean))
   const enforcePostingWindows = String(process.env.ENFORCE_POSTING_WINDOWS || 'false').toLowerCase() === 'true'
   const targetColumnLetter = (process.env.SHEET_VIDEO_TARGET_COLUMN_LETTER || 'AB').toUpperCase()
+
+  // Log initial configuration
+  auditLogger.log({
+    level: 'INFO',
+    category: 'SYSTEM',
+    message: 'Video posting system started',
+    details: {
+      runOnce,
+      dryRun,
+      enforcePostingWindows,
+      enabledPlatforms: enabledPlatformsEnv || 'all',
+      pollIntervalMs: intervalMs
+    }
+  })
+
+  if (dryRun) {
+    auditLogger.log({
+      level: 'WARN',
+      category: 'SYSTEM',
+      message: 'DRY RUN MODE ENABLED - No actual posts will be sent',
+    })
+  }
+
+  if (enforcePostingWindows) {
+    auditLogger.log({
+      level: 'WARN',
+      category: 'SYSTEM',
+      message: 'Posting windows enforced - will only post at 9AM/5PM ET',
+    })
+  }
   const cycle = async () => {
     try {
       updateStatus({ status: 'processing', rowsProcessed: 0 })
@@ -230,15 +261,55 @@ async function main() {
           const canPostNow = !enforcePostingWindows || isWithinPostingWindow()
           if (!canPostNow) {
             console.log('🕘 Outside posting window (9AM/5PM ET). Will not post, but video URL is ready:', videoUrl)
+            auditLogger.log({
+              level: 'SKIP',
+              category: 'POSTING',
+              message: 'Outside posting window',
+              rowNumber,
+              product: product?.title || product?.name,
+              details: { enforcePostingWindows, videoUrl }
+            })
           }
           let postedAtLeastOne = false
           const platformResults: Record<string, { success: boolean; result?: any; error?: string }> = {}
+          
+          // Check if any platforms are enabled
+          const platformStatus = checkPlatformAvailability(enabledPlatforms)
+          
+          if (!platformStatus.anyEnabled && !dryRun) {
+            auditLogger.log({
+              level: 'ERROR',
+              category: 'PLATFORM',
+              message: 'No platforms enabled with valid credentials',
+              rowNumber,
+              product: product?.title || product?.name,
+              details: {
+                ...platformStatus.credentials,
+                enabledPlatforms: Array.from(enabledPlatforms)
+              }
+            })
+          } else if (!dryRun && canPostNow) {
+            auditLogger.log({
+              level: 'INFO',
+              category: 'PLATFORM',
+              message: 'Platforms ready for posting',
+              rowNumber,
+              details: platformStatus.enabled
+            })
+          }
           
           // Instagram
           if (dryRun || !canPostNow) {
             console.log('[DRY RUN] Would post to Instagram:', { videoUrl, caption })
             platformResults.instagram = { success: true, result: 'DRY_RUN' }
           } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')) && process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID) {
+            auditLogger.log({
+              level: 'INFO',
+              category: 'POSTING',
+              message: 'Attempting Instagram post',
+              rowNumber,
+              product: product?.title || product?.name
+            })
             const result = await retryWithBackoff(
               () => postToInstagram(videoUrl!, caption, process.env.INSTAGRAM_ACCESS_TOKEN!, process.env.INSTAGRAM_IG_ID!),
               { 
@@ -252,11 +323,27 @@ async function main() {
               platformResults.instagram = { success: true, result }
               postedAtLeastOne = true
               incrementSuccessfulPost()
+              auditLogger.log({
+                level: 'SUCCESS',
+                category: 'POSTING',
+                message: 'Instagram post successful',
+                rowNumber,
+                product: product?.title || product?.name,
+                details: { mediaId: result }
+              })
             } else {
               console.error('❌ Instagram post failed after all retries')
               platformResults.instagram = { success: false, error: 'Failed after 3 retries' }
               incrementFailedPost()
               addError(`Instagram: ${product?.title || jobId} - Failed after 3 retries`)
+              auditLogger.log({
+                level: 'ERROR',
+                category: 'POSTING',
+                message: 'Instagram post failed',
+                rowNumber,
+                product: product?.title || product?.name,
+                details: { error: 'Failed after 3 retries' }
+              })
             }
           }
           // Twitter
@@ -264,6 +351,13 @@ async function main() {
             console.log('[DRY RUN] Would post to Twitter:', { videoUrl, caption })
             platformResults.twitter = { success: true, result: 'DRY_RUN' }
           } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')) && (process.env.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds())) {
+            auditLogger.log({
+              level: 'INFO',
+              category: 'POSTING',
+              message: 'Attempting Twitter post',
+              rowNumber,
+              product: product?.title || product?.name
+            })
             const result = await retryWithBackoff(
               async () => {
                 if (hasTwitterUploadCreds()) {
@@ -283,11 +377,26 @@ async function main() {
               platformResults.twitter = { success: true, result }
               postedAtLeastOne = true
               incrementSuccessfulPost()
+              auditLogger.log({
+                level: 'SUCCESS',
+                category: 'POSTING',
+                message: 'Twitter post successful',
+                rowNumber,
+                product: product?.title || product?.name
+              })
             } else {
               console.error('❌ Twitter post failed after all retries')
               platformResults.twitter = { success: false, error: 'Failed after 3 retries' }
               incrementFailedPost()
               addError(`Twitter: ${product?.title || jobId} - Failed after 3 retries`)
+              auditLogger.log({
+                level: 'ERROR',
+                category: 'POSTING',
+                message: 'Twitter post failed',
+                rowNumber,
+                product: product?.title || product?.name,
+                details: { error: 'Failed after 3 retries' }
+              })
             }
           }
           // Pinterest
@@ -295,6 +404,13 @@ async function main() {
             console.log('[DRY RUN] Would post to Pinterest:', { videoUrl, caption })
             platformResults.pinterest = { success: true, result: 'DRY_RUN' }
           } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')) && process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID) {
+            auditLogger.log({
+              level: 'INFO',
+              category: 'POSTING',
+              message: 'Attempting Pinterest post',
+              rowNumber,
+              product: product?.title || product?.name
+            })
             const result = await retryWithBackoff(
               () => postToPinterest(videoUrl!, caption, process.env.PINTEREST_ACCESS_TOKEN!, process.env.PINTEREST_BOARD_ID!),
               { 
@@ -308,11 +424,26 @@ async function main() {
               platformResults.pinterest = { success: true, result }
               postedAtLeastOne = true
               incrementSuccessfulPost()
+              auditLogger.log({
+                level: 'SUCCESS',
+                category: 'POSTING',
+                message: 'Pinterest post successful',
+                rowNumber,
+                product: product?.title || product?.name
+              })
             } else {
               console.error('❌ Pinterest post failed after all retries')
               platformResults.pinterest = { success: false, error: 'Failed after 3 retries' }
               incrementFailedPost()
               addError(`Pinterest: ${product?.title || jobId} - Failed after 3 retries`)
+              auditLogger.log({
+                level: 'ERROR',
+                category: 'POSTING',
+                message: 'Pinterest post failed',
+                rowNumber,
+                product: product?.title || product?.name,
+                details: { error: 'Failed after 3 retries' }
+              })
             }
           }
           // YouTube
@@ -320,6 +451,13 @@ async function main() {
             console.log('[DRY RUN] Would upload to YouTube:', { videoUrl, caption })
             platformResults.youtube = { success: true, result: 'DRY_RUN' }
           } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')) && process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN) {
+            auditLogger.log({
+              level: 'INFO',
+              category: 'POSTING',
+              message: 'Attempting YouTube upload',
+              rowNumber,
+              product: product?.title || product?.name
+            })
             const result = await retryWithBackoff(
               () => postToYouTube(
                 videoUrl!,
@@ -340,11 +478,26 @@ async function main() {
               platformResults.youtube = { success: true, result }
               postedAtLeastOne = true
               incrementSuccessfulPost()
+              auditLogger.log({
+                level: 'SUCCESS',
+                category: 'POSTING',
+                message: 'YouTube upload successful',
+                rowNumber,
+                product: product?.title || product?.name
+              })
             } else {
               console.error('❌ YouTube upload failed after all retries')
               platformResults.youtube = { success: false, error: 'Failed after 2 retries' }
               incrementFailedPost()
               addError(`YouTube: ${product?.title || jobId} - Failed after 2 retries`)
+              auditLogger.log({
+                level: 'ERROR',
+                category: 'POSTING',
+                message: 'YouTube upload failed',
+                rowNumber,
+                product: product?.title || product?.name,
+                details: { error: 'Failed after 2 retries' }
+              })
             }
           }
           
@@ -437,12 +590,31 @@ async function main() {
         })
       } else {
         console.log('No valid products found in sheet.')
+        auditLogger.log({
+          level: 'WARN',
+          category: 'CSV',
+          message: 'No valid products found in sheet',
+        })
         updateStatus({ status: 'idle-no-products' })
       }
     } catch (e: any) {
       console.error('Polling error:', e)
       addError(`Cycle error: ${e?.message || String(e)}`)
+      auditLogger.log({
+        level: 'ERROR',
+        category: 'SYSTEM',
+        message: 'Cycle error',
+        details: { error: e?.message || String(e) }
+      })
       updateStatus({ status: 'error' })
+    }
+    
+    // Print audit summary at the end of each cycle
+    auditLogger.printSummary()
+    
+    // Clear audit log for next cycle (unless runOnce mode)
+    if (!runOnce) {
+      auditLogger.clear()
     }
   }
   if (runOnce) {
@@ -459,6 +631,34 @@ main().catch(e => console.error(e))
 
 function hasTwitterUploadCreds(): boolean {
   return Boolean(process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env.TWITTER_ACCESS_TOKEN && process.env.TWITTER_ACCESS_SECRET)
+}
+
+function checkPlatformAvailability(enabledPlatforms: Set<string>) {
+  const hasInstagramCreds = Boolean(process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID)
+  const hasTwitterCreds = Boolean(process.env.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds())
+  const hasPinterestCreds = Boolean(process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID)
+  const hasYouTubeCreds = Boolean(process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN)
+  
+  const instagramEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')) && hasInstagramCreds
+  const twitterEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')) && hasTwitterCreds
+  const pinterestEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')) && hasPinterestCreds
+  const youtubeEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')) && hasYouTubeCreds
+  
+  return {
+    credentials: {
+      hasInstagramCreds,
+      hasTwitterCreds,
+      hasPinterestCreds,
+      hasYouTubeCreds
+    },
+    enabled: {
+      instagram: instagramEnabled,
+      twitter: twitterEnabled,
+      pinterest: pinterestEnabled,
+      youtube: youtubeEnabled
+    },
+    anyEnabled: instagramEnabled || twitterEnabled || pinterestEnabled || youtubeEnabled
+  }
 }
 
 function sleep(ms: number) {
