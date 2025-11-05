@@ -277,16 +277,8 @@ async function main() {
                     let postedAtLeastOne = false;
                     const platformResults = {};
                     // Check if any platforms are enabled
-                    const hasInstagramCreds = Boolean(process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID);
-                    const hasTwitterCreds = Boolean(process.env.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds());
-                    const hasPinterestCreds = Boolean(process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID);
-                    const hasYouTubeCreds = Boolean(process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN);
-                    const instagramEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')) && hasInstagramCreds;
-                    const twitterEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')) && hasTwitterCreds;
-                    const pinterestEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')) && hasPinterestCreds;
-                    const youtubeEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')) && hasYouTubeCreds;
-                    const anyPlatformEnabled = instagramEnabled || twitterEnabled || pinterestEnabled || youtubeEnabled;
-                    if (!anyPlatformEnabled && !dryRun) {
+                    const platformStatus = checkPlatformAvailability(enabledPlatforms);
+                    if (!platformStatus.anyEnabled && !dryRun) {
                         audit_logger_1.auditLogger.log({
                             level: 'ERROR',
                             category: 'PLATFORM',
@@ -294,10 +286,7 @@ async function main() {
                             rowNumber,
                             product: product?.title || product?.name,
                             details: {
-                                hasInstagramCreds,
-                                hasTwitterCreds,
-                                hasPinterestCreds,
-                                hasYouTubeCreds,
+                                ...platformStatus.credentials,
                                 enabledPlatforms: Array.from(enabledPlatforms)
                             }
                         });
@@ -308,12 +297,7 @@ async function main() {
                             category: 'PLATFORM',
                             message: 'Platforms ready for posting',
                             rowNumber,
-                            details: {
-                                instagram: instagramEnabled,
-                                twitter: twitterEnabled,
-                                pinterest: pinterestEnabled,
-                                youtube: youtubeEnabled
-                            }
+                            details: platformStatus.enabled
                         });
                     }
                     // Instagram
@@ -628,6 +612,31 @@ async function main() {
 main().catch(e => console.error(e));
 function hasTwitterUploadCreds() {
     return Boolean(process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env.TWITTER_ACCESS_TOKEN && process.env.TWITTER_ACCESS_SECRET);
+}
+function checkPlatformAvailability(enabledPlatforms) {
+    const hasInstagramCreds = Boolean(process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID);
+    const hasTwitterCreds = Boolean(process.env.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds());
+    const hasPinterestCreds = Boolean(process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID);
+    const hasYouTubeCreds = Boolean(process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN);
+    const instagramEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')) && hasInstagramCreds;
+    const twitterEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')) && hasTwitterCreds;
+    const pinterestEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')) && hasPinterestCreds;
+    const youtubeEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')) && hasYouTubeCreds;
+    return {
+        credentials: {
+            hasInstagramCreds,
+            hasTwitterCreds,
+            hasPinterestCreds,
+            hasYouTubeCreds
+        },
+        enabled: {
+            instagram: instagramEnabled,
+            twitter: twitterEnabled,
+            pinterest: pinterestEnabled,
+            youtube: youtubeEnabled
+        },
+        anyEnabled: instagramEnabled || twitterEnabled || pinterestEnabled || youtubeEnabled
+    };
 }
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));

@@ -274,19 +274,9 @@ async function main() {
           const platformResults: Record<string, { success: boolean; result?: any; error?: string }> = {}
           
           // Check if any platforms are enabled
-          const hasInstagramCreds = Boolean(process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID)
-          const hasTwitterCreds = Boolean(process.env.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds())
-          const hasPinterestCreds = Boolean(process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID)
-          const hasYouTubeCreds = Boolean(process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN)
+          const platformStatus = checkPlatformAvailability(enabledPlatforms)
           
-          const instagramEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')) && hasInstagramCreds
-          const twitterEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')) && hasTwitterCreds
-          const pinterestEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')) && hasPinterestCreds
-          const youtubeEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')) && hasYouTubeCreds
-          
-          const anyPlatformEnabled = instagramEnabled || twitterEnabled || pinterestEnabled || youtubeEnabled
-          
-          if (!anyPlatformEnabled && !dryRun) {
+          if (!platformStatus.anyEnabled && !dryRun) {
             auditLogger.log({
               level: 'ERROR',
               category: 'PLATFORM',
@@ -294,10 +284,7 @@ async function main() {
               rowNumber,
               product: product?.title || product?.name,
               details: {
-                hasInstagramCreds,
-                hasTwitterCreds,
-                hasPinterestCreds,
-                hasYouTubeCreds,
+                ...platformStatus.credentials,
                 enabledPlatforms: Array.from(enabledPlatforms)
               }
             })
@@ -307,12 +294,7 @@ async function main() {
               category: 'PLATFORM',
               message: 'Platforms ready for posting',
               rowNumber,
-              details: {
-                instagram: instagramEnabled,
-                twitter: twitterEnabled,
-                pinterest: pinterestEnabled,
-                youtube: youtubeEnabled
-              }
+              details: platformStatus.enabled
             })
           }
           
@@ -649,6 +631,34 @@ main().catch(e => console.error(e))
 
 function hasTwitterUploadCreds(): boolean {
   return Boolean(process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env.TWITTER_ACCESS_TOKEN && process.env.TWITTER_ACCESS_SECRET)
+}
+
+function checkPlatformAvailability(enabledPlatforms: Set<string>) {
+  const hasInstagramCreds = Boolean(process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID)
+  const hasTwitterCreds = Boolean(process.env.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds())
+  const hasPinterestCreds = Boolean(process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID)
+  const hasYouTubeCreds = Boolean(process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN)
+  
+  const instagramEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')) && hasInstagramCreds
+  const twitterEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')) && hasTwitterCreds
+  const pinterestEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')) && hasPinterestCreds
+  const youtubeEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')) && hasYouTubeCreds
+  
+  return {
+    credentials: {
+      hasInstagramCreds,
+      hasTwitterCreds,
+      hasPinterestCreds,
+      hasYouTubeCreds
+    },
+    enabled: {
+      instagram: instagramEnabled,
+      twitter: twitterEnabled,
+      pinterest: pinterestEnabled,
+      youtube: youtubeEnabled
+    },
+    anyEnabled: instagramEnabled || twitterEnabled || pinterestEnabled || youtubeEnabled
+  }
 }
 
 function sleep(ms: number) {
