@@ -44,6 +44,7 @@ const heygen_adapter_1 = require("./heygen-adapter");
 const openai_1 = require("./openai");
 const sheets_1 = require("./sheets");
 const health_server_1 = require("./health-server");
+const audit_logger_1 = require("./audit-logger");
 // Start health check server
 require("./health-server");
 // Retry helper with exponential backoff
@@ -81,6 +82,33 @@ async function main() {
     const enabledPlatforms = new Set(enabledPlatformsEnv.split(',').map(s => s.trim()).filter(Boolean));
     const enforcePostingWindows = String(process.env.ENFORCE_POSTING_WINDOWS || 'false').toLowerCase() === 'true';
     const targetColumnLetter = (process.env.SHEET_VIDEO_TARGET_COLUMN_LETTER || 'AB').toUpperCase();
+    // Log initial configuration
+    audit_logger_1.auditLogger.log({
+        level: 'INFO',
+        category: 'SYSTEM',
+        message: 'Video posting system started',
+        details: {
+            runOnce,
+            dryRun,
+            enforcePostingWindows,
+            enabledPlatforms: enabledPlatformsEnv || 'all',
+            pollIntervalMs: intervalMs
+        }
+    });
+    if (dryRun) {
+        audit_logger_1.auditLogger.log({
+            level: 'WARN',
+            category: 'SYSTEM',
+            message: 'DRY RUN MODE ENABLED - No actual posts will be sent',
+        });
+    }
+    if (enforcePostingWindows) {
+        audit_logger_1.auditLogger.log({
+            level: 'WARN',
+            category: 'SYSTEM',
+            message: 'Posting windows enforced - will only post at 9AM/5PM ET',
+        });
+    }
     const cycle = async () => {
         try {
             (0, health_server_1.updateStatus)({ status: 'processing', rowsProcessed: 0 });
@@ -237,15 +265,70 @@ async function main() {
                     const canPostNow = !enforcePostingWindows || isWithinPostingWindow();
                     if (!canPostNow) {
                         console.log('🕘 Outside posting window (9AM/5PM ET). Will not post, but video URL is ready:', videoUrl);
+                        audit_logger_1.auditLogger.log({
+                            level: 'SKIP',
+                            category: 'POSTING',
+                            message: 'Outside posting window',
+                            rowNumber,
+                            product: product?.title || product?.name,
+                            details: { enforcePostingWindows, videoUrl }
+                        });
                     }
                     let postedAtLeastOne = false;
                     const platformResults = {};
+                    // Check if any platforms are enabled
+                    const hasInstagramCreds = Boolean(process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID);
+                    const hasTwitterCreds = Boolean(process.env.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds());
+                    const hasPinterestCreds = Boolean(process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID);
+                    const hasYouTubeCreds = Boolean(process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN);
+                    const instagramEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')) && hasInstagramCreds;
+                    const twitterEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')) && hasTwitterCreds;
+                    const pinterestEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')) && hasPinterestCreds;
+                    const youtubeEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')) && hasYouTubeCreds;
+                    const anyPlatformEnabled = instagramEnabled || twitterEnabled || pinterestEnabled || youtubeEnabled;
+                    if (!anyPlatformEnabled && !dryRun) {
+                        audit_logger_1.auditLogger.log({
+                            level: 'ERROR',
+                            category: 'PLATFORM',
+                            message: 'No platforms enabled with valid credentials',
+                            rowNumber,
+                            product: product?.title || product?.name,
+                            details: {
+                                hasInstagramCreds,
+                                hasTwitterCreds,
+                                hasPinterestCreds,
+                                hasYouTubeCreds,
+                                enabledPlatforms: Array.from(enabledPlatforms)
+                            }
+                        });
+                    }
+                    else if (!dryRun && canPostNow) {
+                        audit_logger_1.auditLogger.log({
+                            level: 'INFO',
+                            category: 'PLATFORM',
+                            message: 'Platforms ready for posting',
+                            rowNumber,
+                            details: {
+                                instagram: instagramEnabled,
+                                twitter: twitterEnabled,
+                                pinterest: pinterestEnabled,
+                                youtube: youtubeEnabled
+                            }
+                        });
+                    }
                     // Instagram
                     if (dryRun || !canPostNow) {
                         console.log('[DRY RUN] Would post to Instagram:', { videoUrl, caption });
                         platformResults.instagram = { success: true, result: 'DRY_RUN' };
                     }
                     else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')) && process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID) {
+                        audit_logger_1.auditLogger.log({
+                            level: 'INFO',
+                            category: 'POSTING',
+                            message: 'Attempting Instagram post',
+                            rowNumber,
+                            product: product?.title || product?.name
+                        });
                         const result = await retryWithBackoff(() => (0, instagram_1.postToInstagram)(videoUrl, caption, process.env.INSTAGRAM_ACCESS_TOKEN, process.env.INSTAGRAM_IG_ID), {
                             maxRetries: 3,
                             operation: 'Instagram post',
@@ -256,12 +339,28 @@ async function main() {
                             platformResults.instagram = { success: true, result };
                             postedAtLeastOne = true;
                             (0, health_server_1.incrementSuccessfulPost)();
+                            audit_logger_1.auditLogger.log({
+                                level: 'SUCCESS',
+                                category: 'POSTING',
+                                message: 'Instagram post successful',
+                                rowNumber,
+                                product: product?.title || product?.name,
+                                details: { mediaId: result }
+                            });
                         }
                         else {
                             console.error('❌ Instagram post failed after all retries');
                             platformResults.instagram = { success: false, error: 'Failed after 3 retries' };
                             (0, health_server_1.incrementFailedPost)();
                             (0, health_server_1.addError)(`Instagram: ${product?.title || jobId} - Failed after 3 retries`);
+                            audit_logger_1.auditLogger.log({
+                                level: 'ERROR',
+                                category: 'POSTING',
+                                message: 'Instagram post failed',
+                                rowNumber,
+                                product: product?.title || product?.name,
+                                details: { error: 'Failed after 3 retries' }
+                            });
                         }
                     }
                     // Twitter
@@ -270,6 +369,13 @@ async function main() {
                         platformResults.twitter = { success: true, result: 'DRY_RUN' };
                     }
                     else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')) && (process.env.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds())) {
+                        audit_logger_1.auditLogger.log({
+                            level: 'INFO',
+                            category: 'POSTING',
+                            message: 'Attempting Twitter post',
+                            rowNumber,
+                            product: product?.title || product?.name
+                        });
                         const result = await retryWithBackoff(async () => {
                             if (hasTwitterUploadCreds()) {
                                 return await (0, twitter_1.postToTwitter)(videoUrl, caption, process.env.TWITTER_BEARER_TOKEN ?? '');
@@ -287,12 +393,27 @@ async function main() {
                             platformResults.twitter = { success: true, result };
                             postedAtLeastOne = true;
                             (0, health_server_1.incrementSuccessfulPost)();
+                            audit_logger_1.auditLogger.log({
+                                level: 'SUCCESS',
+                                category: 'POSTING',
+                                message: 'Twitter post successful',
+                                rowNumber,
+                                product: product?.title || product?.name
+                            });
                         }
                         else {
                             console.error('❌ Twitter post failed after all retries');
                             platformResults.twitter = { success: false, error: 'Failed after 3 retries' };
                             (0, health_server_1.incrementFailedPost)();
                             (0, health_server_1.addError)(`Twitter: ${product?.title || jobId} - Failed after 3 retries`);
+                            audit_logger_1.auditLogger.log({
+                                level: 'ERROR',
+                                category: 'POSTING',
+                                message: 'Twitter post failed',
+                                rowNumber,
+                                product: product?.title || product?.name,
+                                details: { error: 'Failed after 3 retries' }
+                            });
                         }
                     }
                     // Pinterest
@@ -301,6 +422,13 @@ async function main() {
                         platformResults.pinterest = { success: true, result: 'DRY_RUN' };
                     }
                     else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')) && process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID) {
+                        audit_logger_1.auditLogger.log({
+                            level: 'INFO',
+                            category: 'POSTING',
+                            message: 'Attempting Pinterest post',
+                            rowNumber,
+                            product: product?.title || product?.name
+                        });
                         const result = await retryWithBackoff(() => (0, pinterest_1.postToPinterest)(videoUrl, caption, process.env.PINTEREST_ACCESS_TOKEN, process.env.PINTEREST_BOARD_ID), {
                             maxRetries: 3,
                             operation: 'Pinterest post',
@@ -311,12 +439,27 @@ async function main() {
                             platformResults.pinterest = { success: true, result };
                             postedAtLeastOne = true;
                             (0, health_server_1.incrementSuccessfulPost)();
+                            audit_logger_1.auditLogger.log({
+                                level: 'SUCCESS',
+                                category: 'POSTING',
+                                message: 'Pinterest post successful',
+                                rowNumber,
+                                product: product?.title || product?.name
+                            });
                         }
                         else {
                             console.error('❌ Pinterest post failed after all retries');
                             platformResults.pinterest = { success: false, error: 'Failed after 3 retries' };
                             (0, health_server_1.incrementFailedPost)();
                             (0, health_server_1.addError)(`Pinterest: ${product?.title || jobId} - Failed after 3 retries`);
+                            audit_logger_1.auditLogger.log({
+                                level: 'ERROR',
+                                category: 'POSTING',
+                                message: 'Pinterest post failed',
+                                rowNumber,
+                                product: product?.title || product?.name,
+                                details: { error: 'Failed after 3 retries' }
+                            });
                         }
                     }
                     // YouTube
@@ -325,6 +468,13 @@ async function main() {
                         platformResults.youtube = { success: true, result: 'DRY_RUN' };
                     }
                     else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')) && process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN) {
+                        audit_logger_1.auditLogger.log({
+                            level: 'INFO',
+                            category: 'POSTING',
+                            message: 'Attempting YouTube upload',
+                            rowNumber,
+                            product: product?.title || product?.name
+                        });
                         const result = await retryWithBackoff(() => (0, youtube_1.postToYouTube)(videoUrl, caption, process.env.YT_CLIENT_ID, process.env.YT_CLIENT_SECRET, process.env.YT_REFRESH_TOKEN, process.env.YT_PRIVACY_STATUS || 'unlisted'), {
                             maxRetries: 2, // YouTube uploads are longer, fewer retries
                             operation: 'YouTube upload',
@@ -335,12 +485,27 @@ async function main() {
                             platformResults.youtube = { success: true, result };
                             postedAtLeastOne = true;
                             (0, health_server_1.incrementSuccessfulPost)();
+                            audit_logger_1.auditLogger.log({
+                                level: 'SUCCESS',
+                                category: 'POSTING',
+                                message: 'YouTube upload successful',
+                                rowNumber,
+                                product: product?.title || product?.name
+                            });
                         }
                         else {
                             console.error('❌ YouTube upload failed after all retries');
                             platformResults.youtube = { success: false, error: 'Failed after 2 retries' };
                             (0, health_server_1.incrementFailedPost)();
                             (0, health_server_1.addError)(`YouTube: ${product?.title || jobId} - Failed after 2 retries`);
+                            audit_logger_1.auditLogger.log({
+                                level: 'ERROR',
+                                category: 'POSTING',
+                                message: 'YouTube upload failed',
+                                rowNumber,
+                                product: product?.title || product?.name,
+                                details: { error: 'Failed after 2 retries' }
+                            });
                         }
                     }
                     // Blog Posting
@@ -425,13 +590,30 @@ async function main() {
             }
             else {
                 console.log('No valid products found in sheet.');
+                audit_logger_1.auditLogger.log({
+                    level: 'WARN',
+                    category: 'CSV',
+                    message: 'No valid products found in sheet',
+                });
                 (0, health_server_1.updateStatus)({ status: 'idle-no-products' });
             }
         }
         catch (e) {
             console.error('Polling error:', e);
             (0, health_server_1.addError)(`Cycle error: ${e?.message || String(e)}`);
+            audit_logger_1.auditLogger.log({
+                level: 'ERROR',
+                category: 'SYSTEM',
+                message: 'Cycle error',
+                details: { error: e?.message || String(e) }
+            });
             (0, health_server_1.updateStatus)({ status: 'error' });
+        }
+        // Print audit summary at the end of each cycle
+        audit_logger_1.auditLogger.printSummary();
+        // Clear audit log for next cycle (unless runOnce mode)
+        if (!runOnce) {
+            audit_logger_1.auditLogger.clear();
         }
     };
     if (runOnce) {
