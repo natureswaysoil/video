@@ -1,9 +1,8 @@
 {
-  "buildCommand": "npm run build:docs",
-  "outputDirectory": "public",
-  "devCommand": "echo 'Documentation preview'",
-  "installCommand": "echo 'No dependencies needed for docs'",
   "framework": null,
+  "installCommand": "echo 'No dependencies needed for docs'",
+  "buildCommand": "echo 'Documentation already in public/' && ls -la public/",
+  "outputDirectory": "public",
   "rewrites": [
     {
       "source": "/(.*)",

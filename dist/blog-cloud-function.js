@@ -1,7 +1,7 @@
 "use strict";
 /**
  * Cloud Function entry point for automated blog generation
- * Triggered by Cloud Scheduler every 2 days
+ * Triggered by Cloud Scheduler daily
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateBlog = generateBlog;
