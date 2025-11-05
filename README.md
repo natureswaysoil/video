@@ -114,6 +114,48 @@ Note: For Google Sheets, use the CSV export URL form:
 - Mappings are written back to the sheet in HEYGEN_* columns for tracking
 - Video duration is configurable via `HEYGEN_VIDEO_DURATION_SECONDS` (default: 30)
 
+## Testing
+
+The system includes a comprehensive test suite to verify all components work correctly.
+
+### Quick Start Testing
+
+```bash
+# 1. Validate system configuration
+npm run validate
+
+# 2. Test CSV processing (fast, free)
+npm run test:csv
+
+# 3. Test script generation (fast, ~$0.01)
+npm run test:openai
+
+# 4. Test complete workflow (10-20 min, ~$1-2)
+npm run test:e2e:dry    # Dry run (no posting)
+npm run test:e2e        # Full test with social media
+
+# 5. Test social media posting (1-5 min, free)
+npm run test:platforms
+```
+
+### Test Documentation
+
+- **[TESTING_GUIDE.md](TESTING_GUIDE.md)** - Complete testing instructions and troubleshooting
+- **[SYSTEM_VERIFICATION_REPORT.md](SYSTEM_VERIFICATION_REPORT.md)** - Comprehensive verification results
+
+### Available Tests
+
+| Test | Script | Duration | Cost | What It Tests |
+|------|--------|----------|------|---------------|
+| System Validation | `npm run validate` | 10s | Free | Configuration check |
+| CSV Processing | `npm run test:csv` | 10s | Free | Google Sheets fetch |
+| OpenAI Scripts | `npm run test:openai` | 30s | $0.01 | Script generation |
+| HeyGen Video | `npm run test:heygen` | 10-20m | $1-2 | Video creation |
+| Platform Posting | `npm run test:platforms` | 1-5m | Free | Social media |
+| End-to-End | `npm run test:e2e` | 10-25m | $1-2 | Complete workflow |
+
+**See [TESTING_GUIDE.md](TESTING_GUIDE.md) for detailed testing instructions.**
+
 ## License
 
 MIT

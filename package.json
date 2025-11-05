@@ -7,14 +7,15 @@
     "dev": "ts-node src/cli.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json",
-    "build:docs": "echo 'Documentation already in public/' && ls -la public/",
     "run:once": "ts-node scripts/run-once.ts",
-    "audit": "ts-node scripts/audit-posting-system.ts",
-    "verify": "ts-node scripts/verify-social-posting.ts",
-    "test:instagram": "ts-node scripts/test-instagram.ts",
-    "test:twitter": "ts-node scripts/test-twitter.ts",
-    "test:pinterest": "ts-node scripts/test-pinterest.ts",
-    "test:youtube": "ts-node scripts/test-youtube.ts"
+    "validate": "ts-node scripts/validate-system.ts",
+    "test:csv": "ts-node scripts/test-csv-processing.ts",
+    "test:openai": "ts-node scripts/test-openai-script.ts",
+    "test:heygen": "ts-node scripts/test-heygen-integration.ts",
+    "test:platforms": "ts-node scripts/test-all-platforms.ts",
+    "test:e2e": "ts-node scripts/test-e2e-integration.ts",
+    "test:e2e:dry": "DRY_RUN=true ts-node scripts/test-e2e-integration.ts",
+    "test:all": "npm run test:csv && npm run test:openai && npm run test:e2e:dry"
   },
   "dependencies": {
     "@google-cloud/secret-manager": "^6.1.1",
