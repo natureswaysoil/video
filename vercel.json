@@ -1,7 +1,5 @@
 {
-  "framework": null,
-  "installCommand": "echo 'No dependencies needed for docs'",
-  "buildCommand": "echo 'Documentation already in public/' && ls -la public/",
+  "buildCommand": "echo 'Static site ready'",
   "outputDirectory": "public",
   "rewrites": [
     {
