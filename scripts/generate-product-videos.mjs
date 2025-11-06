@@ -110,8 +110,11 @@ async function getFirstEligibleProduct(csvUrl) {
     const rec = {}
     headers.forEach((h, idx) => { rec[h] = (cols[idx] ?? '').trim() })
     
-    // Get jobId (required)
-    const jobId = pickFirst(rec, ['jobId', 'job_id', 'wavespeed_job_id', 'WaveSpeed Job ID', 'WAVESPEED_JOB_ID', 'job', 'ASIN', 'SKU'])
+    // Get jobId (required) - check env var first, then fallback to defaults
+    const jobIdColumns = process.env.CSV_COL_JOB_ID 
+      ? process.env.CSV_COL_JOB_ID.split(',').map(s => s.trim())
+      : ['jobId', 'job_id', 'wavespeed_job_id', 'WaveSpeed Job ID', 'WAVESPEED_JOB_ID', 'job', 'ASIN', 'SKU']
+    const jobId = pickFirst(rec, jobIdColumns)
     if (!jobId) continue
     
     // Check if already posted (skip if posted)
@@ -127,9 +130,15 @@ async function getFirstEligibleProduct(csvUrl) {
       continue // Skip not ready
     }
     
-    // Build product object
-    const title = pickFirst(rec, ['title', 'name', 'product', 'Product', 'Title'])
-    const details = pickFirst(rec, ['details', 'description', 'caption', 'Description', 'Details', 'Caption'])
+    // Build product object - use env var overrides if available
+    const titleColumns = process.env.CSV_COL_TITLE
+      ? process.env.CSV_COL_TITLE.split(',').map(s => s.trim())
+      : ['title', 'name', 'product', 'Product', 'Title']
+    const detailsColumns = process.env.CSV_COL_DETAILS
+      ? process.env.CSV_COL_DETAILS.split(',').map(s => s.trim())
+      : ['details', 'description', 'caption', 'Description', 'Details', 'Caption']
+    const title = pickFirst(rec, titleColumns)
+    const details = pickFirst(rec, detailsColumns)
     
     const product = {
       id: pickFirst(rec, ['id', 'ID']),
@@ -212,8 +221,8 @@ async function createHeyGenVideo(apiKey, product, script) {
 // ===== Step 4: Poll for video completion =====
 async function pollForVideoUrl(apiKey, heygenJobId) {
   const apiEndpoint = process.env.HEYGEN_API_ENDPOINT || 'https://api.heygen.com'
-  const timeoutMs = 25 * 60 * 1000 // 25 minutes
-  const intervalMs = 15000 // 15 seconds
+  const timeoutMs = Number(process.env.HEYGEN_POLL_TIMEOUT_MS || '1500000') // 25 minutes default
+  const intervalMs = Number(process.env.HEYGEN_POLL_INTERVAL_MS || '15000') // 15 seconds default
   const start = Date.now()
   
   console.log('⏳ Waiting for HeyGen video completion...')
@@ -258,6 +267,17 @@ async function pollForVideoUrl(apiKey, heygenJobId) {
 }
 
 // ===== Step 5: Generate script with OpenAI =====
+function sanitizeForPrompt(text) {
+  if (!text) return ''
+  // Basic sanitization: limit length and remove potential injection patterns
+  return String(text)
+    .substring(0, 500)  // Limit length
+    .replace(/```/g, '')  // Remove code blocks
+    .replace(/\[INST\]/gi, '')  // Remove instruction markers
+    .replace(/\[\/INST\]/gi, '')
+    .trim()
+}
+
 async function generateScript(product) {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
@@ -266,10 +286,13 @@ async function generateScript(product) {
   }
   
   const model = process.env.OPENAI_MODEL || 'gpt-4o-mini'
+  const sanitizedTitle = sanitizeForPrompt(product.title || product.name)
+  const sanitizedDetails = sanitizeForPrompt(product.details || product.description)
+  
   const prompt = `Write a concise 20-25 second video script for this garden product. Focus on benefits and value:
 
-Product: ${product.title || product.name}
-${product.details || product.description || ''}
+Product: ${sanitizedTitle}
+${sanitizedDetails}
 
 Requirements:
 - Natural, conversational tone

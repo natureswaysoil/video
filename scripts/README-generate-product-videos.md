@@ -27,6 +27,8 @@ HEYGEN_API_ENDPOINT="https://api.heygen.com"  # Default
 HEYGEN_VIDEO_DURATION_SECONDS=30  # Default
 HEYGEN_DEFAULT_AVATAR="garden_expert_01"  # Default
 HEYGEN_DEFAULT_VOICE="en_us_warm_female_01"  # Default
+HEYGEN_POLL_TIMEOUT_MS=1500000  # 25 minutes default
+HEYGEN_POLL_INTERVAL_MS=15000  # 15 seconds default
 ```
 
 ### Optional Environment Variables
