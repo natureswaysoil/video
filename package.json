@@ -12,7 +12,9 @@
     "dev": "ts-node src/cli.ts"
   },
   "dependencies": {
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "axios": "^1.6.0",
+    "dotenv": "^16.0.0"
   },
   "devDependencies": {
     "@types/node": "^18.0.0",
