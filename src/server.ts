@@ -1,9 +1,9 @@
 import 'dotenv/config'
 import http from 'http'
-import { processCsvUrl } from './core'
-import { postToInstagram } from './instagram'
-import { postToTwitter } from './twitter'
-import { postToPinterest } from './pinterest'
+import { processCsvUrl } from './core.js'
+import { postToInstagram } from './instagram.js'
+import { postToTwitter } from './twitter.js'
+import { postToPinterest } from './pinterest.js'
 
 async function runJob() {
   const csvUrl = process.env.CSV_URL as string
