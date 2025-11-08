@@ -1,0 +1,44 @@
+# Dependency directories
+node_modules/
+
+# npm logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Git files
+.git/
+.gitignore
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+*.test.js
+*.spec.js
+test/
+tests/
+__tests__/
+
+# Documentation
+README.md
+LICENSE
+*.md
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
