@@ -7,11 +7,17 @@ WORKDIR /app
 # Copy package files first (for better layer caching)
 COPY package*.json ./
 
-# Install dependencies (including node-fetch)
-RUN npm install --production
+# Install ALL dependencies (including devDependencies for building)
+RUN npm install
 
 # Copy application source code
 COPY . .
+
+# Build TypeScript
+RUN npm run build
+
+# Remove devDependencies after build
+RUN npm prune --production
 
 # Expose port (Cloud Run will use PORT env variable)
 EXPOSE 8080

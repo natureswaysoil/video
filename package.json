@@ -2,14 +2,21 @@
   "name": "video-processor",
   "version": "1.0.0",
   "type": "module",
-  "main": "src/cli.js",
+  "main": "dist/server.js",
   "engines": {
     "node": ">=18.0.0"
   },
   "scripts": {
-    "start": "node src/cli.js"
+    "start": "node dist/server.js",
+    "build": "tsc",
+    "dev": "ts-node src/cli.ts"
   },
   "dependencies": {
     "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.0.0"
   }
 }
