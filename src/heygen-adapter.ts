@@ -170,7 +170,7 @@ export async function writeBackMappingsToSheet(sheetId: string, gid: string, map
   // Fetch header row to determine column indexes
   // Note: we use the sheet name by gid — find sheet title from gid
   const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
-  const sheet = (meta.data.sheets || []).find(s => String(s.properties?.sheetId) === String(gid))
+  const sheet = (meta.data.sheets || []).find((s: any) => String(s.properties?.sheetId) === String(gid))
   if (!sheet) throw new Error(`Sheet with gid ${gid} not found`)
   const sheetTitle = sheet.properties!.title!
 

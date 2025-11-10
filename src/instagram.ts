@@ -146,7 +146,7 @@ async function uploadViaRupload(containerId: string, videoUrl: string, accessTok
         'file_url': videoUrl,
       },
       // Avoid axios adding content-type when no body
-      validateStatus: (s) => s >= 200 && s < 300,
+      validateStatus: (s: number) => s >= 200 && s < 300,
     }
   )
 }
