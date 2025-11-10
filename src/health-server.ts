@@ -1,4 +1,4 @@
-import http from 'http'
+import http, { Server } from 'http'
 import { resolveByJobId, markProcessed, isProcessed } from './webhook-cache'
 import { postToTwitter } from './twitter'
 import { postToYouTube } from './youtube'
@@ -6,6 +6,9 @@ import { postToInstagram } from './instagram'
 import { postToPinterest } from './pinterest'
 
 const PORT = parseInt(process.env.PORT || '8080', 10)
+
+let server: Server | null = null
+let serverStarted = false
 
 let lastRunStatus = {
   timestamp: new Date().toISOString(),
@@ -16,11 +19,11 @@ let lastRunStatus = {
   errors: [] as string[]
 }
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Content-Type', 'application/json')
-  
+
   if (req.url === '/health' && req.method === 'GET') {
     res.statusCode = 200
     res.end(JSON.stringify({
@@ -100,10 +103,10 @@ const server = http.createServer(async (req, res) => {
       // Post immediately (time window not enforced for webhooks)
       const caption = ctx.caption
       const enabledPlatforms = new Set((ctx.enabledPlatformsCsv || '').split(',').map((s) => s.trim()).filter(Boolean))
-  const postTwitter = enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')
-  const postYouTube = enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')
-  const postInstagram = enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')
-  const postPinterest = enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')
+      const postTwitter = enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')
+      const postYouTube = enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')
+      const postInstagram = enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')
+      const postPinterest = enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')
 
       if (videoUrl) {
         if (postInstagram && process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID) {
@@ -158,13 +161,41 @@ const server = http.createServer(async (req, res) => {
     res.statusCode = 404
     res.end(JSON.stringify({ error: 'Not found' }))
   }
-})
+}
 
-server.listen(PORT, () => {
-  console.log(`🏥 Health check server running on port ${PORT}`)
-  console.log(`   GET http://localhost:${PORT}/health`)
-  console.log(`   GET http://localhost:${PORT}/status`)
-})
+export function startHealthServer(): Server {
+  if (server && serverStarted) {
+    return server
+  }
+  server = http.createServer((req, res) => {
+    handleRequest(req, res).catch((err) => {
+      res.statusCode = 500
+      res.end(JSON.stringify({ ok: false, error: err?.message || String(err) }))
+    })
+  })
+  server.listen(PORT, () => {
+    serverStarted = true
+    console.log(`🏥 Health check server running on port ${PORT}`)
+    console.log(`   GET http://localhost:${PORT}/health`)
+    console.log(`   GET http://localhost:${PORT}/status`)
+  })
+  return server
+}
+
+export async function stopHealthServer(): Promise<void> {
+  if (!server || !serverStarted) return
+  await new Promise<void>((resolve, reject) => {
+    server!.close((err) => {
+      if (err) {
+        reject(err)
+      } else {
+        resolve()
+      }
+    })
+  })
+  server = null
+  serverStarted = false
+}
 
 function formatUptime(seconds: number): string {
   const days = Math.floor(seconds / 86400)

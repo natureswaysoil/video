@@ -8,11 +8,8 @@ import { createClientWithSecrets as createHeyGenClient } from './heygen'
 import { mapProductToHeyGenPayload } from './heygen-adapter'
 import { generateScript } from './openai'
 import { markRowPosted, writeColumnValues } from './sheets'
-import { updateStatus, incrementSuccessfulPost, incrementFailedPost, addError } from './health-server'
+import { startHealthServer, stopHealthServer, updateStatus, incrementSuccessfulPost, incrementFailedPost, addError } from './health-server'
 import { auditLogger } from './audit-logger'
-
-// Start health check server
-import './health-server'
 
 // Retry helper with exponential backoff
 async function retryWithBackoff<T>(
@@ -66,6 +63,9 @@ async function main() {
   const enabledPlatforms = new Set(enabledPlatformsEnv.split(',').map(s => s.trim()).filter(Boolean))
   const enforcePostingWindows = String(process.env.ENFORCE_POSTING_WINDOWS || 'false').toLowerCase() === 'true'
   const targetColumnLetter = (process.env.SHEET_VIDEO_TARGET_COLUMN_LETTER || 'AB').toUpperCase()
+
+  // Start health server for monitoring/webhooks (will be stopped in run-once mode)
+  startHealthServer()
 
   // Log initial configuration
   auditLogger.log({
@@ -618,7 +618,11 @@ async function main() {
     }
   }
   if (runOnce) {
-    await cycle()
+    try {
+      await cycle()
+    } finally {
+      await stopHealthServer()
+    }
     return
   }
   while (true) {
