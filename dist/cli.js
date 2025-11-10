@@ -661,7 +661,7 @@ function extractGidFromCsv(csvUrl) {
 async function resolveVideoUrlAsync(params) {
     const { jobId, record } = params;
     // 1) If CSV provides a direct video URL column (configurable), prefer that
-    const directCol = (process.env.CSV_COL_VIDEO_URL || 'video_url,Video URL,VideoURL').split(',').map(s => s.trim());
+    const directCol = (process.env.CSV_COL_VIDEO_URL || 'video_url,Video URL,VideoURL').split(',').map((s) => s.trim());
     if (record) {
         for (const key of directCol) {
             const v = record[key];

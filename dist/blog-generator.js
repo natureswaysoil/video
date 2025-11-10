@@ -120,7 +120,8 @@ The content should use Markdown formatting with ## for headings.`;
             max_tokens: 2500,
             response_format: { type: 'json_object' }
         });
-        const content = response.choices[0].message.content;
+        const choice = response.choices?.[0];
+        const content = choice?.message?.content;
         if (!content)
             throw new Error('No content generated');
         const blogData = JSON.parse(content);
@@ -370,8 +371,9 @@ async function runBlogGeneration() {
         console.log('='.repeat(60) + '\n');
     }
     catch (error) {
-        console.error('\n❌ Blog generation failed:', error.message);
-        process.exit(1);
+        const message = error?.message || String(error);
+        console.error('\n❌ Blog generation failed:', message);
+        throw error;
     }
 }
 // Run if executed directly

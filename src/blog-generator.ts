@@ -396,8 +396,9 @@ export async function runBlogGeneration() {
     console.log('='.repeat(60) + '\n')
     
   } catch (error: any) {
-    console.error('\n❌ Blog generation failed:', error.message)
-    process.exit(1)
+    const message = error?.message || String(error)
+    console.error('\n❌ Blog generation failed:', message)
+    throw error
   }
 }
 
