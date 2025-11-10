@@ -44,11 +44,12 @@ export async function generateBlog(req: BasicRequest, res: BasicResponse) {
       timestamp: new Date().toISOString()
     })
   } catch (error: any) {
+    const message = error?.message || String(error)
     console.error('❌ Blog generation failed:', error)
-    
+
     res.status(500).json({
       success: false,
-      error: error.message,
+      error: message,
       timestamp: new Date().toISOString()
     })
   }

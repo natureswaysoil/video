@@ -31,10 +31,11 @@ async function generateBlog(req, res) {
         });
     }
     catch (error) {
+        const message = error?.message || String(error);
         console.error('❌ Blog generation failed:', error);
         res.status(500).json({
             success: false,
-            error: error.message,
+            error: message,
             timestamp: new Date().toISOString()
         });
     }
@@ -44,10 +45,18 @@ if (require.main === module) {
     console.log('🧪 Running in local test mode');
     const mockReq = { method: 'POST', headers: {} };
     const mockRes = {
-        status: (code) => ({
-            json: (data) => console.log(`Response ${code}:`, data),
-            send: (data) => console.log(`Response ${code}:`, data)
-        })
+        status: (code) => {
+            console.log('Status set:', code);
+            return mockRes;
+        },
+        json: (data) => {
+            console.log('Response 200:', data);
+            return mockRes;
+        },
+        send: (data) => {
+            console.log('Response 200:', data);
+            return mockRes;
+        }
     };
     generateBlog(mockReq, mockRes);
 }
