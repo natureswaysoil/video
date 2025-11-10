@@ -45,8 +45,6 @@ const openai_1 = require("./openai");
 const sheets_1 = require("./sheets");
 const health_server_1 = require("./health-server");
 const audit_logger_1 = require("./audit-logger");
-// Start health check server
-require("./health-server");
 // Retry helper with exponential backoff
 async function retryWithBackoff(fn, options = {}) {
     const { maxRetries = 3, initialDelayMs = 1000, maxDelayMs = 16000, operation = 'Operation' } = options;
@@ -82,6 +80,8 @@ async function main() {
     const enabledPlatforms = new Set(enabledPlatformsEnv.split(',').map(s => s.trim()).filter(Boolean));
     const enforcePostingWindows = String(process.env.ENFORCE_POSTING_WINDOWS || 'false').toLowerCase() === 'true';
     const targetColumnLetter = (process.env.SHEET_VIDEO_TARGET_COLUMN_LETTER || 'AB').toUpperCase();
+    // Start health server for monitoring/webhooks (will be stopped in run-once mode)
+    (0, health_server_1.startHealthServer)();
     // Log initial configuration
     audit_logger_1.auditLogger.log({
         level: 'INFO',
@@ -601,7 +601,12 @@ async function main() {
         }
     };
     if (runOnce) {
-        await cycle();
+        try {
+            await cycle();
+        }
+        finally {
+            await (0, health_server_1.stopHealthServer)();
+        }
         return;
     }
     while (true) {

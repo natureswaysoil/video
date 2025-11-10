@@ -36,6 +36,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.startHealthServer = startHealthServer;
+exports.stopHealthServer = stopHealthServer;
 exports.updateStatus = updateStatus;
 exports.incrementSuccessfulPost = incrementSuccessfulPost;
 exports.incrementFailedPost = incrementFailedPost;
@@ -47,6 +49,8 @@ const youtube_1 = require("./youtube");
 const instagram_1 = require("./instagram");
 const pinterest_1 = require("./pinterest");
 const PORT = parseInt(process.env.PORT || '8080', 10);
+let server = null;
+let serverStarted = false;
 let lastRunStatus = {
     timestamp: new Date().toISOString(),
     status: 'starting',
@@ -55,7 +59,7 @@ let lastRunStatus = {
     failedPosts: 0,
     errors: []
 };
-const server = http_1.default.createServer(async (req, res) => {
+async function handleRequest(req, res) {
     // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
@@ -201,12 +205,41 @@ const server = http_1.default.createServer(async (req, res) => {
         res.statusCode = 404;
         res.end(JSON.stringify({ error: 'Not found' }));
     }
-});
-server.listen(PORT, () => {
-    console.log(`🏥 Health check server running on port ${PORT}`);
-    console.log(`   GET http://localhost:${PORT}/health`);
-    console.log(`   GET http://localhost:${PORT}/status`);
-});
+}
+function startHealthServer() {
+    if (server && serverStarted) {
+        return server;
+    }
+    server = http_1.default.createServer((req, res) => {
+        handleRequest(req, res).catch((err) => {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: err?.message || String(err) }));
+        });
+    });
+    server.listen(PORT, () => {
+        serverStarted = true;
+        console.log(`🏥 Health check server running on port ${PORT}`);
+        console.log(`   GET http://localhost:${PORT}/health`);
+        console.log(`   GET http://localhost:${PORT}/status`);
+    });
+    return server;
+}
+async function stopHealthServer() {
+    if (!server || !serverStarted)
+        return;
+    await new Promise((resolve, reject) => {
+        server.close((err) => {
+            if (err) {
+                reject(err);
+            }
+            else {
+                resolve();
+            }
+        });
+    });
+    server = null;
+    serverStarted = false;
+}
 function formatUptime(seconds) {
     const days = Math.floor(seconds / 86400);
     const hours = Math.floor((seconds % 86400) / 3600);
