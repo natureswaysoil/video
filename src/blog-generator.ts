@@ -98,7 +98,8 @@ The content should use Markdown formatting with ## for headings.`
       response_format: { type: 'json_object' }
     })
 
-    const content = response.choices[0].message.content
+    const choice = response.choices?.[0]
+    const content = choice?.message?.content
     if (!content) throw new Error('No content generated')
 
     const blogData = JSON.parse(content)

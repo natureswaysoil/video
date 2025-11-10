@@ -5,12 +5,23 @@
 
 import 'dotenv/config'
 import { runBlogGeneration } from './blog-generator'
-import { Request, Response } from 'express'
+type BasicRequest = {
+  method?: string
+  headers: Record<string, string | string[] | undefined>
+  [key: string]: any
+}
+
+type BasicResponse = {
+  status: (code: number) => BasicResponse
+  json: (body: any) => BasicResponse
+  send: (body: any) => BasicResponse
+  headersSent?: boolean
+}
 
 /**
  * HTTP Cloud Function entry point
  */
-export async function generateBlog(req: Request, res: Response) {
+export async function generateBlog(req: BasicRequest, res: BasicResponse) {
   console.log('📨 Blog generation request received')
   console.log('   Method:', req.method)
   console.log('   Headers:', req.headers)
@@ -46,13 +57,21 @@ export async function generateBlog(req: Request, res: Response) {
 // For local testing
 if (require.main === module) {
   console.log('🧪 Running in local test mode')
-  const mockReq = { method: 'POST', headers: {} } as Request
-  const mockRes = {
-    status: (code: number) => ({
-      json: (data: any) => console.log(`Response ${code}:`, data),
-      send: (data: any) => console.log(`Response ${code}:`, data)
-    })
-  } as unknown as Response
-  
+  const mockReq: BasicRequest = { method: 'POST', headers: {} }
+  const mockRes: BasicResponse = {
+    status: (code: number) => {
+      console.log('Status set:', code)
+      return mockRes
+    },
+    json: (data: any) => {
+      console.log('Response 200:', data)
+      return mockRes
+    },
+    send: (data: any) => {
+      console.log('Response 200:', data)
+      return mockRes
+    }
+  }
+
   generateBlog(mockReq, mockRes)
 }
