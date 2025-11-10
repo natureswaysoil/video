@@ -7,13 +7,16 @@
  *  - writeBackMappingsToSheet(sheetId, gid, mappedRows) => Promise<boolean>
  *
  * Notes:
- *  - writeBackMappingsToSheet expects service account JSON available either as:
- *      - raw JSON in env var GCP_SA_JSON, or
+ *  - writeBackMappingsToSheet will use (in order):
+ *      - raw JSON in env var GCP_SA_JSON
  *      - a Secret Manager resource name in env var GCP_SECRET_SA_JSON (e.g. projects/PROJECT_ID/secrets/NAME/versions/latest)
+ *      - GS_SERVICE_ACCOUNT_EMAIL + GS_SERVICE_ACCOUNT_KEY pair
+ *      - Otherwise falls back to Application Default Credentials (e.g. Cloud Run service account)
  *  - Writes only HEYGEN_* columns; will create columns if missing.
  */
 
 import { google } from 'googleapis'
+import { GoogleAuth } from 'google-auth-library'
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager'
 
 type ProductRow = Record<string, string>
@@ -85,10 +88,16 @@ export function mapProductToHeyGenPayload(row: ProductRow) {
  * - If env GCP_SA_JSON contains raw JSON -> parse and return it
  * - Else if env GCP_SECRET_SA_JSON contains secret resource name -> fetch from Secret Manager
  */
-async function loadServiceAccount() {
+type ServiceAccount = {
+  client_email: string
+  private_key: string
+}
+
+async function loadServiceAccountFromConfig(): Promise<ServiceAccount | null> {
   if (process.env.GCP_SA_JSON) {
     try {
-      return JSON.parse(process.env.GCP_SA_JSON)
+      const parsed = JSON.parse(process.env.GCP_SA_JSON)
+      return normalizeServiceAccount(parsed)
     } catch (e) {
       throw new Error('GCP_SA_JSON set but contains invalid JSON')
     }
@@ -100,10 +109,45 @@ async function loadServiceAccount() {
     const [accessResponse] = await client.accessSecretVersion({ name: secretName })
     const payload = accessResponse.payload?.data?.toString('utf8')
     if (!payload) throw new Error('Secret payload empty')
-    return JSON.parse(payload)
+    const parsed = JSON.parse(payload)
+    return normalizeServiceAccount(parsed)
   }
 
-  throw new Error('No service account found. Provide GCP_SA_JSON or GCP_SECRET_SA_JSON')
+  const clientEmail = process.env.GS_SERVICE_ACCOUNT_EMAIL
+  const privateKey = process.env.GS_SERVICE_ACCOUNT_KEY
+  if (clientEmail && privateKey) {
+    return {
+      client_email: clientEmail,
+      private_key: privateKey.replace(/\\n/g, '\n'),
+    }
+  }
+
+  return null
+}
+
+function normalizeServiceAccount(data: any): ServiceAccount {
+  if (!data?.client_email || !data?.private_key) {
+    throw new Error('Service account JSON is missing client_email or private_key')
+  }
+  return {
+    client_email: data.client_email,
+    private_key: (data.private_key as string).replace(/\\n/g, '\n')
+  }
+}
+
+async function createSheetsAuthClient() {
+  const scopes = ['https://www.googleapis.com/auth/spreadsheets']
+  const sa = await loadServiceAccountFromConfig()
+  if (sa) {
+    return new google.auth.JWT({
+      email: sa.client_email,
+      key: sa.private_key,
+      scopes,
+    })
+  }
+
+  const googleAuth = new GoogleAuth({ scopes })
+  return googleAuth.getClient()
 }
 
 /**
@@ -117,14 +161,11 @@ async function loadServiceAccount() {
  *  - Safe: will not overwrite existing HEYGEN_* values unless force=true
  */
 export async function writeBackMappingsToSheet(sheetId: string, gid: string, mappedRows: any[], opts?: { force?: boolean }) {
-  const sa = await loadServiceAccount()
-  const jwtClient = new google.auth.JWT({
-    email: sa.client_email,
-    key: sa.private_key,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  })
-  await jwtClient.authorize()
-  const sheets = google.sheets({ version: 'v4', auth: jwtClient })
+  const authClient = await createSheetsAuthClient()
+  if (typeof (authClient as any).authorize === 'function') {
+    await (authClient as any).authorize()
+  }
+  const sheets = google.sheets({ version: 'v4', auth: authClient as any })
 
   // Fetch header row to determine column indexes
   // Note: we use the sheet name by gid — find sheet title from gid
@@ -157,8 +198,8 @@ export async function writeBackMappingsToSheet(sheetId: string, gid: string, map
 
   // Prepare block values to write starting at startIndex column, row 2 .. rowN+1
   const blockValues = mappedRows.map((r) => newCols.map((c) => r[c] || ''))
-  const startColLetter = String.fromCharCode('A'.charCodeAt(0) + startIndex)
-  const endColLetter = String.fromCharCode('A'.charCodeAt(0) + startIndex + newCols.length - 1)
+  const startColLetter = columnToLetter(startIndex + 1)
+  const endColLetter = columnToLetter(startIndex + newCols.length)
   const range = `${sheetTitle}!${startColLetter}2:${endColLetter}${mappedRows.length + 1}`
 
   await sheets.spreadsheets.values.update({
@@ -175,3 +216,13 @@ export default {
   mapProductToHeyGenPayload,
   writeBackMappingsToSheet,
 };
+
+function columnToLetter(col: number): string {
+  let temp = ''
+  while (col > 0) {
+    const rem = (col - 1) % 26
+    temp = String.fromCharCode(65 + rem) + temp
+    col = Math.floor((col - 1) / 26)
+  }
+  return temp
+}
