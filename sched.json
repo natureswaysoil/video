@@ -1,0 +1,166 @@
+[
+  {
+    "attemptDeadline": "180s",
+    "description": "Run Amazon PPC optimization every 2 hours",
+    "httpTarget": {
+      "body": "eyJ0cmlnZ2VyIjoic2NoZWR1bGVyIiwiaW50ZXJ2YWwiOiIyaG91ciIsImRyeV9ydW4iOmZhbHNlfQ==",
+      "headers": {
+        "Content-Type": "application/json",
+        "User-Agent": "Google-Cloud-Scheduler"
+      },
+      "httpMethod": "POST",
+      "uri": "https://us-central1-amazon-ppc-474902.cloudfunctions.net/amazon-ppc-optimizer"
+    },
+    "lastAttemptTime": "2025-11-12T17:00:00.650860Z",
+    "name": "projects/amazon-ppc-474902/locations/us-central1/jobs/amazon-ppc-2hour",
+    "retryConfig": {
+      "maxBackoffDuration": "3600s",
+      "maxDoublings": 5,
+      "maxRetryDuration": "0s",
+      "minBackoffDuration": "5s"
+    },
+    "schedule": "0 */2 * * *",
+    "scheduleTime": "2025-11-12T19:00:00.374639Z",
+    "state": "ENABLED",
+    "status": {},
+    "timeZone": "America/New_York",
+    "userUpdateTime": "2025-10-15T01:02:10Z"
+  },
+  {
+    "attemptDeadline": "180s",
+    "description": "Triggers Amazon PPC Optimizer every 2 hours from 9 AM to 9 PM EST",
+    "httpTarget": {
+      "headers": {
+        "User-Agent": "Google-Cloud-Scheduler"
+      },
+      "httpMethod": "POST",
+      "uri": "https://us-central1-amazon-ppc-474902.cloudfunctions.net/amazon-ppc-optimizer"
+    },
+    "lastAttemptTime": "2025-11-12T17:00:00.669137Z",
+    "name": "projects/amazon-ppc-474902/locations/us-central1/jobs/amazon-ppc-optimizer-job",
+    "retryConfig": {
+      "maxBackoffDuration": "3600s",
+      "maxDoublings": 5,
+      "maxRetryDuration": "0s",
+      "minBackoffDuration": "5s"
+    },
+    "schedule": "0 */2 * * *",
+    "scheduleTime": "2025-11-12T19:00:00.033975Z",
+    "state": "ENABLED",
+    "status": {},
+    "timeZone": "America/New_York",
+    "userUpdateTime": "2025-10-15T20:52:35Z"
+  },
+  {
+    "attemptDeadline": "180s",
+    "httpTarget": {
+      "headers": {
+        "User-Agent": "Google-Cloud-Scheduler"
+      },
+      "httpMethod": "POST",
+      "uri": "https://us-central1-amazon-ppc-474902.cloudfunctions.net/amazon-ppc-optimizer"
+    },
+    "lastAttemptTime": "2025-11-12T17:00:00.584496Z",
+    "name": "projects/amazon-ppc-474902/locations/us-central1/jobs/amazon-ppc-optimizer-schedule",
+    "retryConfig": {
+      "maxBackoffDuration": "3600s",
+      "maxDoublings": 5,
+      "maxRetryDuration": "0s",
+      "minBackoffDuration": "5s"
+    },
+    "schedule": "0 */2 * * *",
+    "scheduleTime": "2025-11-12T19:00:00.753571Z",
+    "state": "ENABLED",
+    "status": {},
+    "timeZone": "America/New_York",
+    "userUpdateTime": "2025-10-21T20:44:30Z"
+  },
+  {
+    "attemptDeadline": "180s",
+    "description": "Run Amazon PPC Optimizer every 2 hours during peak time (9am-6pm Eastern)",
+    "httpTarget": {
+      "body": "e30=",
+      "headers": {
+        "Content-Type": "application/json",
+        "User-Agent": "Google-Cloud-Scheduler"
+      },
+      "httpMethod": "POST",
+      "oidcToken": {
+        "audience": "https://amazon-ppc-optimizer-nucguq3dba-uc.a.run.app",
+        "serviceAccountEmail": "amazon-ppc@amazon-ppc-474902.iam.gserviceaccount.com"
+      },
+      "uri": "https://us-central1-amazon-ppc-474902.cloudfunctions.net/amazon-ppc-optimizer"
+    },
+    "lastAttemptTime": "2025-11-12T17:00:00.879321Z",
+    "name": "projects/amazon-ppc-474902/locations/us-central1/jobs/amazon-ppc-optimizer-scheduler",
+    "retryConfig": {
+      "maxBackoffDuration": "3600s",
+      "maxDoublings": 5,
+      "maxRetryDuration": "0s",
+      "minBackoffDuration": "5s",
+      "retryCount": 3
+    },
+    "schedule": "0 */2 * * *",
+    "scheduleTime": "2025-11-12T19:00:00.075605Z",
+    "state": "ENABLED",
+    "status": {},
+    "timeZone": "America/New_York",
+    "userUpdateTime": "2025-10-15T20:52:36Z"
+  },
+  {
+    "attemptDeadline": "180s",
+    "httpTarget": {
+      "headers": {
+        "User-Agent": "Google-Cloud-Scheduler"
+      },
+      "httpMethod": "POST",
+      "oidcToken": {
+        "audience": "https://us-central1-amazon-ppc-474902.cloudfunctions.net/amazon-ppc-optimizer",
+        "serviceAccountEmail": "ppc-optimizer-scheduler@amazon-ppc-474902.iam.gserviceaccount.com"
+      },
+      "uri": "https://us-central1-amazon-ppc-474902.cloudfunctions.net/amazon-ppc-optimizer"
+    },
+    "lastAttemptTime": "2025-11-12T17:00:00.961185Z",
+    "name": "projects/amazon-ppc-474902/locations/us-central1/jobs/amazon-ppc-scheduler",
+    "retryConfig": {
+      "maxBackoffDuration": "3600s",
+      "maxDoublings": 5,
+      "maxRetryDuration": "0s",
+      "minBackoffDuration": "5s"
+    },
+    "schedule": "0 */2 * * *",
+    "scheduleTime": "2025-11-12T19:00:00.841502Z",
+    "state": "ENABLED",
+    "status": {},
+    "timeZone": "America/New_York",
+    "userUpdateTime": "2025-10-14T06:36:20Z"
+  },
+  {
+    "attemptDeadline": "180s",
+    "httpTarget": {
+      "headers": {
+        "User-Agent": "Google-Cloud-Scheduler"
+      },
+      "httpMethod": "POST",
+      "oidcToken": {
+        "audience": "https://amazon-ppc-optimizer-nucguq3dba-uc.a.run.app",
+        "serviceAccountEmail": "ppc-optimizer-scheduler@amazon-ppc-474902.iam.gserviceaccount.com"
+      },
+      "uri": "https://amazon-ppc-optimizer-nucguq3dba-uc.a.run.app/"
+    },
+    "lastAttemptTime": "2025-11-12T02:00:00.470461Z",
+    "name": "projects/amazon-ppc-474902/locations/us-central1/jobs/ppc-optimizer-daily",
+    "retryConfig": {
+      "maxBackoffDuration": "3600s",
+      "maxDoublings": 5,
+      "maxRetryDuration": "0s",
+      "minBackoffDuration": "5s"
+    },
+    "schedule": "0 2 * * *",
+    "scheduleTime": "2025-11-13T02:00:00.436579Z",
+    "state": "ENABLED",
+    "status": {},
+    "timeZone": "Etc/UTC",
+    "userUpdateTime": "2025-10-15T00:02:37Z"
+  }
+]

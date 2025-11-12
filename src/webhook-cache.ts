@@ -154,3 +154,96 @@ export function getWebhookCacheStats(): {
 
 // Periodic cleanup every 5 minutes
 setInterval(cleanupExpiredEntries, 5 * 60 * 1000)
+
+// ============================================================================
+// Job Context Management (for Pictory webhook handling)
+// ============================================================================
+
+export type JobContext = {
+  storyboardJobId?: string
+  renderJobId?: string
+  spreadsheetId: string
+  sheetGid?: number
+  rowNumber: number
+  headers: string[]
+  caption: string
+  enabledPlatformsCsv?: string
+  processed?: boolean
+}
+
+const jobContextById = new Map<string, JobContext>()
+
+/**
+ * Add a job context for tracking
+ */
+export function addContext(storyboardJobId: string, ctx: JobContext): void {
+  try {
+    jobContextById.set(storyboardJobId, { ...ctx, storyboardJobId })
+    logger.debug('Job context added', 'WebhookCache', {
+      storyboardJobId,
+      contextSize: jobContextById.size,
+    })
+  } catch (error) {
+    logger.error('Error adding job context', 'WebhookCache', { storyboardJobId }, error)
+  }
+}
+
+/**
+ * Set the render job ID for a storyboard job
+ */
+export function setRenderJobId(storyboardJobId: string, renderJobId: string): void {
+  try {
+    const ctx = jobContextById.get(storyboardJobId)
+    if (ctx) {
+      ctx.renderJobId = renderJobId
+      jobContextById.set(storyboardJobId, ctx)
+      jobContextById.set(renderJobId, ctx)
+      logger.debug('Render job ID set', 'WebhookCache', {
+        storyboardJobId,
+        renderJobId,
+      })
+    }
+  } catch (error) {
+    logger.error('Error setting render job ID', 'WebhookCache', { storyboardJobId, renderJobId }, error)
+  }
+}
+
+/**
+ * Resolve a job context by job ID
+ */
+export function resolveByJobId(jobId: string): JobContext | undefined {
+  try {
+    return jobContextById.get(jobId)
+  } catch (error) {
+    logger.error('Error resolving job context', 'WebhookCache', { jobId }, error)
+    return undefined
+  }
+}
+
+/**
+ * Mark a job as processed
+ */
+export function markProcessed(jobId: string): void {
+  try {
+    const ctx = jobContextById.get(jobId)
+    if (ctx) {
+      ctx.processed = true
+      logger.debug('Job marked as processed', 'WebhookCache', { jobId })
+    }
+  } catch (error) {
+    logger.error('Error marking job as processed', 'WebhookCache', { jobId }, error)
+  }
+}
+
+/**
+ * Check if a job has been processed
+ */
+export function isProcessed(jobId: string): boolean {
+  try {
+    const ctx = jobContextById.get(jobId)
+    return Boolean(ctx?.processed)
+  } catch (error) {
+    logger.error('Error checking if job is processed', 'WebhookCache', { jobId }, error)
+    return false
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "artifacts": {
+    "images": [
+      "us-central1-docker.pkg.dev/amazon-ppc-474902/natureswaysoil-video/app:latest"
+    ]
+  },
+  "createTime": "2025-11-12T17:09:38.545399576Z",
+  "failureInfo": {
+    "detail": "Build step failure: build step 0 \"gcr.io/cloud-builders/gcb-internal\" failed: step exited with non-zero status: 2",
+    "type": "USER_BUILD_STEP"
+  },
+  "finishTime": "2025-11-12T17:10:22.593462702Z",
+  "id": "638c10d8-af15-44c3-8396-dc0d8e93d119",
+  "images": [
+    "us-central1-docker.pkg.dev/amazon-ppc-474902/natureswaysoil-video/app:latest"
+  ],
+  "logUrl": "https://console.cloud.google.com/cloud-build/builds/638c10d8-af15-44c3-8396-dc0d8e93d119?project=1009540130231",
+  "logsBucket": "gs://1009540130231.cloudbuild-logs.googleusercontent.com",
+  "name": "projects/1009540130231/locations/global/builds/638c10d8-af15-44c3-8396-dc0d8e93d119",
+  "options": {
+    "logging": "LEGACY",
+    "pool": {}
+  },
+  "projectId": "amazon-ppc-474902",
+  "queueTtl": "3600s",
+  "results": {
+    "buildStepImages": [
+      "sha256:7f81934ea27f59f4203af6e717aacd1a9058c158c0758955a873a3b152d48de6"
+    ],
+    "buildStepOutputs": [
+      ""
+    ]
+  },
+  "serviceAccount": "projects/amazon-ppc-474902/serviceAccounts/1009540130231-compute@developer.gserviceaccount.com",
+  "source": {
+    "storageSource": {
+      "bucket": "amazon-ppc-474902_cloudbuild",
+      "generation": "1762967377893041",
+      "object": "source/1762967376.718254-16b62ee648474f479890ece22c478e35.tgz"
+    }
+  },
+  "sourceProvenance": {
+    "fileHashes": {
+      "gs://amazon-ppc-474902_cloudbuild/source/1762967376.718254-16b62ee648474f479890ece22c478e35.tgz#1762967377893041": {
+        "fileHash": [
+          {
+            "type": "MD5",
+            "value": "WySweGYR4022e_LVScZ4bQ=="
+          }
+        ]
+      }
+    },
+    "resolvedStorageSource": {
+      "bucket": "amazon-ppc-474902_cloudbuild",
+      "generation": "1762967377893041",
+      "object": "source/1762967376.718254-16b62ee648474f479890ece22c478e35.tgz"
+    }
+  },
+  "startTime": "2025-11-12T17:09:40.373447305Z",
+  "status": "FAILURE",
+  "steps": [
+    {
+      "args": [
+        "docker",
+        "build",
+        "--network",
+        "cloudbuild",
+        "--no-cache",
+        "-t",
+        "us-central1-docker.pkg.dev/amazon-ppc-474902/natureswaysoil-video/app:latest",
+        "."
+      ],
+      "exitCode": 2,
+      "name": "gcr.io/cloud-builders/gcb-internal",
+      "pullTiming": {
+        "endTime": "2025-11-12T17:09:45.054650263Z",
+        "startTime": "2025-11-12T17:09:45.053344537Z"
+      },
+      "status": "FAILURE",
+      "timing": {
+        "endTime": "2025-11-12T17:10:22.129868794Z",
+        "startTime": "2025-11-12T17:09:45.053344537Z"
+      }
+    }
+  ],
+  "timeout": "3600s",
+  "timing": {
+    "BUILD": {
+      "endTime": "2025-11-12T17:10:22.129931447Z",
+      "startTime": "2025-11-12T17:09:44.480653051Z"
+    },
+    "FETCHSOURCE": {
+      "endTime": "2025-11-12T17:09:44.479669985Z",
+      "startTime": "2025-11-12T17:09:41.799865057Z"
+    },
+    "STORAGE_SOURCE": {
+      "endTime": "2025-11-12T17:09:44.479669985Z",
+      "startTime": "2025-11-12T17:09:41.799865057Z"
+    }
+  }
+}

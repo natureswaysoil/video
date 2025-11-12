@@ -1,4 +1,4 @@
-// Minimal Node.js type declarations to satisfy the compiler when @types/node is unavailable.
+// Minimal Node.js type declarations
 
 declare namespace NodeJS {
   interface Process {
@@ -8,14 +8,17 @@ declare namespace NodeJS {
     stderr: { write: (...args: any[]) => void }
     cwd(): string
     exit(code?: number): never
+    on(event: string, listener: (...args: any[]) => void): this
   }
 }
 
 declare var process: NodeJS.Process
+declare var global: any
 
 declare class Buffer extends Uint8Array {
   static from(data: ArrayBuffer | ArrayLike<number> | string, encoding?: string): Buffer
   static concat(list: Buffer[], totalLength?: number): Buffer
+  static isBuffer(obj: any): obj is Buffer
   toString(encoding?: string): string
 }
 
@@ -49,39 +52,59 @@ declare module 'http' {
       listen(port: number, hostnameOrCallback?: string | (() => void), callback?: () => void): Server
       close(callback?: (err?: any) => void): void
     }
-
-    type RequestListener = (req: IncomingMessage, res: ServerResponse) => void
-
-    function createServer(listener?: RequestListener): Server
   }
 
-  type IncomingMessage = http.IncomingMessage
-  type ServerResponse = http.ServerResponse
-  type Server = http.Server
-  type RequestListener = http.RequestListener
-
-  function createServer(listener?: RequestListener): Server
-
-  export { IncomingMessage, ServerResponse, Server, RequestListener, createServer }
+  function createServer(requestListener?: (req: http.IncomingMessage, res: http.ServerResponse) => void): http.Server
   export = http
 }
 
-declare module 'stream' {
-  class Readable {
-    [Symbol.asyncIterator](): AsyncIterableIterator<any>
-    pipe<T>(destination: T, options?: { end?: boolean }): T
-  }
-  export { Readable }
+declare module 'crypto' {
+  export function createHmac(algorithm: string, key: string | Buffer): any
+  export function timingSafeEqual(a: Buffer, b: Buffer): boolean
+}
+
+declare module 'util' {
+  export function promisify<T extends (...args: any[]) => any>(fn: T): (...args: Parameters<T>) => Promise<any>
 }
 
 declare module 'fs' {
-  export const promises: any
+  export const appendFile: any
+  export const readFile: any
+  export const mkdir: any
   export function existsSync(path: string): boolean
   export function mkdirSync(path: string, options?: any): void
-  export function writeFileSync(path: string, data: any, options?: any): void
+  export function writeFileSync(path: string, data: string): void
+}
+
+declare module 'fs/promises' {
+  export function readFile(path: string, encoding?: string): Promise<string>
+  export function writeFile(path: string, data: string): Promise<void>
+  export function unlink(path: string): Promise<void>
 }
 
 declare module 'path' {
-  export function join(...segments: any[]): string
-  export function resolve(...segments: any[]): string
+  export function dirname(path: string): string
+  export function join(...paths: string[]): string
+}
+
+declare module 'zod' {
+  export const z: any
+}
+
+declare module 'node-cache' {
+  export default class NodeCache {
+    constructor(options?: any)
+    get(key: string): any
+    set(key: string, value: any, ttl?: number): boolean
+    del(key: string): number
+    has(key: string): boolean
+    flushAll(): void
+    getStats(): any
+  }
+}
+
+declare module 'stream' {
+  export class Readable {
+    on(event: string, listener: (...args: any[]) => void): this
+  }
 }

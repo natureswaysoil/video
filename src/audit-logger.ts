@@ -54,6 +54,18 @@ export class AuditLogger {
     }, this.flushInterval)
   }
 
+  /**
+   * Log an event with the legacy format (for backward compatibility)
+   */
+  async logEvent(event: { level?: string; category?: string; message?: string; details?: Record<string, any>; success?: boolean; error?: string; [key: string]: any }): Promise<void> {
+    const type = `${event.category || 'GENERAL'}:${event.level || 'INFO'}`
+    const data = {
+      message: event.message || '',
+      ...event.details
+    }
+    await this.log(type, data, { success: event.success, error: event.error })
+  }
+
   async log(type: string, data: Record<string, any>, options?: { success?: boolean; error?: string }): Promise<void> {
     try {
       const event: AuditEvent = {
@@ -181,6 +193,22 @@ export class AuditLogger {
       )
     }
   }
+
+  /**
+   * Print a summary of audit events
+   */
+  async printSummary(): Promise<void> {
+    console.log('Audit log summary not yet implemented')
+  }
+
+  /**
+   * Clear the audit log file
+   */
+  async clear(): Promise<void> {
+    this.eventsBuffer = []
+  }
+
+
 }
 
 let globalAuditLogger: AuditLogger | null = null

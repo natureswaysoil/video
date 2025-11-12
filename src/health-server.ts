@@ -1,4 +1,4 @@
-import http, { Server } from 'http'
+import http from 'http'
 import { resolveByJobId, markProcessed, isProcessed } from './webhook-cache'
 import { postToTwitter } from './twitter'
 import { postToYouTube } from './youtube'
@@ -7,7 +7,7 @@ import { postToPinterest } from './pinterest'
 
 const PORT = parseInt(process.env.PORT || '8080', 10)
 
-let server: Server | null = null
+let server: http.Server | null = null
 let serverStarted = false
 
 let lastRunStatus = {
@@ -102,7 +102,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
       // Post immediately (time window not enforced for webhooks)
       const caption = ctx.caption
-      const enabledPlatforms = new Set((ctx.enabledPlatformsCsv || '').split(',').map((s) => s.trim()).filter(Boolean))
+      const enabledPlatforms = new Set((ctx.enabledPlatformsCsv || '').split(',').map((s: string) => s.trim()).filter(Boolean))
       const postTwitter = enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')
       const postYouTube = enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')
       const postInstagram = enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')

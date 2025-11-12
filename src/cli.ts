@@ -9,8 +9,9 @@ import { mapProductToHeyGenPayload } from './heygen-adapter'
 import { generateScript } from './openai'
 import { markRowPosted, writeColumnValues } from './sheets'
 import { startHealthServer, stopHealthServer, updateStatus, incrementSuccessfulPost, incrementFailedPost, addError } from './health-server'
-import { auditLogger } from './audit-logger'
+import { getAuditLogger } from './audit-logger'
 
+const auditLogger = getAuditLogger()
 // Retry helper with exponential backoff
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
@@ -68,7 +69,7 @@ async function main() {
   startHealthServer()
 
   // Log initial configuration
-  auditLogger.log({
+  getAuditLogger().logEvent({
     level: 'INFO',
     category: 'SYSTEM',
     message: 'Video posting system started',
@@ -82,7 +83,7 @@ async function main() {
   })
 
   if (dryRun) {
-    auditLogger.log({
+    getAuditLogger().logEvent({
       level: 'WARN',
       category: 'SYSTEM',
       message: 'DRY RUN MODE ENABLED - No actual posts will be sent',
@@ -90,7 +91,7 @@ async function main() {
   }
 
   if (enforcePostingWindows) {
-    auditLogger.log({
+    getAuditLogger().logEvent({
       level: 'WARN',
       category: 'SYSTEM',
       message: 'Posting windows enforced - will only post at 9AM/5PM ET',
@@ -261,7 +262,7 @@ async function main() {
           const canPostNow = !enforcePostingWindows || isWithinPostingWindow()
           if (!canPostNow) {
             console.log('🕘 Outside posting window (9AM/5PM ET). Will not post, but video URL is ready:', videoUrl)
-            auditLogger.log({
+            getAuditLogger().logEvent({
               level: 'SKIP',
               category: 'POSTING',
               message: 'Outside posting window',
@@ -277,7 +278,7 @@ async function main() {
           const platformStatus = checkPlatformAvailability(enabledPlatforms)
           
           if (!platformStatus.anyEnabled && !dryRun) {
-            auditLogger.log({
+            getAuditLogger().logEvent({
               level: 'ERROR',
               category: 'PLATFORM',
               message: 'No platforms enabled with valid credentials',
@@ -289,7 +290,7 @@ async function main() {
               }
             })
           } else if (!dryRun && canPostNow) {
-            auditLogger.log({
+            getAuditLogger().logEvent({
               level: 'INFO',
               category: 'PLATFORM',
               message: 'Platforms ready for posting',
@@ -303,7 +304,7 @@ async function main() {
             console.log('[DRY RUN] Would post to Instagram:', { videoUrl, caption })
             platformResults.instagram = { success: true, result: 'DRY_RUN' }
           } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')) && process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID) {
-            auditLogger.log({
+            getAuditLogger().logEvent({
               level: 'INFO',
               category: 'POSTING',
               message: 'Attempting Instagram post',
@@ -323,7 +324,7 @@ async function main() {
               platformResults.instagram = { success: true, result }
               postedAtLeastOne = true
               incrementSuccessfulPost()
-              auditLogger.log({
+              getAuditLogger().logEvent({
                 level: 'SUCCESS',
                 category: 'POSTING',
                 message: 'Instagram post successful',
@@ -336,7 +337,7 @@ async function main() {
               platformResults.instagram = { success: false, error: 'Failed after 3 retries' }
               incrementFailedPost()
               addError(`Instagram: ${product?.title || jobId} - Failed after 3 retries`)
-              auditLogger.log({
+              getAuditLogger().logEvent({
                 level: 'ERROR',
                 category: 'POSTING',
                 message: 'Instagram post failed',
@@ -351,7 +352,7 @@ async function main() {
             console.log('[DRY RUN] Would post to Twitter:', { videoUrl, caption })
             platformResults.twitter = { success: true, result: 'DRY_RUN' }
           } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')) && (process.env.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds())) {
-            auditLogger.log({
+            getAuditLogger().logEvent({
               level: 'INFO',
               category: 'POSTING',
               message: 'Attempting Twitter post',
@@ -365,6 +366,7 @@ async function main() {
                 } else if (process.env.TWITTER_BEARER_TOKEN) {
                   return await postToTwitter(videoUrl!, caption, process.env.TWITTER_BEARER_TOKEN)
                 }
+                return null
               },
               { 
                 maxRetries: 3,
@@ -377,7 +379,7 @@ async function main() {
               platformResults.twitter = { success: true, result }
               postedAtLeastOne = true
               incrementSuccessfulPost()
-              auditLogger.log({
+              getAuditLogger().logEvent({
                 level: 'SUCCESS',
                 category: 'POSTING',
                 message: 'Twitter post successful',
@@ -389,7 +391,7 @@ async function main() {
               platformResults.twitter = { success: false, error: 'Failed after 3 retries' }
               incrementFailedPost()
               addError(`Twitter: ${product?.title || jobId} - Failed after 3 retries`)
-              auditLogger.log({
+              getAuditLogger().logEvent({
                 level: 'ERROR',
                 category: 'POSTING',
                 message: 'Twitter post failed',
@@ -404,7 +406,7 @@ async function main() {
             console.log('[DRY RUN] Would post to Pinterest:', { videoUrl, caption })
             platformResults.pinterest = { success: true, result: 'DRY_RUN' }
           } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')) && process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID) {
-            auditLogger.log({
+            getAuditLogger().logEvent({
               level: 'INFO',
               category: 'POSTING',
               message: 'Attempting Pinterest post',
@@ -424,7 +426,7 @@ async function main() {
               platformResults.pinterest = { success: true, result }
               postedAtLeastOne = true
               incrementSuccessfulPost()
-              auditLogger.log({
+              getAuditLogger().logEvent({
                 level: 'SUCCESS',
                 category: 'POSTING',
                 message: 'Pinterest post successful',
@@ -436,7 +438,7 @@ async function main() {
               platformResults.pinterest = { success: false, error: 'Failed after 3 retries' }
               incrementFailedPost()
               addError(`Pinterest: ${product?.title || jobId} - Failed after 3 retries`)
-              auditLogger.log({
+              getAuditLogger().logEvent({
                 level: 'ERROR',
                 category: 'POSTING',
                 message: 'Pinterest post failed',
@@ -451,7 +453,7 @@ async function main() {
             console.log('[DRY RUN] Would upload to YouTube:', { videoUrl, caption })
             platformResults.youtube = { success: true, result: 'DRY_RUN' }
           } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')) && process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN) {
-            auditLogger.log({
+            getAuditLogger().logEvent({
               level: 'INFO',
               category: 'POSTING',
               message: 'Attempting YouTube upload',
@@ -478,7 +480,7 @@ async function main() {
               platformResults.youtube = { success: true, result }
               postedAtLeastOne = true
               incrementSuccessfulPost()
-              auditLogger.log({
+              getAuditLogger().logEvent({
                 level: 'SUCCESS',
                 category: 'POSTING',
                 message: 'YouTube upload successful',
@@ -490,7 +492,7 @@ async function main() {
               platformResults.youtube = { success: false, error: 'Failed after 2 retries' }
               incrementFailedPost()
               addError(`YouTube: ${product?.title || jobId} - Failed after 2 retries`)
-              auditLogger.log({
+              getAuditLogger().logEvent({
                 level: 'ERROR',
                 category: 'POSTING',
                 message: 'YouTube upload failed',
@@ -590,7 +592,7 @@ async function main() {
         })
       } else {
         console.log('No valid products found in sheet.')
-        auditLogger.log({
+        getAuditLogger().logEvent({
           level: 'WARN',
           category: 'CSV',
           message: 'No valid products found in sheet',
@@ -600,7 +602,7 @@ async function main() {
     } catch (e: any) {
       console.error('Polling error:', e)
       addError(`Cycle error: ${e?.message || String(e)}`)
-      auditLogger.log({
+      getAuditLogger().logEvent({
         level: 'ERROR',
         category: 'SYSTEM',
         message: 'Cycle error',
@@ -610,11 +612,11 @@ async function main() {
     }
     
     // Print audit summary at the end of each cycle
-    auditLogger.printSummary()
+    getAuditLogger().printSummary()
     
     // Clear audit log for next cycle (unless runOnce mode)
     if (!runOnce) {
-      auditLogger.clear()
+      getAuditLogger().clear()
     }
   }
   if (runOnce) {

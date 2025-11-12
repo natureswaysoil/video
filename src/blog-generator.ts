@@ -307,8 +307,8 @@ export async function postBlogVideoToSocial(blogPost: BlogPost, videoUrl: string
         process.env.INSTAGRAM_ACCESS_TOKEN,
         process.env.INSTAGRAM_IG_ID
       )
-      console.log('✅ Posted to Instagram:', igResult?.id || 'success')
-      results.instagram = { success: true, mediaId: igResult?.id }
+      console.log('✅ Posted to Instagram:', igResult || 'success')
+      results.instagram = { success: true, mediaId: igResult }
     } catch (error: any) {
       console.error('❌ Instagram post failed:', error.message)
       results.instagram = { success: false, error: error.message }

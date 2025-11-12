@@ -1,0 +1,74 @@
+[
+  {
+    "apiVersion": "run.googleapis.com/v1",
+    "kind": "Job",
+    "metadata": {
+      "annotations": {
+        "run.googleapis.com/client-name": "cloud-console",
+        "run.googleapis.com/creator": "natureswaysoil@gmail.com",
+        "run.googleapis.com/lastModifier": "natureswaysoil@gmail.com",
+        "run.googleapis.com/operation-id": "823897b7-af15-49c6-b5a2-a61ede61fffd"
+      },
+      "creationTimestamp": "2025-10-14T21:36:34.783404Z",
+      "generation": 1,
+      "labels": {
+        "cloud.googleapis.com/location": "us-central1",
+        "run.googleapis.com/lastUpdatedTime": "2025-10-14T21:36:34.783404Z"
+      },
+      "name": "amazon-ppc-optimizer",
+      "namespace": "1009540130231",
+      "resourceVersion": "AAZDKqdzM08",
+      "selfLink": "/apis/run.googleapis.com/v1/namespaces/1009540130231/jobs/amazon-ppc-optimizer",
+      "uid": "4acc06a3-5f85-43b5-a90b-d47aa0aeef78"
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "annotations": {
+            "run.googleapis.com/client-name": "cloud-console",
+            "run.googleapis.com/execution-environment": "gen2"
+          }
+        },
+        "spec": {
+          "taskCount": 1,
+          "template": {
+            "spec": {
+              "containers": [
+                {
+                  "image": "us-central1-docker.pkg.dev/amazon-ppc-474902/cloud-run-source-deploy/amazon-ppc-optimizer@sha256:f08f62511d4be4397094f352c7c065933ee42fbbab96efde9c45e99d9f58e430",
+                  "name": "amazon-ppc-optimizer-1",
+                  "resources": {
+                    "limits": {
+                      "cpu": "1000m",
+                      "memory": "512Mi"
+                    }
+                  }
+                }
+              ],
+              "maxRetries": 3,
+              "serviceAccountName": "1009540130231-compute@developer.gserviceaccount.com",
+              "timeoutSeconds": "600"
+            }
+          }
+        }
+      }
+    },
+    "status": {
+      "conditions": [
+        {
+          "lastTransitionTime": "2025-10-14T21:36:35.201968Z",
+          "status": "True",
+          "type": "Ready"
+        }
+      ],
+      "executionCount": 2,
+      "latestCreatedExecution": {
+        "completionStatus": "EXECUTION_FAILED",
+        "completionTimestamp": "2025-11-09T14:58:54.812739Z",
+        "creationTimestamp": "2025-11-09T14:53:37.989671Z",
+        "name": "amazon-ppc-optimizer-qk2ff"
+      },
+      "observedGeneration": 1
+    }
+  }
+]

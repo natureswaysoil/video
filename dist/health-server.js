@@ -32,9 +32,6 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.startHealthServer = startHealthServer;
 exports.stopHealthServer = stopHealthServer;
@@ -42,7 +39,6 @@ exports.updateStatus = updateStatus;
 exports.incrementSuccessfulPost = incrementSuccessfulPost;
 exports.incrementFailedPost = incrementFailedPost;
 exports.addError = addError;
-const http_1 = __importDefault(require("http"));
 const webhook_cache_1 = require("./webhook-cache");
 const twitter_1 = require("./twitter");
 const youtube_1 = require("./youtube");

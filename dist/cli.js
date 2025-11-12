@@ -45,6 +45,7 @@ const openai_1 = require("./openai");
 const sheets_1 = require("./sheets");
 const health_server_1 = require("./health-server");
 const audit_logger_1 = require("./audit-logger");
+const auditLogger = (0, audit_logger_1.getAuditLogger)();
 // Retry helper with exponential backoff
 async function retryWithBackoff(fn, options = {}) {
     const { maxRetries = 3, initialDelayMs = 1000, maxDelayMs = 16000, operation = 'Operation' } = options;
@@ -83,7 +84,7 @@ async function main() {
     // Start health server for monitoring/webhooks (will be stopped in run-once mode)
     (0, health_server_1.startHealthServer)();
     // Log initial configuration
-    audit_logger_1.auditLogger.log({
+    (0, audit_logger_1.getAuditLogger)().logEvent({
         level: 'INFO',
         category: 'SYSTEM',
         message: 'Video posting system started',
@@ -96,14 +97,14 @@ async function main() {
         }
     });
     if (dryRun) {
-        audit_logger_1.auditLogger.log({
+        (0, audit_logger_1.getAuditLogger)().logEvent({
             level: 'WARN',
             category: 'SYSTEM',
             message: 'DRY RUN MODE ENABLED - No actual posts will be sent',
         });
     }
     if (enforcePostingWindows) {
-        audit_logger_1.auditLogger.log({
+        (0, audit_logger_1.getAuditLogger)().logEvent({
             level: 'WARN',
             category: 'SYSTEM',
             message: 'Posting windows enforced - will only post at 9AM/5PM ET',
@@ -265,7 +266,7 @@ async function main() {
                     const canPostNow = !enforcePostingWindows || isWithinPostingWindow();
                     if (!canPostNow) {
                         console.log('🕘 Outside posting window (9AM/5PM ET). Will not post, but video URL is ready:', videoUrl);
-                        audit_logger_1.auditLogger.log({
+                        (0, audit_logger_1.getAuditLogger)().logEvent({
                             level: 'SKIP',
                             category: 'POSTING',
                             message: 'Outside posting window',
@@ -279,7 +280,7 @@ async function main() {
                     // Check if any platforms are enabled
                     const platformStatus = checkPlatformAvailability(enabledPlatforms);
                     if (!platformStatus.anyEnabled && !dryRun) {
-                        audit_logger_1.auditLogger.log({
+                        (0, audit_logger_1.getAuditLogger)().logEvent({
                             level: 'ERROR',
                             category: 'PLATFORM',
                             message: 'No platforms enabled with valid credentials',
@@ -292,7 +293,7 @@ async function main() {
                         });
                     }
                     else if (!dryRun && canPostNow) {
-                        audit_logger_1.auditLogger.log({
+                        (0, audit_logger_1.getAuditLogger)().logEvent({
                             level: 'INFO',
                             category: 'PLATFORM',
                             message: 'Platforms ready for posting',
@@ -306,7 +307,7 @@ async function main() {
                         platformResults.instagram = { success: true, result: 'DRY_RUN' };
                     }
                     else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')) && process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID) {
-                        audit_logger_1.auditLogger.log({
+                        (0, audit_logger_1.getAuditLogger)().logEvent({
                             level: 'INFO',
                             category: 'POSTING',
                             message: 'Attempting Instagram post',
@@ -323,7 +324,7 @@ async function main() {
                             platformResults.instagram = { success: true, result };
                             postedAtLeastOne = true;
                             (0, health_server_1.incrementSuccessfulPost)();
-                            audit_logger_1.auditLogger.log({
+                            (0, audit_logger_1.getAuditLogger)().logEvent({
                                 level: 'SUCCESS',
                                 category: 'POSTING',
                                 message: 'Instagram post successful',
@@ -337,7 +338,7 @@ async function main() {
                             platformResults.instagram = { success: false, error: 'Failed after 3 retries' };
                             (0, health_server_1.incrementFailedPost)();
                             (0, health_server_1.addError)(`Instagram: ${product?.title || jobId} - Failed after 3 retries`);
-                            audit_logger_1.auditLogger.log({
+                            (0, audit_logger_1.getAuditLogger)().logEvent({
                                 level: 'ERROR',
                                 category: 'POSTING',
                                 message: 'Instagram post failed',
@@ -353,7 +354,7 @@ async function main() {
                         platformResults.twitter = { success: true, result: 'DRY_RUN' };
                     }
                     else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')) && (process.env.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds())) {
-                        audit_logger_1.auditLogger.log({
+                        (0, audit_logger_1.getAuditLogger)().logEvent({
                             level: 'INFO',
                             category: 'POSTING',
                             message: 'Attempting Twitter post',
@@ -367,6 +368,7 @@ async function main() {
                             else if (process.env.TWITTER_BEARER_TOKEN) {
                                 return await (0, twitter_1.postToTwitter)(videoUrl, caption, process.env.TWITTER_BEARER_TOKEN);
                             }
+                            return null;
                         }, {
                             maxRetries: 3,
                             operation: 'Twitter post',
@@ -377,7 +379,7 @@ async function main() {
                             platformResults.twitter = { success: true, result };
                             postedAtLeastOne = true;
                             (0, health_server_1.incrementSuccessfulPost)();
-                            audit_logger_1.auditLogger.log({
+                            (0, audit_logger_1.getAuditLogger)().logEvent({
                                 level: 'SUCCESS',
                                 category: 'POSTING',
                                 message: 'Twitter post successful',
@@ -390,7 +392,7 @@ async function main() {
                             platformResults.twitter = { success: false, error: 'Failed after 3 retries' };
                             (0, health_server_1.incrementFailedPost)();
                             (0, health_server_1.addError)(`Twitter: ${product?.title || jobId} - Failed after 3 retries`);
-                            audit_logger_1.auditLogger.log({
+                            (0, audit_logger_1.getAuditLogger)().logEvent({
                                 level: 'ERROR',
                                 category: 'POSTING',
                                 message: 'Twitter post failed',
@@ -406,7 +408,7 @@ async function main() {
                         platformResults.pinterest = { success: true, result: 'DRY_RUN' };
                     }
                     else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')) && process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID) {
-                        audit_logger_1.auditLogger.log({
+                        (0, audit_logger_1.getAuditLogger)().logEvent({
                             level: 'INFO',
                             category: 'POSTING',
                             message: 'Attempting Pinterest post',
@@ -423,7 +425,7 @@ async function main() {
                             platformResults.pinterest = { success: true, result };
                             postedAtLeastOne = true;
                             (0, health_server_1.incrementSuccessfulPost)();
-                            audit_logger_1.auditLogger.log({
+                            (0, audit_logger_1.getAuditLogger)().logEvent({
                                 level: 'SUCCESS',
                                 category: 'POSTING',
                                 message: 'Pinterest post successful',
@@ -436,7 +438,7 @@ async function main() {
                             platformResults.pinterest = { success: false, error: 'Failed after 3 retries' };
                             (0, health_server_1.incrementFailedPost)();
                             (0, health_server_1.addError)(`Pinterest: ${product?.title || jobId} - Failed after 3 retries`);
-                            audit_logger_1.auditLogger.log({
+                            (0, audit_logger_1.getAuditLogger)().logEvent({
                                 level: 'ERROR',
                                 category: 'POSTING',
                                 message: 'Pinterest post failed',
@@ -452,7 +454,7 @@ async function main() {
                         platformResults.youtube = { success: true, result: 'DRY_RUN' };
                     }
                     else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')) && process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN) {
-                        audit_logger_1.auditLogger.log({
+                        (0, audit_logger_1.getAuditLogger)().logEvent({
                             level: 'INFO',
                             category: 'POSTING',
                             message: 'Attempting YouTube upload',
@@ -469,7 +471,7 @@ async function main() {
                             platformResults.youtube = { success: true, result };
                             postedAtLeastOne = true;
                             (0, health_server_1.incrementSuccessfulPost)();
-                            audit_logger_1.auditLogger.log({
+                            (0, audit_logger_1.getAuditLogger)().logEvent({
                                 level: 'SUCCESS',
                                 category: 'POSTING',
                                 message: 'YouTube upload successful',
@@ -482,7 +484,7 @@ async function main() {
                             platformResults.youtube = { success: false, error: 'Failed after 2 retries' };
                             (0, health_server_1.incrementFailedPost)();
                             (0, health_server_1.addError)(`YouTube: ${product?.title || jobId} - Failed after 2 retries`);
-                            audit_logger_1.auditLogger.log({
+                            (0, audit_logger_1.getAuditLogger)().logEvent({
                                 level: 'ERROR',
                                 category: 'POSTING',
                                 message: 'YouTube upload failed',
@@ -574,7 +576,7 @@ async function main() {
             }
             else {
                 console.log('No valid products found in sheet.');
-                audit_logger_1.auditLogger.log({
+                (0, audit_logger_1.getAuditLogger)().logEvent({
                     level: 'WARN',
                     category: 'CSV',
                     message: 'No valid products found in sheet',
@@ -585,7 +587,7 @@ async function main() {
         catch (e) {
             console.error('Polling error:', e);
             (0, health_server_1.addError)(`Cycle error: ${e?.message || String(e)}`);
-            audit_logger_1.auditLogger.log({
+            (0, audit_logger_1.getAuditLogger)().logEvent({
                 level: 'ERROR',
                 category: 'SYSTEM',
                 message: 'Cycle error',
@@ -594,10 +596,10 @@ async function main() {
             (0, health_server_1.updateStatus)({ status: 'error' });
         }
         // Print audit summary at the end of each cycle
-        audit_logger_1.auditLogger.printSummary();
+        (0, audit_logger_1.getAuditLogger)().printSummary();
         // Clear audit log for next cycle (unless runOnce mode)
         if (!runOnce) {
-            audit_logger_1.auditLogger.clear();
+            (0, audit_logger_1.getAuditLogger)().clear();
         }
     };
     if (runOnce) {

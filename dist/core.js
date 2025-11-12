@@ -5,76 +5,197 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.processCsvUrl = processCsvUrl;
 const axios_1 = __importDefault(require("axios"));
+const errors_1 = require("./errors");
+const logger_1 = require("./logger");
+const logger_2 = require("./logger");
+const url_cache_1 = require("./url-cache");
+const config_validator_1 = require("./config-validator");
+const logger = (0, logger_1.getLogger)();
+const metrics = (0, logger_2.getMetrics)();
+const urlCache = (0, url_cache_1.getUrlCache)();
 async function processCsvUrl(csvUrl) {
-    // Fetch CSV and parse all rows; map headers from the provided sheet flexibly.
-    const { data } = await axios_1.default.get(csvUrl, { responseType: 'text' });
-    const lines = data.split(/\r?\n/);
-    if (lines.length < 2)
-        return { skipped: true, rows: [] };
-    const headers = splitCsvLine(lines[0]).map((h) => h.trim());
-    const rows = [];
-    for (const [i, raw] of lines.slice(1).entries()) {
-        if (!raw.trim())
-            continue;
-        const cols = splitCsvLine(raw);
-        if (!cols.some(Boolean))
-            continue;
-        const rec = {};
-        headers.forEach((h, i) => { rec[h] = (cols[i] ?? '').trim(); });
-        // Flexible header mapping with env overrides
-        const jobId = pickFirst(rec, envKeys('CSV_COL_JOB_ID')) ||
-            pickFirst(rec, ['jobId', 'job_id', 'wavespeed_job_id', 'WaveSpeed Job ID', 'WAVESPEED_JOB_ID', 'job']);
-        if (!jobId)
-            continue; // skip rows missing jobId
-        const title = pickFirst(rec, envKeys('CSV_COL_TITLE')) || pickFirst(rec, ['title', 'name', 'product', 'Product', 'Title']);
-        const details = pickFirst(rec, envKeys('CSV_COL_DETAILS')) || pickFirst(rec, ['details', 'description', 'caption', 'Description', 'Details', 'Caption']);
-        const product = {
-            id: pickFirst(rec, envKeys('CSV_COL_ID')) || pickFirst(rec, ['id', 'ID']),
-            name: pickFirst(rec, envKeys('CSV_COL_NAME')) || pickFirst(rec, ['name', 'product', 'Product', 'Title']) || title,
-            title: title || pickFirst(rec, ['name']),
-            details: details,
-            ...rec,
-        };
-        // Optional gating: skip if already posted; require ready/enabled if present
-        const alwaysNew = String(process.env.ALWAYS_GENERATE_NEW_VIDEO || '').toLowerCase() === 'true';
-        const posted = pickFirst(rec, envKeys('CSV_COL_POSTED')) || pickFirst(rec, ['Posted', 'posted']);
-        if (!alwaysNew && posted && isTruthy(posted, process.env.CSV_STATUS_TRUE_VALUES)) {
-            continue; // don't process already-posted rows unless alwaysNew
+    const startTime = Date.now();
+    try {
+        const config = (0, config_validator_1.getConfig)();
+        if (!csvUrl) {
+            throw new errors_1.AppError('CSV URL is required', errors_1.ErrorCode.VALIDATION_ERROR, 400, true, { hasCsvUrl: !!csvUrl });
         }
-        const ready = pickFirst(rec, envKeys('CSV_COL_READY')) || pickFirst(rec, ['Ready', 'ready', 'Status', 'status', 'Enabled', 'enabled', 'Post', 'post']);
-        if (ready && !isTruthy(ready, process.env.CSV_STATUS_TRUE_VALUES)) {
-            continue; // skip rows that are explicitly not ready
+        logger.info('Processing CSV from URL', 'Core', { csvUrl });
+        // Try to get from cache first
+        const cacheKey = `csv:${csvUrl}`;
+        const cached = urlCache.get(cacheKey);
+        let data;
+        if (cached) {
+            logger.debug('Using cached CSV data', 'Core', { csvUrl });
+            data = cached;
         }
-        rows.push({ product, jobId, rowNumber: i + 2, headers, record: rec });
+        else {
+            logger.debug('Fetching CSV from URL', 'Core', { csvUrl });
+            // Fetch CSV and parse all rows
+            const response = await (0, errors_1.withRetry)(async () => {
+                return axios_1.default.get(csvUrl, {
+                    responseType: 'text',
+                    timeout: 30000,
+                });
+            }, {
+                maxRetries: 3,
+                onRetry: (error, attempt) => {
+                    logger.warn('Retrying CSV fetch', 'Core', {
+                        attempt,
+                        csvUrl,
+                        error: error instanceof Error ? error.message : String(error),
+                    });
+                },
+            });
+            data = response.data;
+            // Cache for 5 minutes
+            urlCache.set(cacheKey, data, 300);
+        }
+        const lines = data.split(/\r?\n/);
+        if (lines.length < 2) {
+            logger.warn('CSV has no data rows', 'Core', { csvUrl, lineCount: lines.length });
+            return { skipped: true, rows: [] };
+        }
+        const headers = splitCsvLine(lines[0]).map((h) => h.trim());
+        if (headers.length === 0) {
+            throw new errors_1.AppError('CSV has no headers', errors_1.ErrorCode.CSV_PARSING_ERROR, 400, true, { csvUrl });
+        }
+        logger.debug('CSV headers parsed', 'Core', {
+            csvUrl,
+            headerCount: headers.length,
+            headers: headers.slice(0, 10), // Log first 10 headers
+        });
+        const rows = [];
+        let skippedCount = 0;
+        let processedCount = 0;
+        for (const [i, raw] of lines.slice(1).entries()) {
+            if (!raw.trim())
+                continue;
+            const cols = splitCsvLine(raw);
+            if (!cols.some(Boolean))
+                continue;
+            const rec = {};
+            headers.forEach((h, i) => {
+                rec[h] = (cols[i] ?? '').trim();
+            });
+            // Flexible header mapping with env overrides
+            const jobId = pickFirst(rec, envKeys('CSV_COL_JOB_ID')) ||
+                pickFirst(rec, [
+                    'jobId',
+                    'job_id',
+                    'wavespeed_job_id',
+                    'WaveSpeed Job ID',
+                    'WAVESPEED_JOB_ID',
+                    'job',
+                ]);
+            if (!jobId) {
+                logger.debug('Skipping row without jobId', 'Core', {
+                    rowNumber: i + 2,
+                    csvUrl,
+                });
+                skippedCount++;
+                continue; // skip rows missing jobId
+            }
+            const title = pickFirst(rec, envKeys('CSV_COL_TITLE')) ||
+                pickFirst(rec, ['title', 'name', 'product', 'Product', 'Title']);
+            const details = pickFirst(rec, envKeys('CSV_COL_DETAILS')) ||
+                pickFirst(rec, ['details', 'description', 'caption', 'Description', 'Details', 'Caption']);
+            const product = {
+                id: pickFirst(rec, envKeys('CSV_COL_ID')) || pickFirst(rec, ['id', 'ID']),
+                name: pickFirst(rec, envKeys('CSV_COL_NAME')) ||
+                    pickFirst(rec, ['name', 'product', 'Product', 'Title']) ||
+                    title,
+                title: title || pickFirst(rec, ['name']),
+                details: details,
+                ...rec,
+            };
+            // Optional gating: skip if already posted; require ready/enabled if present
+            const alwaysNew = String(config.ALWAYS_GENERATE_NEW_VIDEO || 'false').toLowerCase() === 'true';
+            const posted = pickFirst(rec, envKeys('CSV_COL_POSTED')) ||
+                pickFirst(rec, ['Posted', 'posted']);
+            if (!alwaysNew && posted && isTruthy(posted, process.env.CSV_STATUS_TRUE_VALUES)) {
+                logger.debug('Skipping already posted row', 'Core', {
+                    rowNumber: i + 2,
+                    jobId,
+                    csvUrl,
+                });
+                skippedCount++;
+                continue; // don't process already-posted rows unless alwaysNew
+            }
+            const ready = pickFirst(rec, envKeys('CSV_COL_READY')) ||
+                pickFirst(rec, ['Ready', 'ready', 'Status', 'status', 'Enabled', 'enabled', 'Post', 'post']);
+            if (ready && !isTruthy(ready, process.env.CSV_STATUS_TRUE_VALUES)) {
+                logger.debug('Skipping row that is not ready', 'Core', {
+                    rowNumber: i + 2,
+                    jobId,
+                    ready,
+                    csvUrl,
+                });
+                skippedCount++;
+                continue; // skip rows that are explicitly not ready
+            }
+            rows.push({ product, jobId, rowNumber: i + 2, headers, record: rec });
+            processedCount++;
+        }
+        const duration = Date.now() - startTime;
+        metrics.incrementCounter('core.process_csv.success');
+        metrics.recordHistogram('core.process_csv.duration', duration);
+        logger.info('CSV processed', 'Core', {
+            csvUrl,
+            totalLines: lines.length,
+            processedRows: processedCount,
+            skippedRows: skippedCount,
+            duration,
+        });
+        return { skipped: rows.length === 0, rows };
     }
-    return { skipped: rows.length === 0, rows };
+    catch (error) {
+        const duration = Date.now() - startTime;
+        metrics.incrementCounter('core.process_csv.error');
+        metrics.recordHistogram('core.process_csv.error_duration', duration);
+        logger.error('Failed to process CSV', 'Core', { csvUrl, duration }, error);
+        if (error instanceof errors_1.AppError) {
+            throw error;
+        }
+        if (axios_1.default.isAxiosError(error)) {
+            throw (0, errors_1.fromAxiosError)(error, errors_1.ErrorCode.CSV_PARSING_ERROR, { csvUrl });
+        }
+        throw new errors_1.AppError(`CSV processing failed: ${error.message || String(error)}`, errors_1.ErrorCode.CSV_PARSING_ERROR, 500, true, { csvUrl }, error instanceof Error ? error : undefined);
+    }
 }
 // Minimal CSV splitter handling quotes and commas
 function splitCsvLine(line) {
-    const result = [];
-    let current = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (ch === '"') {
-            if (inQuotes && line[i + 1] === '"') { // escaped quote
-                current += '"';
-                i++;
+    try {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (ch === '"') {
+                if (inQuotes && line[i + 1] === '"') {
+                    // escaped quote
+                    current += '"';
+                    i++;
+                }
+                else {
+                    inQuotes = !inQuotes;
+                }
+            }
+            else if (ch === ',' && !inQuotes) {
+                result.push(current);
+                current = '';
             }
             else {
-                inQuotes = !inQuotes;
+                current += ch;
             }
         }
-        else if (ch === ',' && !inQuotes) {
-            result.push(current);
-            current = '';
-        }
-        else {
-            current += ch;
-        }
+        result.push(current);
+        return result;
     }
-    result.push(current);
-    return result;
+    catch (error) {
+        logger.error('Error splitting CSV line', 'Core', {}, error);
+        throw new errors_1.AppError('CSV line parsing failed', errors_1.ErrorCode.CSV_PARSING_ERROR, 400, true, { line: line.substring(0, 100) });
+    }
 }
 function pickFirst(rec, keys) {
     for (const k of keys) {
@@ -87,12 +208,14 @@ function pickFirst(rec, keys) {
 function isTruthy(val, custom) {
     const v = val.trim().toLowerCase();
     const defaults = ['1', 'true', 'yes', 'y', 'on', 'post', 'enabled'];
-    const list = (custom ? custom.split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : defaults);
+    const list = custom
+        ? custom.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+        : defaults;
     return list.includes(v);
 }
 function envKeys(envName) {
     const raw = process.env[envName];
     if (!raw)
         return [];
-    return raw.split(',').map(s => s.trim()).filter(Boolean);
+    return raw.split(',').map((s) => s.trim()).filter(Boolean);
 }

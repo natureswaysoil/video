@@ -21,7 +21,7 @@ async function getSecretFromGcp(name: string): Promise<string | null> {
     return payload || null
   } catch (e) {
     // Not fatal - return null so caller can fall back to env var
-    logger.debug('Could not load secret from GCP', 'HeyGen', {}, e)
+    logger.debug('Could not load secret from GCP', 'HeyGen', { error: e })
     return null
   }
 }

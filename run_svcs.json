@@ -1,0 +1,635 @@
+[
+  {
+    "apiVersion": "serving.knative.dev/v1",
+    "kind": "Service",
+    "metadata": {
+      "annotations": {
+        "cloudfunctions.googleapis.com/function-id": "amazon-ppc-optimizer",
+        "run.googleapis.com/build-base-image": "us-central1-docker.pkg.dev/serverless-runtimes/google-22-full/runtimes/python311",
+        "run.googleapis.com/build-enable-automatic-updates": "false",
+        "run.googleapis.com/build-function-target": "run_optimizer",
+        "run.googleapis.com/build-id": "d0488f52-c361-40c3-bce5-a0b8d7262617",
+        "run.googleapis.com/build-image-uri": "us-central1-docker.pkg.dev/amazon-ppc-474902/gcf-artifacts/amazon--ppc--474902__us--central1__amazon--ppc--optimizer:version_1",
+        "run.googleapis.com/build-name": "projects/1009540130231/locations/us-central1/builds/59115169-2088-4bd4-b67f-932f058ae4f3",
+        "run.googleapis.com/build-service-account": "projects/amazon-ppc-474902/serviceAccounts/1009540130231-compute@developer.gserviceaccount.com",
+        "run.googleapis.com/build-source-location": "gs://gcf-v2-sources-1009540130231-us-central1/amazon-ppc-optimizer/function-source.zip#1762914112230671",
+        "run.googleapis.com/client-name": "cloud-console",
+        "run.googleapis.com/custom-audiences": "[\"https://us-central1-amazon-ppc-474902.cloudfunctions.net/amazon-ppc-optimizer\"]",
+        "run.googleapis.com/ingress": "all",
+        "run.googleapis.com/ingress-status": "all",
+        "run.googleapis.com/invoker-iam-disabled": "true",
+        "run.googleapis.com/operation-id": "d41daeb7-6079-4ed4-bee0-92f6bd92d029",
+        "run.googleapis.com/urls": "[\"https://amazon-ppc-optimizer-1009540130231.us-central1.run.app\",\"https://us-central1-amazon-ppc-474902.cloudfunctions.net/amazon-ppc-optimizer\",\"https://amazon-ppc-optimizer-nucguq3dba-uc.a.run.app\"]",
+        "serving.knative.dev/creator": "service-1009540130231@gcf-admin-robot.iam.gserviceaccount.com",
+        "serving.knative.dev/lastModifier": "service-1009540130231@gcf-admin-robot.iam.gserviceaccount.com"
+      },
+      "creationTimestamp": "2025-10-14T06:31:40.192801Z",
+      "generation": 83,
+      "labels": {
+        "cloud.googleapis.com/location": "us-central1",
+        "goog-cloudfunctions-runtime": "python311",
+        "goog-drz-cloudfunctions-id": "amazon-ppc-optimizer",
+        "goog-drz-cloudfunctions-location": "us-central1",
+        "goog-managed-by": "cloudfunctions"
+      },
+      "name": "amazon-ppc-optimizer",
+      "namespace": "1009540130231",
+      "resourceVersion": "AAZDXHEykF0",
+      "selfLink": "/apis/serving.knative.dev/v1/namespaces/1009540130231/services/amazon-ppc-optimizer",
+      "uid": "79368d8d-0761-4856-8bef-58f317fad876"
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "annotations": {
+            "autoscaling.knative.dev/maxScale": "3",
+            "autoscaling.knative.dev/minScale": "1",
+            "cloudfunctions.googleapis.com/trigger-type": "HTTP_TRIGGER",
+            "run.googleapis.com/client-name": "cloud-console",
+            "run.googleapis.com/secrets": "secret-104ed6ed-2e8f-380a-9258-f13450a049c1:projects/1009540130231/secrets/amazon-refresh-token,secret-3e7cf5cb-f52a-33b9-89bc-2f5cd16b97c1:projects/1009540130231/secrets/dashboard-url,secret-3edb0a2b-bdff-3258-b3ed-3a1fa6755f03:projects/1009540130231/secrets/amazon-client-secret,secret-55bf5db9-fefc-3d1a-a97f-48fb29713fb5:projects/1009540130231/secrets/dashboard-api-key,secret-a25c9b39-15f1-399b-b2c1-1eb587dd1e95:projects/1009540130231/secrets/amazon-client-id,secret-a99ac41a-b627-33e0-9946-efbd4083d4b0:projects/1009540130231/secrets/ppc-profile-id",
+            "run.googleapis.com/startup-cpu-boost": "true"
+          },
+          "labels": {
+            "goog-drz-cloudfunctions-id": "amazon-ppc-optimizer",
+            "goog-drz-cloudfunctions-location": "us-central1",
+            "run.googleapis.com/startupProbeType": "Default"
+          },
+          "name": "amazon-ppc-optimizer-00083-nej"
+        },
+        "spec": {
+          "containerConcurrency": 1,
+          "containers": [
+            {
+              "env": [
+                {
+                  "name": "LOG_LEVEL",
+                  "value": "INFO"
+                },
+                {
+                  "name": "LOG_EXECUTION_ID",
+                  "value": "true"
+                },
+                {
+                  "name": "AMAZON_CLIENT_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "secret-a25c9b39-15f1-399b-b2c1-1eb587dd1e95"
+                    }
+                  }
+                },
+                {
+                  "name": "AMAZON_CLIENT_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "secret-3edb0a2b-bdff-3258-b3ed-3a1fa6755f03"
+                    }
+                  }
+                },
+                {
+                  "name": "AMAZON_REFRESH_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "secret-104ed6ed-2e8f-380a-9258-f13450a049c1"
+                    }
+                  }
+                },
+                {
+                  "name": "DASHBOARD_API_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "secret-55bf5db9-fefc-3d1a-a97f-48fb29713fb5"
+                    }
+                  }
+                },
+                {
+                  "name": "DASHBOARD_URL",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "secret-3e7cf5cb-f52a-33b9-89bc-2f5cd16b97c1"
+                    }
+                  }
+                },
+                {
+                  "name": "PPC_PROFILE_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "secret-a99ac41a-b627-33e0-9946-efbd4083d4b0"
+                    }
+                  }
+                }
+              ],
+              "image": "us-central1-docker.pkg.dev/amazon-ppc-474902/gcf-artifacts/amazon--ppc--474902__us--central1__amazon--ppc--optimizer:version_1",
+              "name": "worker",
+              "ports": [
+                {
+                  "containerPort": 8080,
+                  "name": "http1"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "333m",
+                  "memory": "512M"
+                }
+              },
+              "startupProbe": {
+                "failureThreshold": 1,
+                "periodSeconds": 240,
+                "tcpSocket": {
+                  "port": 8080
+                },
+                "timeoutSeconds": 240
+              }
+            }
+          ],
+          "serviceAccountName": "ppc-optimizer-scheduler@amazon-ppc-474902.iam.gserviceaccount.com",
+          "timeoutSeconds": 540
+        }
+      },
+      "traffic": [
+        {
+          "latestRevision": true,
+          "percent": 100
+        }
+      ]
+    },
+    "status": {
+      "address": {
+        "url": "https://amazon-ppc-optimizer-nucguq3dba-uc.a.run.app"
+      },
+      "conditions": [
+        {
+          "lastTransitionTime": "2025-11-12T02:22:55.455325Z",
+          "status": "True",
+          "type": "Ready"
+        },
+        {
+          "severity": "Info",
+          "status": "True",
+          "type": "BaseImageValidated"
+        },
+        {
+          "lastTransitionTime": "2025-11-12T02:22:48.229982Z",
+          "status": "True",
+          "type": "ConfigurationsReady"
+        },
+        {
+          "lastTransitionTime": "2025-11-12T02:22:55.409358Z",
+          "status": "True",
+          "type": "RoutesReady"
+        }
+      ],
+      "latestCreatedRevisionName": "amazon-ppc-optimizer-00083-nej",
+      "latestReadyRevisionName": "amazon-ppc-optimizer-00083-nej",
+      "observedGeneration": 83,
+      "traffic": [
+        {
+          "latestRevision": true,
+          "percent": 100,
+          "revisionName": "amazon-ppc-optimizer-00083-nej"
+        }
+      ],
+      "url": "https://amazon-ppc-optimizer-nucguq3dba-uc.a.run.app"
+    }
+  },
+  {
+    "apiVersion": "serving.knative.dev/v1",
+    "kind": "Service",
+    "metadata": {
+      "annotations": {
+        "run.googleapis.com/client-name": "gcloud",
+        "run.googleapis.com/client-version": "542.0.0",
+        "run.googleapis.com/ingress": "all",
+        "run.googleapis.com/ingress-status": "all",
+        "run.googleapis.com/operation-id": "2a3235af-1e96-4a78-b93f-534812133e0d",
+        "run.googleapis.com/urls": "[\"https://amazon-ppc-optimizer-api-1009540130231.us-central1.run.app\",\"https://amazon-ppc-optimizer-api-nucguq3dba-uc.a.run.app\"]",
+        "serving.knative.dev/creator": "natureswaysoil@gmail.com",
+        "serving.knative.dev/lastModifier": "natureswaysoil@gmail.com"
+      },
+      "creationTimestamp": "2025-10-17T00:01:45.761053Z",
+      "generation": 5,
+      "labels": {
+        "cloud.googleapis.com/location": "us-central1"
+      },
+      "name": "amazon-ppc-optimizer-api",
+      "namespace": "1009540130231",
+      "resourceVersion": "AAZBT6qEUBU",
+      "selfLink": "/apis/serving.knative.dev/v1/namespaces/1009540130231/services/amazon-ppc-optimizer-api",
+      "uid": "f8300d4d-21ad-42fe-bbfd-d8b8e2aab724"
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "annotations": {
+            "autoscaling.knative.dev/maxScale": "20",
+            "autoscaling.knative.dev/minScale": "1",
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "542.0.0",
+            "run.googleapis.com/startup-cpu-boost": "true"
+          },
+          "labels": {
+            "client.knative.dev/nonce": "pmagdwpidu",
+            "run.googleapis.com/startupProbeType": "Default"
+          }
+        },
+        "spec": {
+          "containerConcurrency": 10,
+          "containers": [
+            {
+              "env": [
+                {
+                  "name": "AMAZON_CLIENT_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "AMAZON_CLIENT_ID"
+                    }
+                  }
+                },
+                {
+                  "name": "AMAZON_CLIENT_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "AMAZON_CLIENT_SECRET"
+                    }
+                  }
+                },
+                {
+                  "name": "AMAZON_REFRESH_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "AMAZON_REFRESH_TOKEN"
+                    }
+                  }
+                },
+                {
+                  "name": "AMAZON_PROFILE_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "amazon-profile-id"
+                    }
+                  }
+                }
+              ],
+              "image": "gcr.io/amazon-ppc-474902/ppc-optimizer-api:latest",
+              "ports": [
+                {
+                  "containerPort": 8080,
+                  "name": "http1"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1000m",
+                  "memory": "1Gi"
+                }
+              },
+              "startupProbe": {
+                "failureThreshold": 1,
+                "periodSeconds": 240,
+                "tcpSocket": {
+                  "port": 8080
+                },
+                "timeoutSeconds": 240
+              }
+            }
+          ],
+          "serviceAccountName": "1009540130231-compute@developer.gserviceaccount.com",
+          "timeoutSeconds": 300
+        }
+      },
+      "traffic": [
+        {
+          "latestRevision": true,
+          "percent": 100
+        }
+      ]
+    },
+    "status": {
+      "address": {
+        "url": "https://amazon-ppc-optimizer-api-nucguq3dba-uc.a.run.app"
+      },
+      "conditions": [
+        {
+          "lastTransitionTime": "2025-10-17T00:17:59.283733Z",
+          "status": "True",
+          "type": "Ready"
+        },
+        {
+          "lastTransitionTime": "2025-10-17T00:17:52.061100Z",
+          "status": "True",
+          "type": "ConfigurationsReady"
+        },
+        {
+          "lastTransitionTime": "2025-10-17T00:17:59.237477Z",
+          "status": "True",
+          "type": "RoutesReady"
+        }
+      ],
+      "latestCreatedRevisionName": "amazon-ppc-optimizer-api-00005-cc9",
+      "latestReadyRevisionName": "amazon-ppc-optimizer-api-00005-cc9",
+      "observedGeneration": 5,
+      "traffic": [
+        {
+          "latestRevision": true,
+          "percent": 100,
+          "revisionName": "amazon-ppc-optimizer-api-00005-cc9"
+        }
+      ],
+      "url": "https://amazon-ppc-optimizer-api-nucguq3dba-uc.a.run.app"
+    }
+  },
+  {
+    "apiVersion": "serving.knative.dev/v1",
+    "kind": "Service",
+    "metadata": {
+      "annotations": {
+        "run.googleapis.com/client-name": "gcloud",
+        "run.googleapis.com/client-version": "546.0.0",
+        "run.googleapis.com/ingress": "all",
+        "run.googleapis.com/ingress-status": "all",
+        "run.googleapis.com/invoker-iam-disabled": "true",
+        "run.googleapis.com/operation-id": "cec714ce-12f0-42dc-99d3-175f6884e730",
+        "run.googleapis.com/urls": "[\"https://naturteswaysoil-1009540130231.us-central1.run.app\",\"https://naturteswaysoil-nucguq3dba-uc.a.run.app\"]",
+        "serving.knative.dev/creator": "natureswaysoil@gmail.com",
+        "serving.knative.dev/lastModifier": "1009540130231-compute@developer.gserviceaccount.com"
+      },
+      "creationTimestamp": "2025-10-14T22:45:27.333953Z",
+      "generation": 84,
+      "labels": {
+        "cloud.googleapis.com/location": "us-central1",
+        "commit-sha": "00435949fcddc71c00f6d0029604b050e618a3ae",
+        "gcb-build-id": "c03bd30e-9095-446f-b622-c091e8fd6e04",
+        "gcb-trigger-id": "fb8886aa-4494-4261-9c98-0bc13ef88918",
+        "gcb-trigger-region": "global",
+        "managed-by": "gcp-cloud-build-deploy-cloud-run"
+      },
+      "name": "naturteswaysoil",
+      "namespace": "1009540130231",
+      "resourceVersion": "AAZDR4aW8u0",
+      "selfLink": "/apis/serving.knative.dev/v1/namespaces/1009540130231/services/naturteswaysoil",
+      "uid": "ede4a6e4-4030-47d4-802e-c52fbbeec0a0"
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "annotations": {
+            "autoscaling.knative.dev/maxScale": "20",
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "546.0.0",
+            "run.googleapis.com/startup-cpu-boost": "true"
+          },
+          "labels": {
+            "client.knative.dev/nonce": "titklbxvjb",
+            "commit-sha": "00435949fcddc71c00f6d0029604b050e618a3ae",
+            "gcb-build-id": "c03bd30e-9095-446f-b622-c091e8fd6e04",
+            "gcb-trigger-id": "fb8886aa-4494-4261-9c98-0bc13ef88918",
+            "gcb-trigger-region": "global",
+            "managed-by": "gcp-cloud-build-deploy-cloud-run",
+            "run.googleapis.com/startupProbeType": "Default"
+          }
+        },
+        "spec": {
+          "containerConcurrency": 80,
+          "containers": [
+            {
+              "image": "us-central1-docker.pkg.dev/amazon-ppc-474902/cloud-run-source-deploy/amazom-ppc/naturteswaysoil:00435949fcddc71c00f6d0029604b050e618a3ae",
+              "name": "placeholder-1",
+              "ports": [
+                {
+                  "containerPort": 8080,
+                  "name": "http1"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1000m",
+                  "memory": "512Mi"
+                }
+              },
+              "startupProbe": {
+                "failureThreshold": 1,
+                "periodSeconds": 240,
+                "tcpSocket": {
+                  "port": 8080
+                },
+                "timeoutSeconds": 240
+              }
+            }
+          ],
+          "serviceAccountName": "1009540130231-compute@developer.gserviceaccount.com",
+          "timeoutSeconds": 300
+        }
+      },
+      "traffic": [
+        {
+          "latestRevision": true,
+          "percent": 100
+        }
+      ]
+    },
+    "status": {
+      "address": {
+        "url": "https://naturteswaysoil-nucguq3dba-uc.a.run.app"
+      },
+      "conditions": [
+        {
+          "lastTransitionTime": "2025-11-11T01:25:40.042477Z",
+          "status": "True",
+          "type": "Ready"
+        },
+        {
+          "lastTransitionTime": "2025-11-11T01:25:36.515823Z",
+          "status": "True",
+          "type": "ConfigurationsReady"
+        },
+        {
+          "lastTransitionTime": "2025-11-11T01:25:39.998377Z",
+          "status": "True",
+          "type": "RoutesReady"
+        }
+      ],
+      "latestCreatedRevisionName": "naturteswaysoil-00083-xkl",
+      "latestReadyRevisionName": "naturteswaysoil-00083-xkl",
+      "observedGeneration": 84,
+      "traffic": [
+        {
+          "latestRevision": true,
+          "percent": 100,
+          "revisionName": "naturteswaysoil-00083-xkl"
+        }
+      ],
+      "url": "https://naturteswaysoil-nucguq3dba-uc.a.run.app"
+    }
+  },
+  {
+    "apiVersion": "serving.knative.dev/v1",
+    "kind": "Service",
+    "metadata": {
+      "annotations": {
+        "run.googleapis.com/client-name": "gcloud",
+        "run.googleapis.com/client-version": "544.0.0",
+        "run.googleapis.com/ingress": "all",
+        "run.googleapis.com/ingress-status": "all",
+        "run.googleapis.com/operation-id": "2cc64aea-2584-4194-b726-11e1b87340b4",
+        "run.googleapis.com/urls": "[\"https://ppc-optimizer-1009540130231.us-central1.run.app\",\"https://ppc-optimizer-nucguq3dba-uc.a.run.app\"]",
+        "serving.knative.dev/creator": "natureswaysoil@gmail.com",
+        "serving.knative.dev/lastModifier": "natureswaysoil@gmail.com"
+      },
+      "creationTimestamp": "2025-11-03T02:35:07.536778Z",
+      "generation": 6,
+      "labels": {
+        "cloud.googleapis.com/location": "us-central1"
+      },
+      "name": "ppc-optimizer",
+      "namespace": "1009540130231",
+      "resourceVersion": "AAZCuI662Hw",
+      "selfLink": "/apis/serving.knative.dev/v1/namespaces/1009540130231/services/ppc-optimizer",
+      "uid": "073b47cb-c9f8-4eb7-942b-dad9f4cbc315"
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "annotations": {
+            "autoscaling.knative.dev/maxScale": "10",
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "544.0.0",
+            "run.googleapis.com/startup-cpu-boost": "true"
+          },
+          "labels": {
+            "client.knative.dev/nonce": "zwzinfyuuk",
+            "run.googleapis.com/startupProbeType": "Default"
+          }
+        },
+        "spec": {
+          "containerConcurrency": 80,
+          "containers": [
+            {
+              "env": [
+                {
+                  "name": "PRODUCTION_MODE",
+                  "value": "true"
+                },
+                {
+                  "name": "SANDBOX_MODE",
+                  "value": "false"
+                },
+                {
+                  "name": "AMAZON_CLIENT_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "amazon-client-id"
+                    }
+                  }
+                },
+                {
+                  "name": "AMAZON_CLIENT_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "amazon-client-secret"
+                    }
+                  }
+                },
+                {
+                  "name": "AMAZON_REFRESH_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "amazon-refresh-token"
+                    }
+                  }
+                },
+                {
+                  "name": "AMAZON_PROFILE_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "amazon-profile-id"
+                    }
+                  }
+                },
+                {
+                  "name": "PPC_PROFILE_ID",
+                  "value": "YOUR_PROFILE_ID"
+                }
+              ],
+              "image": "gcr.io/amazon-ppc-474902/ppc-optimizer",
+              "ports": [
+                {
+                  "containerPort": 8080,
+                  "name": "http1"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1",
+                  "memory": "1Gi"
+                }
+              },
+              "startupProbe": {
+                "failureThreshold": 1,
+                "periodSeconds": 240,
+                "tcpSocket": {
+                  "port": 8080
+                },
+                "timeoutSeconds": 240
+              }
+            }
+          ],
+          "serviceAccountName": "1009540130231-compute@developer.gserviceaccount.com",
+          "timeoutSeconds": 540
+        }
+      },
+      "traffic": [
+        {
+          "latestRevision": true,
+          "percent": 100
+        }
+      ]
+    },
+    "status": {
+      "address": {
+        "url": "https://ppc-optimizer-nucguq3dba-uc.a.run.app"
+      },
+      "conditions": [
+        {
+          "lastTransitionTime": "2025-11-03T22:51:36.289404Z",
+          "status": "True",
+          "type": "Ready"
+        },
+        {
+          "lastTransitionTime": "2025-11-03T22:51:30.103259Z",
+          "status": "True",
+          "type": "ConfigurationsReady"
+        },
+        {
+          "lastTransitionTime": "2025-11-03T22:51:36.250719Z",
+          "status": "True",
+          "type": "RoutesReady"
+        }
+      ],
+      "latestCreatedRevisionName": "ppc-optimizer-00006-9bg",
+      "latestReadyRevisionName": "ppc-optimizer-00006-9bg",
+      "observedGeneration": 6,
+      "traffic": [
+        {
+          "latestRevision": true,
+          "percent": 100,
+          "revisionName": "ppc-optimizer-00006-9bg"
+        }
+      ],
+      "url": "https://ppc-optimizer-nucguq3dba-uc.a.run.app"
+    }
+  }
+]

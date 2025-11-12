@@ -1,0 +1,152 @@
+================================================================================
+                    GOOGLE CLOUD DEPLOYMENT SUMMARY
+                         November 12, 2025
+================================================================================
+
+PROJECT INFORMATION
+-------------------
+Project ID:        amazon-ppc-474902
+Region:            us-central1
+Timezone:          America/New_York
+Repository:        /home/ubuntu/github_repos/video
+Service Account:   video-job-sa@amazon-ppc-474902.iam.gserviceaccount.com
+
+DEPLOYMENT STATUS
+-----------------
+Status:            ⚠️  BLOCKED - Insufficient Permissions
+Authentication:    ✅ Successful
+Configuration:     ✅ Complete
+Scripts Ready:     ✅ All deployment scripts prepared
+Permissions:       ❌ Service account lacks required IAM roles
+
+COMPLETED STEPS
+---------------
+✅ Service account key saved to /home/ubuntu/service-account-key.json
+✅ File permissions set (chmod 600)
+✅ GCP authentication successful
+✅ Project configured (amazon-ppc-474902)
+✅ Region configured (us-central1)
+✅ Deployment scripts tested and ready
+✅ Environment variables configured
+
+BLOCKING ISSUE
+--------------
+The service account "video-job-sa@amazon-ppc-474902.iam.gserviceaccount.com"
+does not have sufficient permissions to:
+  - Enable required Google Cloud APIs
+  - Create Cloud Run jobs and services
+  - Deploy container images
+  - Set up Cloud Scheduler jobs
+  - Manage secrets
+
+REQUIRED IAM ROLES
+------------------
+The following roles must be granted to the service account:
+
+  1. roles/serviceusage.serviceUsageAdmin    (Enable APIs)
+  2. roles/run.admin                         (Cloud Run management)
+  3. roles/cloudscheduler.admin              (Scheduler management)
+  4. roles/artifactregistry.admin            (Container registry)
+  5. roles/cloudbuild.builds.editor          (Build images)
+  6. roles/secretmanager.admin               (Manage secrets)
+  7. roles/iam.serviceAccountUser            (Service account usage)
+
+HOW TO GRANT PERMISSIONS
+-------------------------
+Option 1 - Google Cloud Console:
+  1. Visit: https://console.cloud.google.com/iam-admin/iam?project=amazon-ppc-474902
+  2. Find: video-job-sa@amazon-ppc-474902.iam.gserviceaccount.com
+  3. Click "Edit" and add the roles listed above
+  4. Click "Save"
+
+Option 2 - gcloud CLI (requires Owner/Admin access):
+  See the commands in DEPLOYMENT_STATUS.md
+
+RESUME DEPLOYMENT
+-----------------
+After granting permissions, run:
+
+  cd /home/ubuntu/github_repos/video
+  bash RESUME_DEPLOYMENT.sh
+
+Or manually:
+
+  cd /home/ubuntu/github_repos/video
+  gcloud auth activate-service-account --key-file=/home/ubuntu/service-account-key.json
+  gcloud config set project amazon-ppc-474902
+  PROJECT_ID=amazon-ppc-474902 REGION=us-central1 bash scripts/deploy-gcp.sh
+  PROJECT_ID=amazon-ppc-474902 REGION=us-central1 bash scripts/deploy-blog-automation.sh
+  PROJECT_ID=amazon-ppc-474902 bash scripts/verify-deployment.sh
+
+WHAT WILL BE DEPLOYED
+---------------------
+Once permissions are granted, the deployment will create:
+
+  Cloud Run Jobs:
+    - video-processing-job (2Gi memory, 1 CPU, 1hr timeout)
+  
+  Cloud Run Services:
+    - blog-generator (automated blog generation)
+  
+  Cloud Scheduler Jobs:
+    - video-scheduler-2x (runs at 2 AM daily)
+    - blog-automation-scheduler
+  
+  Artifact Registry:
+    - video-repo (container images)
+  
+  Secret Manager:
+    - API keys and credentials
+
+ESTIMATED COSTS
+---------------
+Approximate monthly costs: $20-35/month
+  - Cloud Run Jobs: $15-30/month
+  - Cloud Scheduler: $0.30/month
+  - Artifact Registry: $0.10/GB/month
+  - Secret Manager: $0.06/month
+
+IMPORTANT FILES
+---------------
+Service Account Key:     /home/ubuntu/service-account-key.json
+Repository:              /home/ubuntu/github_repos/video
+Deployment Status:       /home/ubuntu/github_repos/video/DEPLOYMENT_STATUS.md
+Resume Script:           /home/ubuntu/github_repos/video/RESUME_DEPLOYMENT.sh
+Latest Logs:             /tmp/deploy-gcp-final.log
+
+VERIFICATION COMMANDS
+---------------------
+After successful deployment:
+
+  # List Cloud Run jobs
+  gcloud run jobs list --region=us-central1 --project=amazon-ppc-474902
+  
+  # List Cloud Run services
+  gcloud run services list --region=us-central1 --project=amazon-ppc-474902
+  
+  # List Cloud Scheduler jobs
+  gcloud scheduler jobs list --location=us-central1 --project=amazon-ppc-474902
+  
+  # Check job executions
+  gcloud run jobs executions list --job=video-processing-job \
+    --region=us-central1 --project=amazon-ppc-474902
+
+NEXT ACTIONS
+------------
+1. IMMEDIATE: Grant IAM permissions to the service account
+2. AFTER PERMISSIONS: Run bash RESUME_DEPLOYMENT.sh
+3. VERIFY: Check all resources are created
+4. MONITOR: Set up logging and monitoring
+5. SECURE: Review and audit permissions regularly
+
+SUPPORT RESOURCES
+-----------------
+GCP Console:             https://console.cloud.google.com/home/dashboard?project=amazon-ppc-474902
+IAM & Admin:             https://console.cloud.google.com/iam-admin/iam?project=amazon-ppc-474902
+Cloud Run:               https://console.cloud.google.com/run?project=amazon-ppc-474902
+Cloud Scheduler:         https://console.cloud.google.com/cloudscheduler?project=amazon-ppc-474902
+Logs Explorer:           https://console.cloud.google.com/logs?project=amazon-ppc-474902
+
+================================================================================
+                    END OF DEPLOYMENT SUMMARY
+================================================================================

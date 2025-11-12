@@ -289,8 +289,8 @@ async function postBlogVideoToSocial(blogPost, videoUrl) {
         try {
             console.log('📸 Posting to Instagram...');
             const igResult = await (0, instagram_1.postToInstagram)(videoUrl, caption, process.env.INSTAGRAM_ACCESS_TOKEN, process.env.INSTAGRAM_IG_ID);
-            console.log('✅ Posted to Instagram:', igResult?.id || 'success');
-            results.instagram = { success: true, mediaId: igResult?.id };
+            console.log('✅ Posted to Instagram:', igResult || 'success');
+            results.instagram = { success: true, mediaId: igResult };
         }
         catch (error) {
             console.error('❌ Instagram post failed:', error.message);
