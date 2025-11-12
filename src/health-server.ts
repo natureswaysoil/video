@@ -1,4 +1,4 @@
-import http from 'http'
+import http, { Server } from 'http'
 import { resolveByJobId, markProcessed, isProcessed } from './webhook-cache'
 import { postToTwitter } from './twitter'
 import { postToYouTube } from './youtube'
