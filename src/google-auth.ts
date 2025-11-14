@@ -23,7 +23,7 @@ export async function loadServiceAccountFromEnv(): Promise<ServiceAccount | null
         private_key: normalizePrivateKey(parsed.private_key),
       }
     } catch (error) {
-      throw new Error('GCP_SA_JSON set but contains invalid JSON')
+      throw new Error(`GCP_SA_JSON error: ${error instanceof Error ? error.message : 'contains invalid JSON'}`)
     }
   }
 
