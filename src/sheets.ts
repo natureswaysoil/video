@@ -1,9 +1,8 @@
-import { GoogleAuth } from 'google-auth-library'
 import { google } from 'googleapis'
 import { AppError, ErrorCode, withRetry } from './errors'
 import { getLogger } from './logger'
 import { getMetrics } from './logger'
-import { getConfig } from './config-validator'
+import { createGoogleAuthClient } from './google-auth'
 
 const logger = getLogger()
 const metrics = getMetrics()
@@ -44,20 +43,7 @@ export async function markRowPosted(params: {
       postedColumn,
     })
 
-    const clientEmail = process.env.GS_SERVICE_ACCOUNT_EMAIL as string | undefined
-    const privateKey = (process.env.GS_SERVICE_ACCOUNT_KEY || '').replace(/\\n/g, '\n') || undefined
-    const scopes = ['https://www.googleapis.com/auth/spreadsheets']
-    let authClient: any
-    
-    if (clientEmail && privateKey) {
-      // Use explicit service account key if provided
-      authClient = new google.auth.JWT({ email: clientEmail, key: privateKey, scopes })
-    } else {
-      // Fallback to Application Default Credentials (e.g., Cloud Run Job's service account)
-      const ga = new GoogleAuth({ scopes })
-      authClient = await ga.getClient()
-    }
-    
+    const authClient = await createGoogleAuthClient(['https://www.googleapis.com/auth/spreadsheets'])
     const sheets = google.sheets({ version: 'v4', auth: authClient })
 
     // Resolve A1 notation for the target sheet and columns
@@ -161,18 +147,7 @@ export async function writeColumnValues(params: {
       rowCount: rows.length,
     })
 
-    const clientEmail = process.env.GS_SERVICE_ACCOUNT_EMAIL as string | undefined
-    const privateKey = (process.env.GS_SERVICE_ACCOUNT_KEY || '').replace(/\\n/g, '\n') || undefined
-    const scopes = ['https://www.googleapis.com/auth/spreadsheets']
-    let authClient: any
-    
-    if (clientEmail && privateKey) {
-      authClient = new google.auth.JWT({ email: clientEmail, key: privateKey, scopes })
-    } else {
-      const ga = new GoogleAuth({ scopes })
-      authClient = await ga.getClient()
-    }
-    
+    const authClient = await createGoogleAuthClient(['https://www.googleapis.com/auth/spreadsheets'])
     const sheets = google.sheets({ version: 'v4', auth: authClient })
 
     const sheetName = await resolveSheetName(sheets, spreadsheetId, sheetGid)
@@ -287,18 +262,7 @@ export async function writeColumnLetterValues(params: {
       rowCount: rows.length,
     })
 
-    const clientEmail = process.env.GS_SERVICE_ACCOUNT_EMAIL as string | undefined
-    const privateKey = (process.env.GS_SERVICE_ACCOUNT_KEY || '').replace(/\\n/g, '\n') || undefined
-    const scopes = ['https://www.googleapis.com/auth/spreadsheets']
-    let authClient: any
-    
-    if (clientEmail && privateKey) {
-      authClient = new google.auth.JWT({ email: clientEmail, key: privateKey, scopes })
-    } else {
-      const ga = new GoogleAuth({ scopes })
-      authClient = await ga.getClient()
-    }
-    
+    const authClient = await createGoogleAuthClient(['https://www.googleapis.com/auth/spreadsheets'])
     const sheets = google.sheets({ version: 'v4', auth: authClient })
 
     const sheetName = await resolveSheetName(sheets, spreadsheetId, sheetGid)

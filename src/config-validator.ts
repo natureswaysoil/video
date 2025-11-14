@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod'
+import type { infer as ZodInfer } from 'zod'
 
 const envSchema = z.object({
   // OpenAI Configuration
@@ -21,7 +22,9 @@ const envSchema = z.object({
   // Google Sheets Configuration
   GS_SERVICE_ACCOUNT_EMAIL: z.string().email().optional(),
   GS_SERVICE_ACCOUNT_KEY: z.string().optional(),
-  
+  GCP_SA_JSON: z.string().optional(),
+  GCP_SECRET_SA_JSON: z.string().optional(),
+
   // Twitter/X Configuration
   TWITTER_API_KEY: z.string().optional(),
   TWITTER_API_SECRET: z.string().optional(),
@@ -89,7 +92,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 })
 
-export type AppConfig = z.infer<typeof envSchema>
+export type AppConfig = ZodInfer<typeof envSchema>
 
 let cachedConfig: AppConfig | null = null
 
@@ -106,7 +109,7 @@ export function validateConfig(): AppConfig {
     return cachedConfig
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const errors = error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('\n')
+      const errors = error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('\n')
       throw new Error(`Configuration validation failed:\n${errors}`)
     }
     throw error
@@ -118,7 +121,7 @@ export function validateConfig(): AppConfig {
  */
 export function getConfig(): AppConfig {
   if (!cachedConfig) {
-    throw new Error('Config not validated yet. Call validateConfig() first.')
+    return validateConfig()
   }
   return cachedConfig
 }
