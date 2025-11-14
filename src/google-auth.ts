@@ -36,7 +36,12 @@ export async function loadServiceAccountFromEnv(): Promise<ServiceAccount | null
       throw new Error('Secret payload empty')
     }
 
-    const parsed = JSON.parse(payload)
+    let parsed: any
+    try {
+      parsed = JSON.parse(payload)
+    } catch (error) {
+      throw new Error('Secret payload is not valid JSON')
+    }
     if (!parsed?.client_email || !parsed?.private_key) {
       throw new Error('Service account JSON is missing client_email or private_key')
     }
