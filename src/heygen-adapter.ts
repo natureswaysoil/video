@@ -16,8 +16,8 @@
  */
 
 import { google } from 'googleapis'
-import { GoogleAuth } from 'google-auth-library'
-import { SecretManagerServiceClient } from '@google-cloud/secret-manager'
+
+import { createGoogleAuthClient } from './google-auth'
 
 type ProductRow = Record<string, string>
 
@@ -88,66 +88,9 @@ export function mapProductToHeyGenPayload(row: ProductRow) {
  * - If env GCP_SA_JSON contains raw JSON -> parse and return it
  * - Else if env GCP_SECRET_SA_JSON contains secret resource name -> fetch from Secret Manager
  */
-type ServiceAccount = {
-  client_email: string
-  private_key: string
-}
-
-async function loadServiceAccountFromConfig(): Promise<ServiceAccount | null> {
-  if (process.env.GCP_SA_JSON) {
-    try {
-      const parsed = JSON.parse(process.env.GCP_SA_JSON)
-      return normalizeServiceAccount(parsed)
-    } catch (e) {
-      throw new Error('GCP_SA_JSON set but contains invalid JSON')
-    }
-  }
-
-  const secretName = process.env.GCP_SECRET_SA_JSON
-  if (secretName) {
-    const client = new SecretManagerServiceClient()
-    const [accessResponse] = await client.accessSecretVersion({ name: secretName })
-    const payload = accessResponse.payload?.data?.toString('utf8')
-    if (!payload) throw new Error('Secret payload empty')
-    const parsed = JSON.parse(payload)
-    return normalizeServiceAccount(parsed)
-  }
-
-  const clientEmail = process.env.GS_SERVICE_ACCOUNT_EMAIL
-  const privateKey = process.env.GS_SERVICE_ACCOUNT_KEY
-  if (clientEmail && privateKey) {
-    return {
-      client_email: clientEmail,
-      private_key: privateKey.replace(/\\n/g, '\n'),
-    }
-  }
-
-  return null
-}
-
-function normalizeServiceAccount(data: any): ServiceAccount {
-  if (!data?.client_email || !data?.private_key) {
-    throw new Error('Service account JSON is missing client_email or private_key')
-  }
-  return {
-    client_email: data.client_email,
-    private_key: (data.private_key as string).replace(/\\n/g, '\n')
-  }
-}
-
 async function createSheetsAuthClient() {
   const scopes = ['https://www.googleapis.com/auth/spreadsheets']
-  const sa = await loadServiceAccountFromConfig()
-  if (sa) {
-    return new google.auth.JWT({
-      email: sa.client_email,
-      key: sa.private_key,
-      scopes,
-    })
-  }
-
-  const googleAuth = new GoogleAuth({ scopes })
-  return googleAuth.getClient()
+  return createGoogleAuthClient(scopes)
 }
 
 /**

@@ -10,6 +10,7 @@ import { generateScript } from './openai'
 import { markRowPosted, writeColumnValues } from './sheets'
 import { startHealthServer, stopHealthServer, updateStatus, incrementSuccessfulPost, incrementFailedPost, addError } from './health-server'
 import { getAuditLogger } from './audit-logger'
+import { hasConfiguredGoogleCredentials } from './google-auth'
 
 const auditLogger = getAuditLogger()
 // Retry helper with exponential backoff
@@ -168,7 +169,7 @@ async function main() {
                 console.log('✅ Created HeyGen video job:', heygenJobId)
                 
                 // Write HeyGen mapping info back to sheet (optional)
-                if (process.env.GS_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+                if (hasConfiguredGoogleCredentials()) {
                   try {
                     const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
                     const sheetGid = extractGidFromCsv(csvUrl)
@@ -206,7 +207,7 @@ async function main() {
             }
             
             // 2c: Write video URL back to sheet (prefer fixed column letter if configured)
-            if (videoUrl && (process.env.GS_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+            if (videoUrl && hasConfiguredGoogleCredentials()) {
               try {
                 const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
                 const sheetGid = extractGidFromCsv(csvUrl)
