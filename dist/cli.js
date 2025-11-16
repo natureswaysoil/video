@@ -45,6 +45,7 @@ const openai_1 = require("./openai");
 const sheets_1 = require("./sheets");
 const health_server_1 = require("./health-server");
 const audit_logger_1 = require("./audit-logger");
+const google_auth_1 = require("./google-auth");
 const auditLogger = (0, audit_logger_1.getAuditLogger)();
 // Retry helper with exponential backoff
 async function retryWithBackoff(fn, options = {}) {
@@ -172,7 +173,7 @@ async function main() {
                                 const heygenJobId = await heygenClient.createVideoJob(payload);
                                 console.log('✅ Created HeyGen video job:', heygenJobId);
                                 // Write HeyGen mapping info back to sheet (optional)
-                                if (process.env.GS_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+                                if ((0, google_auth_1.hasConfiguredGoogleCredentials)()) {
                                     try {
                                         const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
                                         const sheetGid = extractGidFromCsv(csvUrl);
@@ -211,7 +212,7 @@ async function main() {
                             continue;
                         }
                         // 2c: Write video URL back to sheet (prefer fixed column letter if configured)
-                        if (videoUrl && (process.env.GS_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+                        if (videoUrl && (0, google_auth_1.hasConfiguredGoogleCredentials)()) {
                             try {
                                 const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
                                 const sheetGid = extractGidFromCsv(csvUrl);

@@ -5,7 +5,6 @@
  */
 
 import { z } from 'zod'
-import type { infer as ZodInfer } from 'zod'
 
 const envSchema = z.object({
   // OpenAI Configuration
@@ -92,24 +91,26 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 })
 
-export type AppConfig = ZodInfer<typeof envSchema>
+type InferredConfig = ReturnType<typeof envSchema.parse>
+export type AppConfig = InferredConfig
 
-let cachedConfig: AppConfig | null = null
+let cachedConfig: InferredConfig | null = null
 
 /**
  * Validate and parse environment variables
  */
-export function validateConfig(): AppConfig {
+export function validateConfig(): InferredConfig {
   if (cachedConfig) {
     return cachedConfig
   }
 
   try {
-    cachedConfig = envSchema.parse(process.env)
+    cachedConfig = envSchema.parse(process.env) as InferredConfig
     return cachedConfig
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      const errors = error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('\n')
+    if (error && typeof error === 'object' && 'errors' in error) {
+      const zodError = error as any
+      const errors = zodError.errors.map((e: any) => `${e.path.join('.')}: ${e.message}`).join('\n')
       throw new Error(`Configuration validation failed:\n${errors}`)
     }
     throw error
@@ -119,7 +120,7 @@ export function validateConfig(): AppConfig {
 /**
  * Get the current config (throws if not validated yet)
  */
-export function getConfig(): AppConfig {
+export function getConfig(): InferredConfig {
   if (!cachedConfig) {
     return validateConfig()
   }

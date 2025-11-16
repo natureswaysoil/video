@@ -22,7 +22,7 @@ export class UrlCache {
   }
 
   get<T>(key: string): T | undefined {
-    return this.cache.get<T>(key)
+    return this.cache.get(key) as T | undefined
   }
 
   set<T>(key: string, value: T, ttl?: number): boolean {

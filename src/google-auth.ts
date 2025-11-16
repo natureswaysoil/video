@@ -80,7 +80,7 @@ export function hasConfiguredGoogleCredentials(): boolean {
   return false
 }
 
-export async function createGoogleAuthClient(scopes: string[]) {
+export async function createGoogleAuthClient(scopes: string[]): Promise<any> {
   const serviceAccount = await loadServiceAccountFromEnv()
   if (serviceAccount) {
     return new google.auth.JWT({
