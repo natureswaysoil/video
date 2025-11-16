@@ -1,4 +1,4 @@
-import http, { Server } from 'http'
+import http from 'http'
 import { resolveByJobId, markProcessed, isProcessed } from './webhook-cache'
 import { postToTwitter } from './twitter'
 import { postToYouTube } from './youtube'
@@ -163,29 +163,30 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   }
 }
 
-export function startHealthServer(): Server {
+export function startHealthServer(): http.Server {
   if (server && serverStarted) {
     return server
   }
-  server = http.createServer((req, res) => {
+  const newServer = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
     handleRequest(req, res).catch((err) => {
       res.statusCode = 500
       res.end(JSON.stringify({ ok: false, error: err?.message || String(err) }))
     })
   })
-  server.listen(PORT, () => {
+  server = newServer
+  newServer.listen(PORT, () => {
     serverStarted = true
     console.log(`🏥 Health check server running on port ${PORT}`)
     console.log(`   GET http://localhost:${PORT}/health`)
     console.log(`   GET http://localhost:${PORT}/status`)
   })
-  return server
+  return newServer
 }
 
 export async function stopHealthServer(): Promise<void> {
   if (!server || !serverStarted) return
   await new Promise<void>((resolve, reject) => {
-    server!.close((err) => {
+    server!.close((err: Error | undefined) => {
       if (err) {
         reject(err)
       } else {

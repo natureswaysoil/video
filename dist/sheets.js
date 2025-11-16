@@ -3,11 +3,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.markRowPosted = markRowPosted;
 exports.writeColumnValues = writeColumnValues;
 exports.writeColumnLetterValues = writeColumnLetterValues;
-const google_auth_library_1 = require("google-auth-library");
 const googleapis_1 = require("googleapis");
 const errors_1 = require("./errors");
 const logger_1 = require("./logger");
 const logger_2 = require("./logger");
+const google_auth_1 = require("./google-auth");
 const logger = (0, logger_1.getLogger)();
 const metrics = (0, logger_2.getMetrics)();
 async function markRowPosted(params) {
@@ -22,19 +22,7 @@ async function markRowPosted(params) {
             rowNumber,
             postedColumn,
         });
-        const clientEmail = process.env.GS_SERVICE_ACCOUNT_EMAIL;
-        const privateKey = (process.env.GS_SERVICE_ACCOUNT_KEY || '').replace(/\\n/g, '\n') || undefined;
-        const scopes = ['https://www.googleapis.com/auth/spreadsheets'];
-        let authClient;
-        if (clientEmail && privateKey) {
-            // Use explicit service account key if provided
-            authClient = new googleapis_1.google.auth.JWT({ email: clientEmail, key: privateKey, scopes });
-        }
-        else {
-            // Fallback to Application Default Credentials (e.g., Cloud Run Job's service account)
-            const ga = new google_auth_library_1.GoogleAuth({ scopes });
-            authClient = await ga.getClient();
-        }
+        const authClient = await (0, google_auth_1.createGoogleAuthClient)(['https://www.googleapis.com/auth/spreadsheets']);
         const sheets = googleapis_1.google.sheets({ version: 'v4', auth: authClient });
         // Resolve A1 notation for the target sheet and columns
         const sheetName = await resolveSheetName(sheets, spreadsheetId, sheetGid);
@@ -105,17 +93,7 @@ async function writeColumnValues(params) {
             columnName,
             rowCount: rows.length,
         });
-        const clientEmail = process.env.GS_SERVICE_ACCOUNT_EMAIL;
-        const privateKey = (process.env.GS_SERVICE_ACCOUNT_KEY || '').replace(/\\n/g, '\n') || undefined;
-        const scopes = ['https://www.googleapis.com/auth/spreadsheets'];
-        let authClient;
-        if (clientEmail && privateKey) {
-            authClient = new googleapis_1.google.auth.JWT({ email: clientEmail, key: privateKey, scopes });
-        }
-        else {
-            const ga = new google_auth_library_1.GoogleAuth({ scopes });
-            authClient = await ga.getClient();
-        }
+        const authClient = await (0, google_auth_1.createGoogleAuthClient)(['https://www.googleapis.com/auth/spreadsheets']);
         const sheets = googleapis_1.google.sheets({ version: 'v4', auth: authClient });
         const sheetName = await resolveSheetName(sheets, spreadsheetId, sheetGid);
         let colIndex = headers.indexOf(columnName);
@@ -196,17 +174,7 @@ async function writeColumnLetterValues(params) {
             columnLetter,
             rowCount: rows.length,
         });
-        const clientEmail = process.env.GS_SERVICE_ACCOUNT_EMAIL;
-        const privateKey = (process.env.GS_SERVICE_ACCOUNT_KEY || '').replace(/\\n/g, '\n') || undefined;
-        const scopes = ['https://www.googleapis.com/auth/spreadsheets'];
-        let authClient;
-        if (clientEmail && privateKey) {
-            authClient = new googleapis_1.google.auth.JWT({ email: clientEmail, key: privateKey, scopes });
-        }
-        else {
-            const ga = new google_auth_library_1.GoogleAuth({ scopes });
-            authClient = await ga.getClient();
-        }
+        const authClient = await (0, google_auth_1.createGoogleAuthClient)(['https://www.googleapis.com/auth/spreadsheets']);
         const sheets = googleapis_1.google.sheets({ version: 'v4', auth: authClient });
         const sheetName = await resolveSheetName(sheets, spreadsheetId, sheetGid);
         const data = [];

@@ -33,29 +33,30 @@ declare var module: {
 }
 
 declare module 'http' {
-  namespace http {
-    interface IncomingMessage extends AsyncIterable<Uint8Array> {
-      url?: string | null
-      method?: string | null
-      headers: Record<string, string | string[] | undefined>
-    }
-
-    interface ServerResponse {
-      statusCode: number
-      headersSent?: boolean
-      setHeader(name: string, value: string): void
-      end(data?: any): void
-      json?: (data: any) => void
-    }
-
-    interface Server {
-      listen(port: number, hostnameOrCallback?: string | (() => void), callback?: () => void): Server
-      close(callback?: (err?: any) => void): void
-    }
+  import { EventEmitter } from 'events'
+  
+  interface IncomingMessage extends AsyncIterable<Uint8Array> {
+    url?: string | null
+    method?: string | null
+    headers: Record<string, string | string[] | undefined>
   }
 
-  function createServer(requestListener?: (req: http.IncomingMessage, res: http.ServerResponse) => void): http.Server
-  export = http
+  interface ServerResponse {
+    statusCode: number
+    headersSent?: boolean
+    setHeader(name: string, value: string): void
+    end(data?: any): void
+    json?: (data: any) => void
+  }
+
+  interface Server extends EventEmitter {
+    listen(port: number, hostnameOrCallback?: string | (() => void), callback?: () => void): Server
+    close(callback?: (err?: any) => void): void
+  }
+
+  function createServer(requestListener?: (req: IncomingMessage, res: ServerResponse) => void): Server
+  
+  export { IncomingMessage, ServerResponse, Server, createServer }
 }
 
 declare module 'crypto' {

@@ -32,6 +32,9 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.startHealthServer = startHealthServer;
 exports.stopHealthServer = stopHealthServer;
@@ -39,6 +42,7 @@ exports.updateStatus = updateStatus;
 exports.incrementSuccessfulPost = incrementSuccessfulPost;
 exports.incrementFailedPost = incrementFailedPost;
 exports.addError = addError;
+const http_1 = __importDefault(require("http"));
 const webhook_cache_1 = require("./webhook-cache");
 const twitter_1 = require("./twitter");
 const youtube_1 = require("./youtube");
@@ -206,19 +210,20 @@ function startHealthServer() {
     if (server && serverStarted) {
         return server;
     }
-    server = http_1.default.createServer((req, res) => {
+    const newServer = http_1.default.createServer((req, res) => {
         handleRequest(req, res).catch((err) => {
             res.statusCode = 500;
             res.end(JSON.stringify({ ok: false, error: err?.message || String(err) }));
         });
     });
-    server.listen(PORT, () => {
+    server = newServer;
+    newServer.listen(PORT, () => {
         serverStarted = true;
         console.log(`🏥 Health check server running on port ${PORT}`);
         console.log(`   GET http://localhost:${PORT}/health`);
         console.log(`   GET http://localhost:${PORT}/status`);
     });
-    return server;
+    return newServer;
 }
 async function stopHealthServer() {
     if (!server || !serverStarted)
