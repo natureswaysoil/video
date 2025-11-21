@@ -7,8 +7,8 @@
 import { z } from 'zod'
 
 const envSchema = z.object({
-  // OpenAI Configuration
-  OPENAI_API_KEY: z.string().min(1, 'OPENAI_API_KEY is required'),
+  // OpenAI Configuration (optional - system can use product description as fallback)
+  OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
   OPENAI_SYSTEM_PROMPT: z.string().optional(),
   OPENAI_USER_TEMPLATE: z.string().optional(),
