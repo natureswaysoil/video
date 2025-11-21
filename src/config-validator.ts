@@ -8,6 +8,8 @@ import { z } from 'zod'
 
 const envSchema = z.object({
   // OpenAI Configuration (optional - system can use product description as fallback)
+  // Note: If OPENAI_API_KEY is not set, cli.ts will use product description as script
+  // The generateScript function will throw if called without the key, but cli.ts checks first
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
   OPENAI_SYSTEM_PROMPT: z.string().optional(),

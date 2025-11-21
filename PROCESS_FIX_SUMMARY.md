@@ -16,9 +16,9 @@
 - The blog server was running instead of the main CLI process
 
 **Fix:**
-- Dockerfile now correctly specifies: `CMD ["node", "dist/cli.js"]`
-- This change ensures the video posting process runs when deployed
-- **Action Required:** Rebuild and redeploy the Docker image using `scripts/deploy-gcp.sh`
+- Dockerfile already corrected (was fixed in PR #31): `CMD ["node", "dist/cli.js"]`
+- **Status:** Fixed in current code, but not yet deployed to production
+- **Action Required:** Rebuild and redeploy the Docker image using `scripts/deploy-gcp.sh` to apply the fix
 
 **Verification:**
 ```bash
