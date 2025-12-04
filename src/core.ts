@@ -192,7 +192,9 @@ export async function processCsvUrl(csvUrl: string): Promise<{
         logger.debug('Skipping already posted row', 'Core', {
           rowNumber: i + 2,
           jobId,
+          posted,
           csvUrl,
+          hint: 'Set ALWAYS_GENERATE_NEW_VIDEO=true to reprocess posted items'
         })
         skippedCount++
         continue // don't process already-posted rows unless alwaysNew
@@ -202,15 +204,16 @@ export async function processCsvUrl(csvUrl: string): Promise<{
         pickFirst(rec, envKeys('CSV_COL_READY')) ||
         pickFirst(rec, ['Ready', 'ready', 'Status', 'status', 'Enabled', 'enabled', 'Post', 'post'])
       
-      if (ready && !isTruthy(ready, process.env.CSV_STATUS_TRUE_VALUES)) {
-        logger.debug('Skipping row that is not ready', 'Core', {
+      // Only skip if ready field exists AND explicitly indicates "not ready" (false, no, 0, disabled, etc.)
+      if (ready && isFalsy(ready)) {
+        logger.debug('Skipping row that is explicitly not ready', 'Core', {
           rowNumber: i + 2,
           jobId,
           ready,
           csvUrl,
         })
         skippedCount++
-        continue // skip rows that are explicitly not ready
+        continue // skip rows that are explicitly marked as not ready
       }
 
       rows.push({ product, jobId, rowNumber: i + 2, headers, record: rec })
@@ -321,6 +324,12 @@ function isTruthy(val: string, custom?: string): boolean {
     ? custom.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
     : defaults
   return list.includes(v)
+}
+
+function isFalsy(val: string): boolean {
+  const v = val.trim().toLowerCase()
+  const falsyValues = ['0', 'false', 'no', 'n', 'off', 'disabled', 'skip', 'ignore']
+  return falsyValues.includes(v)
 }
 
 function envKeys(envName: string): string[] {
