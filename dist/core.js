@@ -60,10 +60,11 @@ async function processCsvUrl(csvUrl) {
         if (headers.length === 0) {
             throw new errors_1.AppError('CSV has no headers', errors_1.ErrorCode.CSV_PARSING_ERROR, 400, true, { csvUrl });
         }
-        logger.debug('CSV headers parsed', 'Core', {
+        logger.info('CSV headers parsed', 'Core', {
             csvUrl,
             headerCount: headers.length,
-            headers: headers.slice(0, 10), // Log first 10 headers
+            totalDataRows: lines.length - 1,
+            headers: headers.slice(0, 15), // Log first 15 headers
         });
         const rows = [];
         let skippedCount = 0;
@@ -87,11 +88,23 @@ async function processCsvUrl(csvUrl) {
                     'WaveSpeed Job ID',
                     'WAVESPEED_JOB_ID',
                     'job',
+                    'ASIN',
+                    'Parent_ASIN',
+                    'SKU',
+                    'Product_ID',
+                    'product_id',
+                    'id',
+                    'ID',
                 ]);
             if (!jobId) {
-                logger.debug('Skipping row without jobId', 'Core', {
+                logger.warn('Skipping row without jobId - no product identifier found', 'Core', {
                     rowNumber: i + 2,
                     csvUrl,
+                    availableColumns: Object.keys(rec).slice(0, 10), // Log first 10 column names for debugging
+                    sampleData: Object.keys(rec).slice(0, 5).reduce((obj, key) => {
+                        obj[key] = rec[key]?.substring(0, 50); // Show first 50 chars of first 5 columns
+                        return obj;
+                    }, {})
                 });
                 skippedCount++;
                 continue; // skip rows missing jobId
@@ -140,13 +153,26 @@ async function processCsvUrl(csvUrl) {
         const duration = Date.now() - startTime;
         metrics.incrementCounter('core.process_csv.success');
         metrics.recordHistogram('core.process_csv.duration', duration);
-        logger.info('CSV processed', 'Core', {
-            csvUrl,
-            totalLines: lines.length,
-            processedRows: processedCount,
-            skippedRows: skippedCount,
-            duration,
-        });
+        if (rows.length === 0) {
+            logger.warn('No valid products found in CSV after filtering', 'Core', {
+                csvUrl,
+                totalLines: lines.length,
+                totalDataRows: lines.length - 1,
+                skippedRows: skippedCount,
+                processedRows: processedCount,
+                duration,
+                hint: 'Check that CSV has a jobId/ASIN/SKU column and rows are not marked as already posted'
+            });
+        }
+        else {
+            logger.info('CSV processed successfully', 'Core', {
+                csvUrl,
+                totalLines: lines.length,
+                processedRows: processedCount,
+                skippedRows: skippedCount,
+                duration,
+            });
+        }
         return { skipped: rows.length === 0, rows };
     }
     catch (error) {
