@@ -127,7 +127,11 @@ export async function processCsvUrl(csvUrl: string): Promise<{
       alreadyPosted: 0,
       notReady: 0
     }
-    const skippedRowSamples: Array<{rowNumber: number; reason: string; sample: any}> = []
+    const skippedRowSamples: Array<{
+      rowNumber: number
+      reason: string
+      sample: Record<string, string>
+    }> = []
 
     for (const [i, raw] of lines.slice(1).entries()) {
       if (!raw.trim()) continue
@@ -167,7 +171,7 @@ export async function processCsvUrl(csvUrl: string): Promise<{
         if (skippedRowSamples.length < MAX_SAMPLE_ROWS) {
           const sampleData = Object.keys(rec).slice(0, SAMPLE_COLUMN_COUNT).reduce((obj, key) => {
             const val = rec[key]
-            obj[key] = (val && typeof val === 'string') ? val.substring(0, SAMPLE_COLUMN_CHARS) : String(val || '')
+            obj[key] = (val && typeof val === 'string') ? val.substring(0, SAMPLE_COLUMN_CHARS) : String(val ?? '')
             return obj
           }, {} as Record<string, string>)
           
@@ -222,7 +226,7 @@ export async function processCsvUrl(csvUrl: string): Promise<{
           skippedRowSamples.push({
             rowNumber: i + 2,
             reason: `Already posted (Posted='${posted}')`,
-            sample: { jobId, posted }
+            sample: { jobId: String(jobId), posted: String(posted) }
           })
         }
         
@@ -253,7 +257,7 @@ export async function processCsvUrl(csvUrl: string): Promise<{
           skippedRowSamples.push({
             rowNumber: i + 2,
             reason: `Not ready (Ready/Status='${ready}')`,
-            sample: { jobId, ready }
+            sample: { jobId: String(jobId), ready: String(ready) }
           })
         }
         
@@ -285,7 +289,7 @@ export async function processCsvUrl(csvUrl: string): Promise<{
         duration,
         availableHeaders: headers,
         skipReasons,
-        skippedRowSamples: skippedRowSamples.length > 0 ? skippedRowSamples : undefined,
+        skippedRowSamples,
         envConfig: {
           CSV_COL_JOB_ID: process.env.CSV_COL_JOB_ID || 'not set (using defaults)',
           CSV_COL_POSTED: process.env.CSV_COL_POSTED || 'not set (using defaults)',

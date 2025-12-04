@@ -113,7 +113,7 @@ async function processCsvUrl(csvUrl) {
                 if (skippedRowSamples.length < MAX_SAMPLE_ROWS) {
                     const sampleData = Object.keys(rec).slice(0, SAMPLE_COLUMN_COUNT).reduce((obj, key) => {
                         const val = rec[key];
-                        obj[key] = (val && typeof val === 'string') ? val.substring(0, SAMPLE_COLUMN_CHARS) : String(val || '');
+                        obj[key] = (val && typeof val === 'string') ? val.substring(0, SAMPLE_COLUMN_CHARS) : String(val ?? '');
                         return obj;
                     }, {});
                     skippedRowSamples.push({
@@ -154,7 +154,7 @@ async function processCsvUrl(csvUrl) {
                     skippedRowSamples.push({
                         rowNumber: i + 2,
                         reason: `Already posted (Posted='${posted}')`,
-                        sample: { jobId, posted }
+                        sample: { jobId: String(jobId), posted: String(posted) }
                     });
                 }
                 logger.debug('Skipping already posted row', 'Core', {
@@ -180,7 +180,7 @@ async function processCsvUrl(csvUrl) {
                     skippedRowSamples.push({
                         rowNumber: i + 2,
                         reason: `Not ready (Ready/Status='${ready}')`,
-                        sample: { jobId, ready }
+                        sample: { jobId: String(jobId), ready: String(ready) }
                     });
                 }
                 logger.debug('Skipping row that is explicitly not ready', 'Core', {
@@ -208,7 +208,7 @@ async function processCsvUrl(csvUrl) {
                 duration,
                 availableHeaders: headers,
                 skipReasons,
-                skippedRowSamples: skippedRowSamples.length > 0 ? skippedRowSamples : undefined,
+                skippedRowSamples,
                 envConfig: {
                     CSV_COL_JOB_ID: process.env.CSV_COL_JOB_ID || 'not set (using defaults)',
                     CSV_COL_POSTED: process.env.CSV_COL_POSTED || 'not set (using defaults)',
