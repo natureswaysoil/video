@@ -153,7 +153,8 @@ export async function processCsvUrl(csvUrl: string): Promise<{
           csvUrl,
           availableColumns: Object.keys(rec).slice(0, 10), // Log first 10 column names for debugging
           sampleData: Object.keys(rec).slice(0, 5).reduce((obj, key) => {
-            obj[key] = rec[key]?.substring(0, 50) // Show first 50 chars of first 5 columns
+            const val = rec[key]
+            obj[key] = val ? val.substring(0, 50) : '' // Show first 50 chars of first 5 columns
             return obj
           }, {} as Record<string, string>)
         })
@@ -326,7 +327,8 @@ function isTruthy(val: string, custom?: string): boolean {
   return list.includes(v)
 }
 
-function isFalsy(val: string): boolean {
+function isFalsy(val: string | null | undefined): boolean {
+  if (!val || typeof val !== 'string') return false
   const v = val.trim().toLowerCase()
   const falsyValues = ['0', 'false', 'no', 'n', 'off', 'disabled', 'skip', 'ignore']
   return falsyValues.includes(v)
