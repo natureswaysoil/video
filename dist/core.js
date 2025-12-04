@@ -103,7 +103,7 @@ async function processCsvUrl(csvUrl) {
                     availableColumns: Object.keys(rec).slice(0, 10), // Log first 10 column names for debugging
                     sampleData: Object.keys(rec).slice(0, 5).reduce((obj, key) => {
                         const val = rec[key];
-                        obj[key] = val ? val.substring(0, 50) : ''; // Show first 50 chars of first 5 columns
+                        obj[key] = (val && typeof val === 'string') ? val.substring(0, 50) : String(val || ''); // Show first 50 chars of first 5 columns
                         return obj;
                     }, {})
                 });
@@ -140,7 +140,10 @@ async function processCsvUrl(csvUrl) {
             }
             const ready = pickFirst(rec, envKeys('CSV_COL_READY')) ||
                 pickFirst(rec, ['Ready', 'ready', 'Status', 'status', 'Enabled', 'enabled', 'Post', 'post']);
-            // Only skip if ready field exists AND explicitly indicates "not ready" (false, no, 0, disabled, etc.)
+            // Behavior change: Only skip rows explicitly marked as "not ready" (false, no, 0, disabled, etc.)
+            // Previous behavior: Skipped all rows where Ready/Status was not explicitly truthy
+            // New behavior: Only skip rows with explicit negative values, allowing empty/undefined/non-standard values
+            // Rationale: Empty or non-standard Status values (like "Draft", "Pending") should not block processing
             if (ready && isFalsy(ready)) {
                 logger.debug('Skipping row that is explicitly not ready', 'Core', {
                     rowNumber: i + 2,
