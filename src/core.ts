@@ -116,6 +116,22 @@ export async function processCsvUrl(csvUrl: string): Promise<{
 
     let skippedCount = 0
     let processedCount = 0
+    
+    // Track skip reasons for better diagnostics
+    const MAX_SAMPLE_ROWS = 3
+    const SAMPLE_COLUMN_COUNT = 5
+    const SAMPLE_COLUMN_CHARS = 50
+    
+    const skipReasons = {
+      noJobId: 0,
+      alreadyPosted: 0,
+      notReady: 0
+    }
+    const skippedRowSamples: Array<{
+      rowNumber: number
+      reason: string
+      sample: Record<string, string>
+    }> = []
 
     for (const [i, raw] of lines.slice(1).entries()) {
       if (!raw.trim()) continue
@@ -148,17 +164,29 @@ export async function processCsvUrl(csvUrl: string): Promise<{
         ])
 
       if (!jobId) {
-        logger.warn('Skipping row without jobId - no product identifier found', 'Core', {
-          rowNumber: i + 2,
-          csvUrl,
-          availableColumns: Object.keys(rec).slice(0, 10), // Log first 10 column names for debugging
-          sampleData: Object.keys(rec).slice(0, 5).reduce((obj, key) => {
+        skipReasons.noJobId++
+        skippedCount++
+        
+        // Capture sample for first few skipped rows
+        if (skippedRowSamples.length < MAX_SAMPLE_ROWS) {
+          const sampleData = Object.keys(rec).slice(0, SAMPLE_COLUMN_COUNT).reduce((obj, key) => {
             const val = rec[key]
-            obj[key] = (val && typeof val === 'string') ? val.substring(0, 50) : String(val || '') // Show first 50 chars of first 5 columns
+            obj[key] = (val && typeof val === 'string') ? val.substring(0, SAMPLE_COLUMN_CHARS) : String(val ?? '')
             return obj
           }, {} as Record<string, string>)
+          
+          skippedRowSamples.push({
+            rowNumber: i + 2,
+            reason: 'No jobId/ASIN/SKU found',
+            sample: sampleData
+          })
+        }
+        
+        logger.debug('Skipping row without jobId - no product identifier found', 'Core', {
+          rowNumber: i + 2,
+          csvUrl,
+          availableColumns: Object.keys(rec).slice(0, 10),
         })
-        skippedCount++
         continue // skip rows missing jobId
       }
 
@@ -190,6 +218,18 @@ export async function processCsvUrl(csvUrl: string): Promise<{
         pickFirst(rec, ['Posted', 'posted'])
       
       if (!alwaysNew && posted && isTruthy(posted, process.env.CSV_STATUS_TRUE_VALUES)) {
+        skipReasons.alreadyPosted++
+        skippedCount++
+        
+        // Capture sample for first few skipped rows
+        if (skippedRowSamples.length < MAX_SAMPLE_ROWS) {
+          skippedRowSamples.push({
+            rowNumber: i + 2,
+            reason: `Already posted (Posted='${posted}')`,
+            sample: { jobId: String(jobId), posted: String(posted) }
+          })
+        }
+        
         logger.debug('Skipping already posted row', 'Core', {
           rowNumber: i + 2,
           jobId,
@@ -197,7 +237,6 @@ export async function processCsvUrl(csvUrl: string): Promise<{
           csvUrl,
           hint: 'Set ALWAYS_GENERATE_NEW_VIDEO=true to reprocess posted items'
         })
-        skippedCount++
         continue // don't process already-posted rows unless alwaysNew
       }
 
@@ -210,13 +249,24 @@ export async function processCsvUrl(csvUrl: string): Promise<{
       // New behavior: Only skip rows with explicit negative values, allowing empty/undefined/non-standard values
       // Rationale: Empty or non-standard Status values (like "Draft", "Pending") should not block processing
       if (ready && isFalsy(ready)) {
+        skipReasons.notReady++
+        skippedCount++
+        
+        // Capture sample for first few skipped rows
+        if (skippedRowSamples.length < MAX_SAMPLE_ROWS) {
+          skippedRowSamples.push({
+            rowNumber: i + 2,
+            reason: `Not ready (Ready/Status='${ready}')`,
+            sample: { jobId: String(jobId), ready: String(ready) }
+          })
+        }
+        
         logger.debug('Skipping row that is explicitly not ready', 'Core', {
           rowNumber: i + 2,
           jobId,
           ready,
           csvUrl,
         })
-        skippedCount++
         continue // skip rows that are explicitly marked as not ready
       }
 
@@ -229,15 +279,31 @@ export async function processCsvUrl(csvUrl: string): Promise<{
     metrics.recordHistogram('core.process_csv.duration', duration)
 
     if (rows.length === 0) {
-      logger.warn('No valid products found in CSV after filtering', 'Core', {
+      // Enhanced diagnostics when no products are found
+      const diagnostics = {
         csvUrl,
         totalLines: lines.length,
         totalDataRows: lines.length - 1,
         skippedRows: skippedCount,
         processedRows: processedCount,
         duration,
-        hint: 'Check that CSV has a jobId/ASIN/SKU column and rows are not marked as already posted'
-      })
+        availableHeaders: headers,
+        skipReasons,
+        skippedRowSamples,
+        envConfig: {
+          CSV_COL_JOB_ID: process.env.CSV_COL_JOB_ID || 'not set (using defaults)',
+          CSV_COL_POSTED: process.env.CSV_COL_POSTED || 'not set (using defaults)',
+          CSV_COL_READY: process.env.CSV_COL_READY || 'not set (using defaults)',
+          ALWAYS_GENERATE_NEW_VIDEO: process.env.ALWAYS_GENERATE_NEW_VIDEO || 'false',
+        },
+        troubleshootingHints: [
+          skipReasons.noJobId > 0 ? 'No jobId/ASIN/SKU column found. Check CSV_COL_JOB_ID env var or ensure CSV has a column named: jobId, ASIN, SKU, or Product_ID' : null,
+          skipReasons.alreadyPosted > 0 ? `${skipReasons.alreadyPosted} rows already posted. Set ALWAYS_GENERATE_NEW_VIDEO=true to reprocess them` : null,
+          skipReasons.notReady > 0 ? `${skipReasons.notReady} rows marked as not ready (disabled/false/no). Update Ready/Status column or set CSV_COL_READY to correct column` : null,
+        ].filter(Boolean)
+      }
+      
+      logger.warn('No valid products found in CSV after filtering', 'Core', diagnostics)
     } else {
       logger.info('CSV processed successfully', 'Core', {
         csvUrl,
