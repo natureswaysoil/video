@@ -23,7 +23,7 @@ This repository **DOES contain** a comprehensive HeyGen avatar mapping implement
 
 3. **`src/cli.ts`** - Integration and Usage
    - Line 7-8: Imports HeyGen client and adapter
-   - Line 130-212: Main video generation flow with avatar mapping
+   - Line 157-217: Main video generation flow with avatar mapping
 
 ## Avatar Mapping Rules
 
