@@ -576,11 +576,21 @@ async function main() {
                 });
             }
             else {
-                console.log('No valid products found in sheet.');
+                console.log('⚠️  No valid products found in sheet.');
+                console.log('💡 Troubleshooting tips:');
+                console.log('   1. Verify CSV_URL is accessible and contains data');
+                console.log('   2. Ensure CSV has a column for product ID (jobId, ASIN, SKU, Product_ID, etc.)');
+                console.log('   3. Check if rows are filtered by Posted/Ready status columns');
+                console.log('   4. Set ALWAYS_GENERATE_NEW_VIDEO=true to reprocess posted items');
+                console.log('   5. Review CSV_COL_* environment variables for correct column mappings');
                 (0, audit_logger_1.getAuditLogger)().logEvent({
                     level: 'WARN',
                     category: 'CSV',
                     message: 'No valid products found in sheet',
+                    details: {
+                        csvUrl,
+                        suggestion: 'Check CSV column names and filtering conditions'
+                    }
                 });
                 (0, health_server_1.updateStatus)({ status: 'idle-no-products' });
             }

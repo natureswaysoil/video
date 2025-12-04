@@ -60,10 +60,11 @@ async function processCsvUrl(csvUrl) {
         if (headers.length === 0) {
             throw new errors_1.AppError('CSV has no headers', errors_1.ErrorCode.CSV_PARSING_ERROR, 400, true, { csvUrl });
         }
-        logger.debug('CSV headers parsed', 'Core', {
+        logger.info('CSV headers parsed', 'Core', {
             csvUrl,
             headerCount: headers.length,
-            headers: headers.slice(0, 10), // Log first 10 headers
+            totalDataRows: lines.length - 1,
+            headers: headers.slice(0, 15), // Log first 15 headers
         });
         const rows = [];
         let skippedCount = 0;
@@ -87,11 +88,24 @@ async function processCsvUrl(csvUrl) {
                     'WaveSpeed Job ID',
                     'WAVESPEED_JOB_ID',
                     'job',
+                    'ASIN',
+                    'Parent_ASIN',
+                    'SKU',
+                    'Product_ID',
+                    'product_id',
+                    'id',
+                    'ID',
                 ]);
             if (!jobId) {
-                logger.debug('Skipping row without jobId', 'Core', {
+                logger.warn('Skipping row without jobId - no product identifier found', 'Core', {
                     rowNumber: i + 2,
                     csvUrl,
+                    availableColumns: Object.keys(rec).slice(0, 10), // Log first 10 column names for debugging
+                    sampleData: Object.keys(rec).slice(0, 5).reduce((obj, key) => {
+                        const val = rec[key];
+                        obj[key] = (val && typeof val === 'string') ? val.substring(0, 50) : String(val || ''); // Show first 50 chars of first 5 columns
+                        return obj;
+                    }, {})
                 });
                 skippedCount++;
                 continue; // skip rows missing jobId
@@ -117,22 +131,28 @@ async function processCsvUrl(csvUrl) {
                 logger.debug('Skipping already posted row', 'Core', {
                     rowNumber: i + 2,
                     jobId,
+                    posted,
                     csvUrl,
+                    hint: 'Set ALWAYS_GENERATE_NEW_VIDEO=true to reprocess posted items'
                 });
                 skippedCount++;
                 continue; // don't process already-posted rows unless alwaysNew
             }
             const ready = pickFirst(rec, envKeys('CSV_COL_READY')) ||
                 pickFirst(rec, ['Ready', 'ready', 'Status', 'status', 'Enabled', 'enabled', 'Post', 'post']);
-            if (ready && !isTruthy(ready, process.env.CSV_STATUS_TRUE_VALUES)) {
-                logger.debug('Skipping row that is not ready', 'Core', {
+            // Behavior change: Only skip rows explicitly marked as "not ready" (false, no, 0, disabled, etc.)
+            // Previous behavior: Skipped all rows where Ready/Status was not explicitly truthy
+            // New behavior: Only skip rows with explicit negative values, allowing empty/undefined/non-standard values
+            // Rationale: Empty or non-standard Status values (like "Draft", "Pending") should not block processing
+            if (ready && isFalsy(ready)) {
+                logger.debug('Skipping row that is explicitly not ready', 'Core', {
                     rowNumber: i + 2,
                     jobId,
                     ready,
                     csvUrl,
                 });
                 skippedCount++;
-                continue; // skip rows that are explicitly not ready
+                continue; // skip rows that are explicitly marked as not ready
             }
             rows.push({ product, jobId, rowNumber: i + 2, headers, record: rec });
             processedCount++;
@@ -140,13 +160,26 @@ async function processCsvUrl(csvUrl) {
         const duration = Date.now() - startTime;
         metrics.incrementCounter('core.process_csv.success');
         metrics.recordHistogram('core.process_csv.duration', duration);
-        logger.info('CSV processed', 'Core', {
-            csvUrl,
-            totalLines: lines.length,
-            processedRows: processedCount,
-            skippedRows: skippedCount,
-            duration,
-        });
+        if (rows.length === 0) {
+            logger.warn('No valid products found in CSV after filtering', 'Core', {
+                csvUrl,
+                totalLines: lines.length,
+                totalDataRows: lines.length - 1,
+                skippedRows: skippedCount,
+                processedRows: processedCount,
+                duration,
+                hint: 'Check that CSV has a jobId/ASIN/SKU column and rows are not marked as already posted'
+            });
+        }
+        else {
+            logger.info('CSV processed successfully', 'Core', {
+                csvUrl,
+                totalLines: lines.length,
+                processedRows: processedCount,
+                skippedRows: skippedCount,
+                duration,
+            });
+        }
         return { skipped: rows.length === 0, rows };
     }
     catch (error) {
@@ -212,6 +245,13 @@ function isTruthy(val, custom) {
         ? custom.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
         : defaults;
     return list.includes(v);
+}
+function isFalsy(val) {
+    if (!val || typeof val !== 'string')
+        return false;
+    const v = val.trim().toLowerCase();
+    const falsyValues = ['0', 'false', 'no', 'n', 'off', 'disabled', 'skip', 'ignore'];
+    return falsyValues.includes(v);
 }
 function envKeys(envName) {
     const raw = process.env[envName];
