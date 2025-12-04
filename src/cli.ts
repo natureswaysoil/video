@@ -599,13 +599,15 @@ async function main() {
         console.log('   3. Check if rows are filtered by Posted/Ready status columns')
         console.log('   4. Set ALWAYS_GENERATE_NEW_VIDEO=true to reprocess posted items')
         console.log('   5. Review CSV_COL_* environment variables for correct column mappings')
+        console.log('   6. Check logs above for detailed skip reasons and available CSV headers')
+        console.log('\n📋 Run with LOG_LEVEL=debug for detailed row-by-row analysis')
         getAuditLogger().logEvent({
           level: 'WARN',
           category: 'CSV',
           message: 'No valid products found in sheet',
           details: {
             csvUrl,
-            suggestion: 'Check CSV column names and filtering conditions'
+            suggestion: 'Check logs for detailed diagnostics including skip reasons and available headers'
           }
         })
         updateStatus({ status: 'idle-no-products' })
