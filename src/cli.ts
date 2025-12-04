@@ -11,6 +11,7 @@ import { markRowPosted, writeColumnValues } from './sheets'
 import { startHealthServer, stopHealthServer, updateStatus, incrementSuccessfulPost, incrementFailedPost, addError } from './health-server'
 import { getAuditLogger } from './audit-logger'
 import { hasConfiguredGoogleCredentials } from './google-auth'
+import { validateConfig } from './config-validator'
 
 const auditLogger = getAuditLogger()
 // Retry helper with exponential backoff
@@ -55,6 +56,15 @@ async function retryWithBackoff<T>(
 }
 
 async function main() {
+  // 1. RUN VALIDATION FIRST - validate configuration before any processing
+  try {
+    validateConfig()
+    console.log('✅ Configuration validated successfully.')
+  } catch (error) {
+    console.error('❌ Configuration validation failed:', error)
+    process.exit(1)
+  }
+
   const csvUrl = process.env.CSV_URL as string
   if (!csvUrl) throw new Error('CSV_URL not set in .env')
   const seen = new Set<string>()

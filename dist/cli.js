@@ -46,6 +46,7 @@ const sheets_1 = require("./sheets");
 const health_server_1 = require("./health-server");
 const audit_logger_1 = require("./audit-logger");
 const google_auth_1 = require("./google-auth");
+const config_validator_1 = require("./config-validator");
 const auditLogger = (0, audit_logger_1.getAuditLogger)();
 // Retry helper with exponential backoff
 async function retryWithBackoff(fn, options = {}) {
@@ -71,6 +72,15 @@ async function retryWithBackoff(fn, options = {}) {
     return null;
 }
 async function main() {
+    // 1. RUN VALIDATION FIRST - validate configuration before any processing
+    try {
+        (0, config_validator_1.validateConfig)();
+        console.log('✅ Configuration validated successfully.');
+    }
+    catch (error) {
+        console.error('❌ Configuration validation failed:', error);
+        process.exit(1);
+    }
     const csvUrl = process.env.CSV_URL;
     if (!csvUrl)
         throw new Error('CSV_URL not set in .env');
