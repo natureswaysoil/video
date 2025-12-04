@@ -70,6 +70,9 @@ async function processCsvUrl(csvUrl) {
         let skippedCount = 0;
         let processedCount = 0;
         // Track skip reasons for better diagnostics
+        const MAX_SAMPLE_ROWS = 3;
+        const SAMPLE_COLUMN_COUNT = 5;
+        const SAMPLE_COLUMN_CHARS = 50;
         const skipReasons = {
             noJobId: 0,
             alreadyPosted: 0,
@@ -107,10 +110,10 @@ async function processCsvUrl(csvUrl) {
                 skipReasons.noJobId++;
                 skippedCount++;
                 // Capture sample for first few skipped rows
-                if (skippedRowSamples.length < 3) {
-                    const sampleData = Object.keys(rec).slice(0, 5).reduce((obj, key) => {
+                if (skippedRowSamples.length < MAX_SAMPLE_ROWS) {
+                    const sampleData = Object.keys(rec).slice(0, SAMPLE_COLUMN_COUNT).reduce((obj, key) => {
                         const val = rec[key];
-                        obj[key] = (val && typeof val === 'string') ? val.substring(0, 50) : String(val || '');
+                        obj[key] = (val && typeof val === 'string') ? val.substring(0, SAMPLE_COLUMN_CHARS) : String(val || '');
                         return obj;
                     }, {});
                     skippedRowSamples.push({
@@ -147,7 +150,7 @@ async function processCsvUrl(csvUrl) {
                 skipReasons.alreadyPosted++;
                 skippedCount++;
                 // Capture sample for first few skipped rows
-                if (skippedRowSamples.length < 3) {
+                if (skippedRowSamples.length < MAX_SAMPLE_ROWS) {
                     skippedRowSamples.push({
                         rowNumber: i + 2,
                         reason: `Already posted (Posted='${posted}')`,
@@ -173,7 +176,7 @@ async function processCsvUrl(csvUrl) {
                 skipReasons.notReady++;
                 skippedCount++;
                 // Capture sample for first few skipped rows
-                if (skippedRowSamples.length < 3) {
+                if (skippedRowSamples.length < MAX_SAMPLE_ROWS) {
                     skippedRowSamples.push({
                         rowNumber: i + 2,
                         reason: `Not ready (Ready/Status='${ready}')`,
@@ -204,11 +207,7 @@ async function processCsvUrl(csvUrl) {
                 processedRows: processedCount,
                 duration,
                 availableHeaders: headers,
-                skipReasons: {
-                    noJobId: skipReasons.noJobId,
-                    alreadyPosted: skipReasons.alreadyPosted,
-                    notReady: skipReasons.notReady,
-                },
+                skipReasons,
                 skippedRowSamples: skippedRowSamples.length > 0 ? skippedRowSamples : undefined,
                 envConfig: {
                     CSV_COL_JOB_ID: process.env.CSV_COL_JOB_ID || 'not set (using defaults)',
