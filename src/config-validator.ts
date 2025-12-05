@@ -121,11 +121,22 @@ export async function validateConfig(): Promise<InferredConfig> {
 }
 
 /**
- * Get the current config (throws if not validated yet)
+ * Get the current config (automatically validates if not already done)
  */
 export function getConfig(): InferredConfig {
   if (!cachedConfig) {
-    throw new Error('Configuration has not been validated yet. Call validateConfig() first.')
+    // Auto-validate on first access - synchronous wrapper for backwards compatibility
+    // This handles cases where getConfig() is called before validateConfig()
+    try {
+      cachedConfig = envSchema.parse(process.env) as InferredConfig
+    } catch (error) {
+      if (error && typeof error === 'object' && 'errors' in error) {
+        const zodError = error as any
+        const errors = zodError.errors.map((e: any) => `${e.path.join('.')}: ${e.message}`).join('\n')
+        throw new Error(`Configuration validation failed:\n${errors}`)
+      }
+      throw error
+    }
   }
   return cachedConfig
 }
