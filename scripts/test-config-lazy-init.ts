@@ -10,8 +10,8 @@
 async function main() {
   console.log('🧪 Testing Lazy Config Initialization in processCsvUrl...\n')
   
-  // Load environment variables
-  require('dotenv/config')
+  // Load environment variables dynamically
+  await import('dotenv/config')
   
   // Create a mock CSV URL for testing
   const mockCsvUrl = 'https://example.com/test.csv'

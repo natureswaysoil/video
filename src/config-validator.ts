@@ -100,16 +100,12 @@ export type AppConfig = InferredConfig
 let cachedConfig: InferredConfig | null = null
 
 /**
- * Validate and parse environment variables
+ * Helper function to parse and validate environment variables
+ * Throws a formatted error if validation fails
  */
-export async function validateConfig(): Promise<InferredConfig> {
-  if (cachedConfig) {
-    return cachedConfig
-  }
-
+function parseAndValidateEnv(): InferredConfig {
   try {
-    cachedConfig = envSchema.parse(process.env) as InferredConfig
-    return cachedConfig
+    return envSchema.parse(process.env) as InferredConfig
   } catch (error) {
     if (error && typeof error === 'object' && 'errors' in error) {
       const zodError = error as any
@@ -121,22 +117,25 @@ export async function validateConfig(): Promise<InferredConfig> {
 }
 
 /**
+ * Validate and parse environment variables
+ */
+export async function validateConfig(): Promise<InferredConfig> {
+  if (cachedConfig) {
+    return cachedConfig
+  }
+
+  cachedConfig = parseAndValidateEnv()
+  return cachedConfig
+}
+
+/**
  * Get the current config (automatically validates if not already done)
  */
 export function getConfig(): InferredConfig {
   if (!cachedConfig) {
     // Auto-validate on first access - synchronous wrapper for backwards compatibility
     // This handles cases where getConfig() is called before validateConfig()
-    try {
-      cachedConfig = envSchema.parse(process.env) as InferredConfig
-    } catch (error) {
-      if (error && typeof error === 'object' && 'errors' in error) {
-        const zodError = error as any
-        const errors = zodError.errors.map((e: any) => `${e.path.join('.')}: ${e.message}`).join('\n')
-        throw new Error(`Configuration validation failed:\n${errors}`)
-      }
-      throw error
-    }
+    cachedConfig = parseAndValidateEnv()
   }
   return cachedConfig
 }
