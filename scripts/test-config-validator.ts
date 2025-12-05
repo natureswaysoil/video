@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { getConfig, validateConfig } from '../src/config-validator'
+import { getConfig, validateConfig, hasCredentialsFor } from '../src/config-validator'
 
 /**
  * Test configuration validator:
@@ -37,7 +37,6 @@ async function main() {
     
     // Test 4: Check that hasCredentialsFor works
     console.log('Test 4: Testing credential checks...')
-    const { hasCredentialsFor } = await import('../src/config-validator')
     const platforms = ['twitter', 'youtube', 'instagram', 'pinterest'] as const
     platforms.forEach(platform => {
       const hasCredentials = hasCredentialsFor(platform)

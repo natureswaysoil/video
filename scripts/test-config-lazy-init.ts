@@ -36,10 +36,11 @@ async function main() {
       }
       
       // Network/CSV errors are expected and acceptable
-      if (error.message?.includes('CSV processing failed') || 
-          error.message?.includes('ENOTFOUND') ||
-          error.message?.includes('getaddrinfo') ||
-          error.code === 'ENOTFOUND') {
+      const isNetworkError = error.code === 'ENOTFOUND' || 
+                            error.message?.includes('CSV processing failed') ||
+                            error.message?.includes('getaddrinfo')
+      
+      if (isNetworkError) {
         console.log('✅ Got expected network/CSV error (not a config error)')
         console.log(`   Error type: ${error.constructor.name}`)
         console.log(`   Message: ${error.message?.substring(0, 100)}...`)
