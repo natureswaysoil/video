@@ -100,16 +100,12 @@ export type AppConfig = InferredConfig
 let cachedConfig: InferredConfig | null = null
 
 /**
- * Validate and parse environment variables
+ * Helper function to parse and validate environment variables
+ * Throws a formatted error if validation fails
  */
-export async function validateConfig(): Promise<InferredConfig> {
-  if (cachedConfig) {
-    return cachedConfig
-  }
-
+function parseAndValidateEnv(): InferredConfig {
   try {
-    cachedConfig = envSchema.parse(process.env) as InferredConfig
-    return cachedConfig
+    return envSchema.parse(process.env) as InferredConfig
   } catch (error) {
     if (error && typeof error === 'object' && 'errors' in error) {
       const zodError = error as any
@@ -121,11 +117,25 @@ export async function validateConfig(): Promise<InferredConfig> {
 }
 
 /**
- * Get the current config (throws if not validated yet)
+ * Validate and parse environment variables
+ */
+export async function validateConfig(): Promise<InferredConfig> {
+  if (cachedConfig) {
+    return cachedConfig
+  }
+
+  cachedConfig = parseAndValidateEnv()
+  return cachedConfig
+}
+
+/**
+ * Get the current config (automatically validates if not already done)
  */
 export function getConfig(): InferredConfig {
   if (!cachedConfig) {
-    throw new Error('Configuration has not been validated yet. Call validateConfig() first.')
+    // Auto-validate on first access - synchronous wrapper for backwards compatibility
+    // This handles cases where getConfig() is called before validateConfig()
+    cachedConfig = parseAndValidateEnv()
   }
   return cachedConfig
 }
