@@ -249,19 +249,48 @@ SPREADSHEET_ID=your_id GID=your_gid ./scripts/cleanup-stray-files.sh
 
 ## Deploying on Google Cloud
 
-**🎯 For deployment instructions, see [GCLOUD_DEPLOYMENT.md](./GCLOUD_DEPLOYMENT.md)**
+### Cloud Run (container, long-running or on-demand)
+1. Build and push the image:
+   - Ensure you’re authenticated with `gcloud` and have Artifact Registry/Cloud Run enabled.
+   - Build and submit:
+     ```
+     gcloud builds submit --tag REGION-docker.pkg.dev/PROJECT_ID/repo/naturesway-video:latest
+     ```
+2. Deploy:
+   ```
+   gcloud run deploy naturesway-video \
+     --image=REGION-docker.pkg.dev/PROJECT_ID/repo/naturesway-video:latest \
+     --region=REGION \
+     --memory=512Mi --cpu=1 \
+     --no-allow-unauthenticated \
+     --set-env-vars=RUN_ONCE=false,POLL_INTERVAL_MS=60000 \
+     --set-env-vars=CSV_URL=...,CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title \
+     --set-secrets=INSTAGRAM_ACCESS_TOKEN=...,INSTAGRAM_IG_ID=... \
+     --set-secrets=TWITTER_BEARER_TOKEN=... \
+     --set-secrets=TWITTER_API_KEY=...,TWITTER_API_SECRET=...,TWITTER_ACCESS_TOKEN=...,TWITTER_ACCESS_SECRET=... \
+     --set-secrets=PINTEREST_ACCESS_TOKEN=...,PINTEREST_BOARD_ID=... \
+     --set-secrets=YT_CLIENT_ID=...,YT_CLIENT_SECRET=...,YT_REFRESH_TOKEN=... \
+     --set-secrets=GS_SERVICE_ACCOUNT_EMAIL=...,GS_SERVICE_ACCOUNT_KEY=...
+   ```
+   Notes:
+   - Prefer Cloud Secrets for the credentials referenced above.
+   - If you don’t want a continuously running service, see Cloud Run Jobs below.
 
-Quick automated deployment:
-
-```bash
-export PROJECT_ID=your-gcp-project-id
-export REGION=us-east1
-
-# Create secrets and deploy
-./scripts/create-secrets-from-env.sh
-./scripts/deploy-gcp.sh
-```
-
+### Cloud Run Jobs (serverless, scheduled or ad-hoc)
+1. Use the same image as above. Ensure `RUN_ONCE=true` (default in Dockerfile) so it exits after one pass.
+2. Create the job:
+   ```
+   gcloud run jobs create naturesway-video-job \
+     --image=REGION-docker.pkg.dev/PROJECT_ID/repo/naturesway-video:latest \
+     --region=REGION \
+     --set-env-vars=RUN_ONCE=true \
+     --set-env-vars=CSV_URL=...,CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title \
+     --set-secrets=... # same secrets as above
+   ```
+3. Trigger on a schedule via Cloud Scheduler (HTTP target to the job execution endpoint), or run on demand:
+   ```
+   gcloud run jobs execute naturesway-video-job --region=REGION
+   ```
 ---
 
 ## 🚀 Quick Deployment Guide
