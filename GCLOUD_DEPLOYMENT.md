@@ -199,7 +199,7 @@ The job is configured with these environment variables (edit in `scripts/deploy-
 
 ### Changing the Schedule
 
-Edit `scripts/deploy-gcp.sh` line 173:
+Edit `scripts/deploy-gcp.sh` and find the `--schedule` parameter in the Cloud Scheduler section:
 
 ```bash
 # Current: 9 AM and 6 PM daily
@@ -252,12 +252,15 @@ gcloud projects get-iam-policy $PROJECT_ID
    ```
 
 ### Job times out
-HeyGen video generation can take up to 25 minutes per video. The default timeout is 60 minutes (3600 seconds).
+HeyGen video generation can take up to 25 minutes per video. The default timeout in `scripts/deploy-gcp.sh` is 60 minutes (3600 seconds), which is adequate for processing a few videos per run.
 
-If you process many videos, increase the timeout in `scripts/deploy-gcp.sh`:
+If you process many videos per run, you may need to increase the timeout. Edit `scripts/deploy-gcp.sh` and find the `--task-timeout` parameter:
 ```bash
---task-timeout=7200  # 2 hours
+--task-timeout=3600   # Current: 1 hour (60 minutes)
+--task-timeout=7200   # Example: 2 hours for larger batches
 ```
+
+Then redeploy: `./scripts/deploy-gcp.sh`
 
 ---
 
