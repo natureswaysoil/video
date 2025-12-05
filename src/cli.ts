@@ -58,7 +58,8 @@ async function retryWithBackoff<T>(
 async function main() {
   // 1. RUN VALIDATION FIRST - validate configuration before any processing
   try {
-    validateConfig()
+    console.log('Initializing configuration...')
+    await validateConfig()
     console.log('✅ Configuration validated successfully.')
   } catch (error) {
     console.error('❌ Configuration validation failed:', error)

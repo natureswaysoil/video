@@ -102,7 +102,7 @@ let cachedConfig: InferredConfig | null = null
 /**
  * Validate and parse environment variables
  */
-export function validateConfig(): InferredConfig {
+export async function validateConfig(): Promise<InferredConfig> {
   if (cachedConfig) {
     return cachedConfig
   }
@@ -125,7 +125,7 @@ export function validateConfig(): InferredConfig {
  */
 export function getConfig(): InferredConfig {
   if (!cachedConfig) {
-    return validateConfig()
+    throw new Error('Configuration has not been validated yet. Call validateConfig() first.')
   }
   return cachedConfig
 }
