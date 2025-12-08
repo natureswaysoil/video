@@ -7,6 +7,7 @@ import os
 import json
 import logging
 import time
+import traceback
 import uuid
 from datetime import datetime, timedelta
 from typing import Dict, Any
@@ -556,7 +557,6 @@ def run_optimizer(request=None) -> Dict[str, Any]:
         
         # Log error to BigQuery
         if BIGQUERY_ENABLED:
-            import traceback
             error_details = {
                 'error_type': type(e).__name__,
                 'traceback': traceback.format_exc()
