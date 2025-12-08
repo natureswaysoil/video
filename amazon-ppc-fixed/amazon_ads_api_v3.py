@@ -1,14 +1,46 @@
 """
 Amazon Advertising API v3 Client for Sponsored Products
+Fixed for Amazon-PPC-Job: Corrects BigQuery Logging and Reporting API Payload
 """
 import requests
 import time
 import logging
 import os
+import gzip
+import json
+from io import BytesIO
 from typing import Dict, List, Optional
 from dataclasses import dataclass
+from datetime import datetime
+from google.cloud import bigquery
 
+# --- CONFIGURATION ---
 logger = logging.getLogger(__name__)
+BQ_PROJECT_ID = "amazon-ppc-474902"
+BQ_DATASET_ID = "amazon_ppc"
+BQ_TABLE_ID = "optimizer_run_events"
+
+# --- BIGQUERY LOGGING FUNCTION ---
+def log_to_bigquery(message, level="INFO", module="AmazonAdsAPI"):
+    """
+    Logs events directly to the corrected BigQuery table.
+    """
+    try:
+        client = bigquery.Client(project=BQ_PROJECT_ID)
+        table_ref = f"{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}"
+        
+        rows_to_insert = [{
+            "run_timestamp": datetime.now().isoformat(),
+            "status": level,
+            "details": message,
+            # "module": module # Uncomment if your table schema has a 'module' column
+        }]
+
+        errors = client.insert_rows_json(table_ref, rows_to_insert)
+        if errors:
+            print(f"BQ Insert Error: {errors}")
+    except Exception as e:
+        print(f"BQ Connection Failed: {e}")
 
 @dataclass
 class Campaign:
@@ -81,6 +113,7 @@ class AmazonAdsAPIv3:
             logger.info("Access token refreshed")
         except Exception as e:
             logger.error(f"Failed to refresh token: {e}")
+            log_to_bigquery(f"Failed to refresh token: {e}", level="ERROR")
             raise
     
     def _get_headers(self, additional_headers: Dict = None) -> Dict:
@@ -123,6 +156,12 @@ class AmazonAdsAPIv3:
             except requests.exceptions.HTTPError as e:
                 if attempt == max_retries - 1:
                     logger.error(f"Request failed: {method} {endpoint} - {e}")
+                    try:
+                        # Log detailed API error response if available
+                        error_detail = e.response.json()
+                        logger.error(f"API Error Details: {error_detail}")
+                    except:
+                        pass
                     raise
                 time.sleep(2 ** attempt)
         
@@ -168,7 +207,7 @@ class AmazonAdsAPIv3:
         try:
             headers = {'Accept': 'application/vnd.spCampaign.v3+json'}
             campaign_data = {'campaignId': int(campaign_id), **updates}
-            response = self._request('PUT', '/sp/campaigns', json={'campaigns': [campaign_data]}, headers=headers)
+            self._request('PUT', '/sp/campaigns', json={'campaigns': [campaign_data]}, headers=headers)
             logger.info(f"Updated campaign {campaign_id}")
             return True
         except Exception as e:
@@ -238,7 +277,7 @@ class AmazonAdsAPIv3:
                     formatted['state'] = update['state']
                 formatted_updates.append(formatted)
             
-            response = self._request('PUT', '/sp/keywords', json={'keywords': formatted_updates}, headers=headers)
+            self._request('PUT', '/sp/keywords', json={'keywords': formatted_updates}, headers=headers)
             logger.info(f"Updated {len(updates)} keywords")
             return True
         except Exception as e:
@@ -261,7 +300,7 @@ class AmazonAdsAPIv3:
         except Exception as e:
             logger.error(f"Failed to create keywords: {e}")
             return []
-    
+
     def list_negative_keywords(self, campaign_id: Optional[str] = None) -> List[Dict]:
         try:
             headers = {'Accept': 'application/vnd.spNegativeKeyword.v3+json'}
@@ -306,71 +345,131 @@ class AmazonAdsAPIv3:
         except Exception as e:
             logger.error(f"Failed to get keyword recommendations: {e}")
             return []
-    
+
+    # -------------------------------------------------------------------------
+    # FIXED: REPORTING METHODS (Resolves "Required fields... missing: configuration")
+    # -------------------------------------------------------------------------
+
+    def _wait_for_report(self, report_id: str) -> Optional[str]:
+        """Helper to poll report status and return download URL"""
+        for _ in range(30): # 30 attempts * 3 sec = 90 sec max wait
+            time.sleep(3)
+            try:
+                response = self._request('GET', f'/reporting/reports/{report_id}')
+                data = response.json()
+                status = data.get('status')
+                
+                if status == 'COMPLETED':
+                    return data.get('url')
+                elif status == 'FAILED':
+                    logger.error(f"Report generation failed: {data}")
+                    return None
+            except Exception as e:
+                logger.warning(f"Error checking report status: {e}")
+        
+        logger.error("Report generation timed out")
+        return None
+
+    def _download_and_parse_report(self, url: str) -> List[Dict]:
+        """Helper to download and unzip report"""
+        try:
+            # Standard request (no auth headers needed for signed download URL)
+            r = requests.get(url)
+            with gzip.GzipFile(fileobj=BytesIO(r.content)) as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to download/parse report: {e}")
+            return []
+
     def get_keyword_performance(self, start_date: str, end_date: str, metrics: List[str] = None) -> List[Dict]:
         """
-        Get keyword performance metrics from Reporting API
-        
-        Args:
-            start_date: Start date in YYYYMMDD format
-            end_date: End date in YYYYMMDD format
-            metrics: List of metrics to retrieve. Defaults to common metrics.
-        
-        Returns:
-            List of keyword performance records
+        Retrieves keyword performance using Amazon Ads API v3 Async Reporting.
         """
         try:
             if metrics is None:
+                # v3 column names
                 metrics = [
-                    'campaignId', 'adGroupId', 'keywordId', 'keywordText', 'matchType',
-                    'impressions', 'clicks', 'cost', 'purchases', 'sales',
-                    'attributedSales7d', 'attributedConversions7d'
+                    "campaignId", "adGroupId", "keywordId", "keywordText", "matchType",
+                    "impressions", "clicks", "cost", "purchases14d", "sales14d"
                 ]
             
+            # v3 Payload structure
             payload = {
-                'reportDate': end_date,
-                'metrics': ','.join(metrics),
-                'segment': 'query'  # Get search term level data
+                "name": f"Keyword_Perf_{end_date}",
+                "startDate": start_date,
+                "endDate": end_date,
+                "configuration": {
+                    "adProduct": "SPONSORED_PRODUCTS",
+                    "groupBy": ["campaign", "adGroup", "keyword"],
+                    "columns": metrics,
+                    "reportTypeId": "spPerformance",
+                    "timeUnit": "SUMMARY",
+                    "format": "GZIP_JSON"
+                }
             }
             
-            # Note: Reporting API v3 uses different endpoints
-            # This is a simplified version - full implementation would use async reports
-            response = self._request('POST', '/sp/keywords/report', json=payload)
-            result = response.json()
+            logger.info("Requesting Keyword Performance Report...")
+            response = self._request('POST', '/reporting/reports', json=payload)
+            report_id = response.json().get('reportId')
             
-            # Parse report data
-            records = result.get('records', [])
+            if not report_id:
+                logger.error("No report ID received.")
+                return []
+                
+            url = self._wait_for_report(report_id)
+            if not url:
+                return []
+                
+            records = self._download_and_parse_report(url)
             logger.info(f"Retrieved performance data for {len(records)} keywords")
             return records
             
         except Exception as e:
             logger.error(f"Failed to get keyword performance: {e}")
+            log_to_bigquery(f"Keyword Report Failed: {str(e)}", level="ERROR")
             return []
     
     def get_search_term_report(self, start_date: str, end_date: str) -> List[Dict]:
         """
-        Get search term report to identify negative keyword candidates
-        
-        Args:
-            start_date: Start date in YYYYMMDD format  
-            end_date: End date in YYYYMMDD format
-        
-        Returns:
-            List of search term records with performance data
+        Retrieves search term report using Amazon Ads API v3 Async Reporting.
         """
         try:
+            metrics = [
+                "campaignId", "adGroupId", "keywordId", "query", 
+                "impressions", "clicks", "cost", "purchases14d", "sales14d"
+            ]
+            
             payload = {
-                'reportDate': end_date,
-                'metrics': 'campaignId,adGroupId,keywordId,query,impressions,clicks,cost,purchases,sales'
+                "name": f"Search_Term_Report_{end_date}",
+                "startDate": start_date,
+                "endDate": end_date,
+                "configuration": {
+                    "adProduct": "SPONSORED_PRODUCTS",
+                    "groupBy": ["campaign", "adGroup", "keyword", "searchTerm"],
+                    "columns": metrics,
+                    "reportTypeId": "spSearchTerm", 
+                    "timeUnit": "SUMMARY",
+                    "format": "GZIP_JSON"
+                }
             }
             
-            response = self._request('POST', '/sp/targets/report', json=payload)
-            result = response.json()
+            logger.info("Requesting Search Term Report...")
+            response = self._request('POST', '/reporting/reports', json=payload)
+            report_id = response.json().get('reportId')
             
-            records = result.get('records', [])
+            if not report_id:
+                logger.error("No report ID received.")
+                return []
+                
+            url = self._wait_for_report(report_id)
+            if not url:
+                return []
+                
+            records = self._download_and_parse_report(url)
             logger.info(f"Retrieved search term data for {len(records)} queries")
             return records
             
         except Exception as e:
             logger.error(f"Failed to get search term report: {e}")
+            log_to_bigquery(f"Search Term Report Failed: {str(e)}", level="ERROR")
             return []
