@@ -4,6 +4,7 @@ Logs optimizer run events to BigQuery for auditing and analysis
 """
 
 import os
+import json
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -76,11 +77,11 @@ def log_to_bigquery(
         
         # If additional details provided, append them to the details field
         if additional_details:
-            import json
             details_json = json.dumps(additional_details)
             row_to_insert["details"] = f"{message} | Additional data: {details_json}"
         
         # Insert the row into BigQuery
+        # Note: insert_rows_json accepts a table reference string in format "project.dataset.table"
         rows_to_insert = [row_to_insert]
         errors = client.insert_rows_json(TABLE_REF, rows_to_insert)
         

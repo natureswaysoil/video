@@ -12,6 +12,13 @@ from datetime import datetime, timedelta
 from typing import Dict, Any
 from amazon_ads_api_v3 import AmazonAdsAPIv3
 
+# Configure logging first
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Import BigQuery logging utilities
 try:
     from bigquery_logger import (
@@ -24,13 +31,6 @@ try:
 except ImportError as e:
     logger.warning(f"BigQuery logging not available: {e}")
     BIGQUERY_ENABLED = False
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 
 def apply_bid_optimization(api: AmazonAdsAPIv3, config: Dict) -> Dict:
