@@ -7,16 +7,31 @@ import os
 import json
 import logging
 import time
+import traceback
+import uuid
 from datetime import datetime, timedelta
 from typing import Dict, Any
 from amazon_ads_api_v3 import AmazonAdsAPIv3
 
-# Configure logging
+# Configure logging first
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Import BigQuery logging utilities
+try:
+    from bigquery_logger import (
+        log_to_bigquery,
+        log_optimizer_start,
+        log_optimizer_complete,
+        log_optimizer_error
+    )
+    BIGQUERY_ENABLED = True
+except ImportError as e:
+    logger.warning(f"BigQuery logging not available: {e}")
+    BIGQUERY_ENABLED = False
 
 
 def apply_bid_optimization(api: AmazonAdsAPIv3, config: Dict) -> Dict:
@@ -437,6 +452,7 @@ def run_optimizer(request=None) -> Dict[str, Any]:
     Cloud Function entry point for PPC optimization
     """
     start_time = time.time()
+    run_id = str(uuid.uuid4())  # Generate unique run ID
     
     try:
         # Parse request
@@ -449,7 +465,11 @@ def run_optimizer(request=None) -> Dict[str, Any]:
         if os.getenv('DRY_RUN', '').lower() in ('true', '1', 'yes'):
             dry_run = True
         
-        logger.info(f"Starting PPC optimization (dry_run={dry_run})")
+        logger.info(f"Starting PPC optimization (dry_run={dry_run}, run_id={run_id})")
+        
+        # Log optimizer start to BigQuery
+        if BIGQUERY_ENABLED:
+            log_optimizer_start(run_id, config={'dry_run': dry_run})
         
         # Load config from env var (Secret Manager)
         config_str = os.getenv('PPC_CONFIG', '{}')
@@ -520,18 +540,34 @@ def run_optimizer(request=None) -> Dict[str, Any]:
             'timestamp': datetime.now().isoformat(),
             'dry_run': dry_run,
             'duration_seconds': round(duration, 2),
-            'results': results
+            'results': results,
+            'run_id': run_id
         }
         
         logger.info(f"Optimization completed in {duration:.2f}s")
+        
+        # Log successful completion to BigQuery
+        if BIGQUERY_ENABLED:
+            log_optimizer_complete(run_id, results, duration)
+        
         return response
         
     except Exception as e:
         logger.error(f"Optimization failed: {e}", exc_info=True)
+        
+        # Log error to BigQuery
+        if BIGQUERY_ENABLED:
+            error_details = {
+                'error_type': type(e).__name__,
+                'traceback': traceback.format_exc()
+            }
+            log_optimizer_error(run_id, str(e), error_details)
+        
         return {
             'status': 'error',
             'error': str(e),
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            'run_id': run_id
         }
 
 
