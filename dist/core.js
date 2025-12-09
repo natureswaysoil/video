@@ -50,11 +50,11 @@ async function processCsvUrl(csvUrl) {
     const startTime = Date.now();
     try {
         // Defensive config validation: ensure config is validated before processing
-        const { validateConfig } = await Promise.resolve().then(() => __importStar(require('./config-validator')));
         let config = (0, config_validator_1.getConfig)();
         if (!config.__validated) {
             logger.info('Defensive config validation before processing CSV', 'Core');
             try {
+                const { validateConfig } = await Promise.resolve().then(() => __importStar(require('./config-validator')));
                 config = await validateConfig();
             }
             catch (err) {

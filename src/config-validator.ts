@@ -95,9 +95,10 @@ const envSchema = z.object({
 })
 
 type InferredConfig = ReturnType<typeof envSchema.parse>
-export type AppConfig = InferredConfig & { __validated?: boolean }
+type ValidatedConfig = InferredConfig & { __validated?: boolean }
+export type AppConfig = ValidatedConfig
 
-let cachedConfig: (InferredConfig & { __validated?: boolean }) | null = null
+let cachedConfig: ValidatedConfig | null = null
 
 /**
  * Helper function to parse and validate environment variables
@@ -119,25 +120,26 @@ function parseAndValidateEnv(): InferredConfig {
 /**
  * Validate and parse environment variables
  */
-export async function validateConfig(): Promise<InferredConfig & { __validated?: boolean }> {
+export async function validateConfig(): Promise<ValidatedConfig> {
   if (cachedConfig && cachedConfig.__validated) {
     return cachedConfig
   }
 
-  cachedConfig = parseAndValidateEnv()
-  cachedConfig.__validated = true
+  const parsed = parseAndValidateEnv()
+  const validated: ValidatedConfig = { ...parsed, __validated: true }
+  cachedConfig = validated
   return cachedConfig
 }
 
 /**
  * Get the current config (automatically validates if not already done)
  */
-export function getConfig(): InferredConfig & { __validated?: boolean } {
+export function getConfig(): ValidatedConfig {
   if (!cachedConfig) {
     // Auto-validate on first access - synchronous wrapper for backwards compatibility
     // This handles cases where getConfig() is called before validateConfig()
-    cachedConfig = parseAndValidateEnv()
-    cachedConfig.__validated = true
+    const parsed = parseAndValidateEnv()
+    cachedConfig = { ...parsed, __validated: true }
   }
   return cachedConfig
 }

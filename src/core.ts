@@ -31,12 +31,12 @@ export async function processCsvUrl(csvUrl: string): Promise<{
 
   try {
     // Defensive config validation: ensure config is validated before processing
-    const { validateConfig } = await import('./config-validator')
     let config = getConfig()
     
     if (!config.__validated) {
       logger.info('Defensive config validation before processing CSV', 'Core')
       try {
+        const { validateConfig } = await import('./config-validator')
         config = await validateConfig()
       } catch (err: any) {
         const error = new AppError(
