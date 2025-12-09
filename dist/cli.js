@@ -22,7 +22,7 @@ var __importStar = (this && this.__importStar) || (function () {
             for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
             return ar;
         };
-        return ownKeys(o);
+        return ownKeys;
     };
     return function (mod) {
         if (mod && mod.__esModule) return mod;
@@ -473,7 +473,7 @@ async function main() {
                             rowNumber,
                             product: product?.title || product?.name
                         });
-                        const result = await retryWithBackoff(() => (0, youtube_1.postToYouTube)(videoUrl, caption, process.env.YT_CLIENT_ID, process.env.YT_CLIENT_SECRET, process.env.YT_REFRESH_TOKEN, process.env.YT_PRIVACY_STATUS || 'unlisted'), {
+                        const result = await retryWithBackoff(() => (0, youtube_1.postToYouTube)(videoUrl, caption, process.env.YT_CLIENT_ID, process.env.YT_CLIENT_SECRET, process.env.YT_REFRESH_TOKEN), {
                             maxRetries: 2, // YouTube uploads are longer, fewer retries
                             operation: 'YouTube upload',
                             initialDelayMs: 5000

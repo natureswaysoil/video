@@ -22,7 +22,7 @@ var __importStar = (this && this.__importStar) || (function () {
             for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
             return ar;
         };
-        return ownKeys(o);
+        return ownKeys;
     };
     return function (mod) {
         if (mod && mod.__esModule) return mod;
