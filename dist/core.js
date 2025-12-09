@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -16,7 +49,21 @@ const urlCache = (0, url_cache_1.getUrlCache)();
 async function processCsvUrl(csvUrl) {
     const startTime = Date.now();
     try {
-        const config = (0, config_validator_1.getConfig)();
+        // Defensive config validation: ensure config is validated before processing
+        // Note: getConfig() always sets __validated: true, so this check typically won't trigger.
+        // It serves as a safety net for future changes or unexpected scenarios.
+        let config = (0, config_validator_1.getConfig)();
+        if (!config.__validated) {
+            logger.info('Defensive config validation before processing CSV', 'Core');
+            try {
+                const { validateConfig } = await Promise.resolve().then(() => __importStar(require('./config-validator')));
+                config = await validateConfig();
+            }
+            catch (err) {
+                const error = new errors_1.AppError(`Config validation failed during CSV processing: ${err.message || err}`, errors_1.ErrorCode.VALIDATION_ERROR, 500, true, { csvUrl }, err instanceof Error ? err : undefined);
+                throw error;
+            }
+        }
         if (!csvUrl) {
             throw new errors_1.AppError('CSV URL is required', errors_1.ErrorCode.VALIDATION_ERROR, 400, true, { hasCsvUrl: !!csvUrl });
         }

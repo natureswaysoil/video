@@ -74,9 +74,9 @@ async function retryWithBackoff(fn, options = {}) {
 async function main() {
     // 1. RUN VALIDATION FIRST - validate configuration before any processing
     try {
-        console.log('Initializing configuration...');
-        await (0, config_validator_1.validateConfig)();
-        console.log('✅ Configuration validated successfully.');
+        console.log('Validating configuration before starting polling...');
+        const config = await (0, config_validator_1.validateConfig)();
+        console.log('Configuration validated');
     }
     catch (error) {
         console.error('❌ Configuration validation failed:', error);
