@@ -50,6 +50,8 @@ async function processCsvUrl(csvUrl) {
     const startTime = Date.now();
     try {
         // Defensive config validation: ensure config is validated before processing
+        // Note: getConfig() always sets __validated: true, so this check typically won't trigger.
+        // It serves as a safety net for future changes or unexpected scenarios.
         let config = (0, config_validator_1.getConfig)();
         if (!config.__validated) {
             logger.info('Defensive config validation before processing CSV', 'Core');

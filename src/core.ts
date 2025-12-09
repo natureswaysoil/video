@@ -31,6 +31,8 @@ export async function processCsvUrl(csvUrl: string): Promise<{
 
   try {
     // Defensive config validation: ensure config is validated before processing
+    // Note: getConfig() always sets __validated: true, so this check typically won't trigger.
+    // It serves as a safety net for future changes or unexpected scenarios.
     let config = getConfig()
     
     if (!config.__validated) {
