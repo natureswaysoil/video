@@ -30,7 +30,26 @@ export async function processCsvUrl(csvUrl: string): Promise<{
   const startTime = Date.now()
 
   try {
-    const config = getConfig()
+    // Defensive config validation: ensure config is validated before processing
+    const { validateConfig } = await import('./config-validator')
+    let config = getConfig()
+    
+    if (!config.__validated) {
+      logger.info('Defensive config validation before processing CSV', 'Core')
+      try {
+        config = await validateConfig()
+      } catch (err: any) {
+        const error = new AppError(
+          `Config validation failed during CSV processing: ${err.message || err}`,
+          ErrorCode.VALIDATION_ERROR,
+          500,
+          true,
+          { csvUrl },
+          err instanceof Error ? err : undefined
+        )
+        throw error
+      }
+    }
 
     if (!csvUrl) {
       throw new AppError(

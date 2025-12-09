@@ -58,9 +58,9 @@ async function retryWithBackoff<T>(
 async function main() {
   // 1. RUN VALIDATION FIRST - validate configuration before any processing
   try {
-    console.log('Initializing configuration...')
-    await validateConfig()
-    console.log('✅ Configuration validated successfully.')
+    console.log('Validating configuration before starting polling...')
+    const config = await validateConfig()
+    console.log('Configuration validated')
   } catch (error) {
     console.error('❌ Configuration validation failed:', error)
     process.exit(1)
