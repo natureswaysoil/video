@@ -55,7 +55,7 @@ async function retryWithBackoff<T>(
   return null
 }
 
-async function main() {
+export async function main() {
   // 1. RUN VALIDATION FIRST - validate configuration before any processing
   try {
     console.log('Validating configuration before starting polling...')
@@ -78,7 +78,11 @@ async function main() {
   const targetColumnLetter = (process.env.SHEET_VIDEO_TARGET_COLUMN_LETTER || 'AB').toUpperCase()
 
   // Start health server for monitoring/webhooks (will be stopped in run-once mode)
-  startHealthServer()
+  // Skip starting if SKIP_HEALTH_SERVER is set (e.g., when called from server.ts)
+  const shouldStartHealthServer = process.env.SKIP_HEALTH_SERVER !== 'true'
+  if (shouldStartHealthServer) {
+    startHealthServer()
+  }
 
   // Log initial configuration
   getAuditLogger().logEvent({
@@ -647,7 +651,10 @@ async function main() {
     try {
       await cycle()
     } finally {
-      await stopHealthServer()
+      // Only stop health server if we started it
+      if (shouldStartHealthServer) {
+        await stopHealthServer()
+      }
     }
     return
   }
@@ -657,7 +664,10 @@ async function main() {
   }
 }
 
-main().catch(e => console.error(e))
+// Only run main() if this module is executed directly (not imported)
+if (require.main === module) {
+  main().catch(e => console.error(e))
+}
 
 function hasTwitterUploadCreds(): boolean {
   return Boolean(process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env.TWITTER_ACCESS_TOKEN && process.env.TWITTER_ACCESS_SECRET)
