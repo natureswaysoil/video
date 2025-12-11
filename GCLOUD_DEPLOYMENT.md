@@ -467,6 +467,7 @@ HeyGen video generation can take up to 25 minutes per video. If processing many 
 
 ## 📚 Additional Documentation
 
+- **[CLOUD_RUN_JOB_COMMANDS.md](./CLOUD_RUN_JOB_COMMANDS.md)** - Quick reference with exact gcloud commands
 - **[PRODUCTION_DEPLOYMENT.md](./PRODUCTION_DEPLOYMENT.md)** - Comprehensive deployment guide (18KB, all details)
 - **[DEPLOYMENT_QUICKSTART.md](./DEPLOYMENT_QUICKSTART.md)** - Quick reference commands
 - **[README.md](./README.md)** - Project overview and features

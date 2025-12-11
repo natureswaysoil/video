@@ -493,6 +493,7 @@ Total system cost (including APIs): **$20-130/month**
 4. **Optimize**: Adjust schedule and batch size as needed
 
 For complete deployment documentation, see:
+- **[CLOUD_RUN_JOB_COMMANDS.md](./CLOUD_RUN_JOB_COMMANDS.md)** - Quick reference with exact gcloud commands
 - **[GCLOUD_DEPLOYMENT.md](./GCLOUD_DEPLOYMENT.md)** - Comprehensive guide
 - **[PRODUCTION_DEPLOYMENT.md](./PRODUCTION_DEPLOYMENT.md)** - Production checklist
 
