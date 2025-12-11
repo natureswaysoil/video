@@ -77,8 +77,10 @@ async function main() {
   const enforcePostingWindows = String(process.env.ENFORCE_POSTING_WINDOWS || 'false').toLowerCase() === 'true'
   const targetColumnLetter = (process.env.SHEET_VIDEO_TARGET_COLUMN_LETTER || 'AB').toUpperCase()
 
-  // Start health server for monitoring/webhooks (will be stopped in run-once mode)
-  startHealthServer()
+  // Start health server for monitoring/webhooks (skip in run-once mode for Cloud Run Jobs)
+  if (!runOnce) {
+    startHealthServer()
+  }
 
   // Log initial configuration
   getAuditLogger().logEvent({
@@ -644,11 +646,7 @@ async function main() {
     }
   }
   if (runOnce) {
-    try {
-      await cycle()
-    } finally {
-      await stopHealthServer()
-    }
+    await cycle()
     return
   }
   while (true) {

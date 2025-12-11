@@ -22,7 +22,7 @@ var __importStar = (this && this.__importStar) || (function () {
             for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
             return ar;
         };
-        return ownKeys;
+        return ownKeys(o);
     };
     return function (mod) {
         if (mod && mod.__esModule) return mod;
@@ -93,8 +93,10 @@ async function main() {
     const enabledPlatforms = new Set(enabledPlatformsEnv.split(',').map(s => s.trim()).filter(Boolean));
     const enforcePostingWindows = String(process.env.ENFORCE_POSTING_WINDOWS || 'false').toLowerCase() === 'true';
     const targetColumnLetter = (process.env.SHEET_VIDEO_TARGET_COLUMN_LETTER || 'AB').toUpperCase();
-    // Start health server for monitoring/webhooks (will be stopped in run-once mode)
-    (0, health_server_1.startHealthServer)();
+    // Start health server for monitoring/webhooks (skip in run-once mode for Cloud Run Jobs)
+    if (!runOnce) {
+        (0, health_server_1.startHealthServer)();
+    }
     // Log initial configuration
     (0, audit_logger_1.getAuditLogger)().logEvent({
         level: 'INFO',
@@ -473,7 +475,7 @@ async function main() {
                             rowNumber,
                             product: product?.title || product?.name
                         });
-                        const result = await retryWithBackoff(() => (0, youtube_1.postToYouTube)(videoUrl, caption, process.env.YT_CLIENT_ID, process.env.YT_CLIENT_SECRET, process.env.YT_REFRESH_TOKEN), {
+                        const result = await retryWithBackoff(() => (0, youtube_1.postToYouTube)(videoUrl, caption, process.env.YT_CLIENT_ID, process.env.YT_CLIENT_SECRET, process.env.YT_REFRESH_TOKEN, process.env.YT_PRIVACY_STATUS || 'unlisted'), {
                             maxRetries: 2, // YouTube uploads are longer, fewer retries
                             operation: 'YouTube upload',
                             initialDelayMs: 5000
@@ -627,12 +629,7 @@ async function main() {
         }
     };
     if (runOnce) {
-        try {
-            await cycle();
-        }
-        finally {
-            await (0, health_server_1.stopHealthServer)();
-        }
+        await cycle();
         return;
     }
     while (true) {

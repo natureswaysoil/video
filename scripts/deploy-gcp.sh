@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: PROJECT_ID=natureswaysoil-video REGION=us-east1 TIME_ZONE=America/New_York ./scripts/deploy-gcp.sh
+# Usage: PROJECT_ID=natureswaysoil-video REGION=us-east1 TIME_ZONE=America/New_York SCHEDULE="0 9,18 * * *" ./scripts/deploy-gcp.sh
 
 PROJECT_ID=${PROJECT_ID:-natureswaysoil-video}
 REGION=${REGION:-us-east1}
 TIME_ZONE=${TIME_ZONE:-America/New_York}
+SCHEDULE=${SCHEDULE:-"0 9,18 * * *"}  # Default: 9 AM and 6 PM in the specified time zone
 REPO_NAME=${REPO_NAME:-natureswaysoil-video}
 IMAGE_NAME=${IMAGE_NAME:-app}
 JOB_NAME=${JOB_NAME:-natureswaysoil-video-job}
@@ -15,7 +16,7 @@ SCHED_SA_NAME=${SCHED_SA_NAME:-scheduler-invoker}
 
 CSV_URL_DEFAULT="https://docs.google.com/spreadsheets/d/1LU2ahpzMqLB5FLYqiyDbXOfjTxbdp8U8/export?format=csv&gid=1712974299"
 
-echo "Project: $PROJECT_ID | Region: $REGION | Time zone: $TIME_ZONE"
+echo "Project: $PROJECT_ID | Region: $REGION | Time zone: $TIME_ZONE | Schedule: $SCHEDULE"
 
 # Ensure gcloud is installed
 if ! command -v gcloud >/dev/null 2>&1; then
@@ -165,12 +166,12 @@ for role in roles/run.developer roles/iam.serviceAccountTokenCreator; do
     --member="serviceAccount:${SCHED_SA}" --role="$role" >/dev/null
 done
 
-echo "Creating or updating Cloud Scheduler job ($SCHED_NAME) for 9:00 and 18:00 Eastern..."
+echo "Creating or updating Cloud Scheduler job ($SCHED_NAME)..."
 SCHED_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/projects/${PROJECT_ID}/locations/${REGION}/jobs/${JOB_NAME}:run"
 if gcloud scheduler jobs describe "$SCHED_NAME" --location="$REGION" >/dev/null 2>&1; then
   gcloud scheduler jobs update http "$SCHED_NAME" \
     --location="$REGION" \
-    --schedule="0 9,18 * * *" \
+    --schedule="$SCHEDULE" \
     --time-zone="$TIME_ZONE" \
     --http-method=POST \
     --uri="$SCHED_URI" \
@@ -179,7 +180,7 @@ if gcloud scheduler jobs describe "$SCHED_NAME" --location="$REGION" >/dev/null 
 else
   gcloud scheduler jobs create http "$SCHED_NAME" \
     --location="$REGION" \
-    --schedule="0 9,18 * * *" \
+    --schedule="$SCHEDULE" \
     --time-zone="$TIME_ZONE" \
     --http-method=POST \
     --uri="$SCHED_URI" \
