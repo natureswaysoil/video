@@ -17,4 +17,4 @@ COPY --from=build /app/dist ./dist
 # Default envs can be overridden at deploy time
 ENV NODE_ENV=production
 ENV RUN_ONCE=true
-CMD ["node", "dist/cli.js"]
+CMD ["node", "dist/server.js"]

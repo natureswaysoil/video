@@ -22,7 +22,7 @@ var __importStar = (this && this.__importStar) || (function () {
             for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
             return ar;
         };
-        return ownKeys;
+        return ownKeys(o);
     };
     return function (mod) {
         if (mod && mod.__esModule) return mod;
@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.main = main;
 require("dotenv/config");
 const core_1 = require("./core");
 const instagram_1 = require("./instagram");
@@ -94,7 +95,11 @@ async function main() {
     const enforcePostingWindows = String(process.env.ENFORCE_POSTING_WINDOWS || 'false').toLowerCase() === 'true';
     const targetColumnLetter = (process.env.SHEET_VIDEO_TARGET_COLUMN_LETTER || 'AB').toUpperCase();
     // Start health server for monitoring/webhooks (will be stopped in run-once mode)
-    (0, health_server_1.startHealthServer)();
+    // Skip starting if SKIP_HEALTH_SERVER is set (e.g., when called from server.ts)
+    const shouldStartHealthServer = process.env.SKIP_HEALTH_SERVER !== 'true';
+    if (shouldStartHealthServer) {
+        (0, health_server_1.startHealthServer)();
+    }
     // Log initial configuration
     (0, audit_logger_1.getAuditLogger)().logEvent({
         level: 'INFO',
@@ -473,7 +478,7 @@ async function main() {
                             rowNumber,
                             product: product?.title || product?.name
                         });
-                        const result = await retryWithBackoff(() => (0, youtube_1.postToYouTube)(videoUrl, caption, process.env.YT_CLIENT_ID, process.env.YT_CLIENT_SECRET, process.env.YT_REFRESH_TOKEN), {
+                        const result = await retryWithBackoff(() => (0, youtube_1.postToYouTube)(videoUrl, caption, process.env.YT_CLIENT_ID, process.env.YT_CLIENT_SECRET, process.env.YT_REFRESH_TOKEN, process.env.YT_PRIVACY_STATUS || 'unlisted'), {
                             maxRetries: 2, // YouTube uploads are longer, fewer retries
                             operation: 'YouTube upload',
                             initialDelayMs: 5000
@@ -631,7 +636,10 @@ async function main() {
             await cycle();
         }
         finally {
-            await (0, health_server_1.stopHealthServer)();
+            // Only stop health server if we started it (check env var again)
+            if (process.env.SKIP_HEALTH_SERVER !== 'true') {
+                await (0, health_server_1.stopHealthServer)();
+            }
         }
         return;
     }
@@ -640,7 +648,10 @@ async function main() {
         await sleep(intervalMs);
     }
 }
-main().catch(e => console.error(e));
+// Only run main() if this module is executed directly (not imported)
+if (require.main === module) {
+    main().catch(e => console.error(e));
+}
 function hasTwitterUploadCreds() {
     return Boolean(process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env.TWITTER_ACCESS_TOKEN && process.env.TWITTER_ACCESS_SECRET);
 }
