@@ -247,6 +247,257 @@ SPREADSHEET_ID=your_id GID=your_gid ./scripts/cleanup-stray-files.sh
 
 ---
 
+## Cloud Run Job + Scheduler Deployment
+
+This application is designed to run as a **Cloud Run Job** triggered twice daily by **Cloud Scheduler**, rather than as a continuously running Cloud Run Service. This is the recommended deployment strategy for batch processing workloads.
+
+### Why Cloud Run Job?
+
+- **No HTTP server required**: The application runs as a CLI batch process with `RUN_ONCE=true`
+- **Cost-effective**: Only pay for actual execution time (not idle time)
+- **Scheduled execution**: Cloud Scheduler triggers jobs at specific times (e.g., 00:00 and 12:00 UTC)
+- **Automatic retries**: Cloud Run Jobs can be configured to retry on failure
+- **Resource optimization**: Each execution gets fresh resources
+
+### Architecture
+
+```
+Cloud Scheduler (cron) → Cloud Run Job → Video Generation Pipeline → Social Media
+     (twice daily)           (CLI exits)        (HeyGen + OpenAI)        (Posts)
+```
+
+### Quick Deploy
+
+Deploy the complete system with one command:
+
+```bash
+export PROJECT_ID=your-gcp-project-id
+export REGION=us-east1
+export TIME_ZONE=UTC
+export SCHEDULE="0 0,12 * * *"  # 00:00 and 12:00 UTC
+
+# Deploy (creates job, scheduler, secrets, etc.)
+./scripts/deploy-gcp.sh
+```
+
+### Deployment Components
+
+The deployment script (`scripts/deploy-gcp.sh`) automatically creates:
+
+1. **Cloud Run Job** (`video-job`)
+   - Runs `node dist/cli.js` as entrypoint
+   - Configured with `RUN_ONCE=true` to exit after processing
+   - 60-minute timeout (adjustable for large batches)
+   - Attached to all required secrets from Secret Manager
+
+2. **Cloud Scheduler** (`natureswaysoil-video-2x`)
+   - Default: Runs at 9 AM and 6 PM Eastern Time
+   - Customizable via `SCHEDULE` and `TIME_ZONE` environment variables
+   - Uses authenticated OIDC to invoke the job securely
+
+3. **Service Accounts**
+   - Job service account: Runs the job with minimal permissions
+   - Scheduler service account: Invokes the job on schedule
+
+4. **IAM Permissions** (automatically configured)
+   - `roles/artifactregistry.reader`: Pull Docker images
+   - `roles/secretmanager.secretAccessor`: Access credentials
+   - `roles/logging.logWriter`: Write logs
+   - `roles/run.developer`: Scheduler can trigger jobs
+
+### Required Permissions
+
+Your GCP user account needs these roles to deploy:
+- `roles/owner` or `roles/editor` on the project
+- Or these specific roles:
+  - `roles/run.admin`
+  - `roles/iam.serviceAccountAdmin`
+  - `roles/cloudscheduler.admin`
+  - `roles/artifactregistry.admin`
+  - `roles/cloudbuild.builds.editor`
+
+### Configuration
+
+#### Environment Variables (in deploy script)
+
+```bash
+PROJECT_ID=your-project-id       # GCP project ID
+REGION=us-east1                  # Deployment region
+TIME_ZONE=America/New_York       # Scheduler timezone
+SCHEDULE="0 9,18 * * *"          # Cron expression (default: 9 AM & 6 PM)
+JOB_NAME=video-job               # Cloud Run Job name
+CSV_URL=https://...              # Google Sheets CSV export URL
+```
+
+#### Schedule Examples
+
+```bash
+# Midnight and noon UTC
+SCHEDULE="0 0,12 * * *" TIME_ZONE=UTC ./scripts/deploy-gcp.sh
+
+# 9 AM and 6 PM Eastern Time (default)
+SCHEDULE="0 9,18 * * *" TIME_ZONE=America/New_York ./scripts/deploy-gcp.sh
+
+# Every 6 hours
+SCHEDULE="0 */6 * * *" TIME_ZONE=UTC ./scripts/deploy-gcp.sh
+
+# Once daily at 9 AM Eastern
+SCHEDULE="0 9 * * *" TIME_ZONE=America/New_York ./scripts/deploy-gcp.sh
+```
+
+### Manual Job Operations
+
+```bash
+# Execute job immediately (manual trigger)
+gcloud run jobs execute video-job --region=us-east1
+
+# View job details
+gcloud run jobs describe video-job --region=us-east1
+
+# List recent executions
+gcloud run jobs executions list \
+  --job=video-job \
+  --region=us-east1 \
+  --limit=10
+
+# View logs from latest execution
+gcloud run jobs executions logs read \
+  --job=video-job \
+  --region=us-east1 \
+  --limit=100
+
+# Update job configuration (after code changes)
+./scripts/deploy-gcp.sh
+```
+
+### Scheduler Management
+
+```bash
+# View scheduler status
+gcloud scheduler jobs describe natureswaysoil-video-2x --location=us-east1
+
+# Pause automatic runs
+gcloud scheduler jobs pause natureswaysoil-video-2x --location=us-east1
+
+# Resume automatic runs
+gcloud scheduler jobs resume natureswaysoil-video-2x --location=us-east1
+
+# Trigger manually via scheduler
+gcloud scheduler jobs run natureswaysoil-video-2x --location=us-east1
+
+# Update schedule
+gcloud scheduler jobs update http natureswaysoil-video-2x \
+  --location=us-east1 \
+  --schedule="0 0,12 * * *" \
+  --time-zone=UTC
+```
+
+### Infrastructure as Code
+
+For reference, a Cloud Run Job YAML template is available at `infra/cloud-run-job.yaml`. However, we recommend using the automated deployment script (`scripts/deploy-gcp.sh`) which handles all configuration automatically.
+
+To use the YAML template directly:
+
+```bash
+# Edit infra/cloud-run-job.yaml with your values
+# Then apply:
+gcloud run jobs replace infra/cloud-run-job.yaml --region=us-east1
+```
+
+### Monitoring & Debugging
+
+```bash
+# Check if job is healthy
+gcloud run jobs describe video-job --region=us-east1 --format="value(status.conditions)"
+
+# Stream logs in real-time (during execution)
+gcloud alpha run jobs executions logs tail \
+  --job=video-job \
+  --region=us-east1
+
+# View recent errors
+gcloud run jobs executions logs read \
+  --job=video-job \
+  --region=us-east1 \
+  | grep -i "error\|failed"
+
+# Check execution history
+gcloud run jobs executions list \
+  --job=video-job \
+  --region=us-east1 \
+  --format="table(name,status,startTime,completionTime)"
+```
+
+### Troubleshooting
+
+**Job fails to start:**
+- Check service account has required IAM roles
+- Verify secrets are created in Secret Manager
+- Ensure image exists in Artifact Registry
+
+**Job times out:**
+- Default timeout is 3600s (1 hour)
+- Increase in deploy script: `--task-timeout=7200`
+- Or reduce batch size by filtering CSV
+
+**Scheduler not triggering:**
+- Verify scheduler is not paused: `gcloud scheduler jobs describe ...`
+- Check scheduler service account has `roles/run.developer`
+- Review scheduler logs in Cloud Logging
+
+**Posts not reaching social media:**
+- Verify platform credentials in Secret Manager
+- Check job logs for specific platform errors
+- Test with `DRY_RUN_LOG_ONLY=true` first
+
+### Local Testing
+
+Test the job behavior locally before deploying:
+
+```bash
+# Install dependencies and build
+npm install
+npm run build
+
+# Test with dry run (no posting)
+RUN_ONCE=true DRY_RUN_LOG_ONLY=true node dist/cli.js
+
+# Test full execution (will post)
+RUN_ONCE=true node dist/cli.js
+
+# Verify it exits with code 0
+echo "Exit code: $?"
+```
+
+### Cost Optimization
+
+Cloud Run Jobs pricing:
+- **CPU**: $0.00002400 per vCPU-second
+- **Memory**: $0.00000250 per GiB-second
+- **Free tier**: 180,000 vCPU-seconds/month, 360,000 GiB-seconds/month
+
+Example costs for twice-daily execution:
+- Job runtime: ~15 minutes per execution
+- Resources: 2 vCPU, 2 GiB memory
+- Monthly executions: 60 (2/day × 30 days)
+- Total time: 900 minutes = 54,000 seconds
+- **Cost**: ~$3-5/month for Cloud Run Jobs
+
+Total system cost (including APIs): **$20-130/month**
+
+### Next Steps
+
+1. **Deploy**: Run `./scripts/deploy-gcp.sh`
+2. **Verify**: Check logs and execution history
+3. **Monitor**: Set up alerts in Cloud Monitoring (optional)
+4. **Optimize**: Adjust schedule and batch size as needed
+
+For complete deployment documentation, see:
+- **[GCLOUD_DEPLOYMENT.md](./GCLOUD_DEPLOYMENT.md)** - Comprehensive guide
+- **[PRODUCTION_DEPLOYMENT.md](./PRODUCTION_DEPLOYMENT.md)** - Production checklist
+
+---
+
 ## Deploying on Google Cloud
 
 **🎯 For deployment instructions, see [GCLOUD_DEPLOYMENT.md](./GCLOUD_DEPLOYMENT.md)**

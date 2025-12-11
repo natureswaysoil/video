@@ -1,0 +1,120 @@
+# Cloud Run Job Configuration Template
+# This is a reference template for creating a Cloud Run Job.
+# Use the gcloud commands in README.md or run scripts/deploy-gcp.sh for automated deployment.
+#
+# To deploy manually, replace variables and run:
+#   gcloud run jobs replace infra/cloud-run-job.yaml --region=us-east1
+#
+# Variables to replace:
+#   ${PROJECT_ID}  - Your GCP project ID
+#   ${REGION}      - Deployment region (e.g., us-east1)
+#   ${IMAGE}       - Full image path (e.g., us-east1-docker.pkg.dev/PROJECT_ID/REPO/IMAGE:TAG)
+#   ${JOB_SA}      - Service account email for the job
+#   ${CSV_URL}     - Google Sheets CSV export URL
+
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: video-job
+  labels:
+    cloud.googleapis.com/location: ${REGION}
+  annotations:
+    run.googleapis.com/launch-stage: BETA
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      taskCount: 1
+      template:
+        spec:
+          serviceAccountName: ${JOB_SA}
+          timeoutSeconds: 3600  # 1 hour timeout (adjust if processing many videos)
+          maxRetries: 0         # Don't retry failed jobs automatically
+          containers:
+          - name: video-job
+            image: ${IMAGE}
+            env:
+            # Required: Run mode
+            - name: RUN_ONCE
+              value: "true"
+            
+            # Required: Data source
+            - name: CSV_URL
+              value: ${CSV_URL}
+            
+            # CSV column mappings (adjust to match your sheet)
+            - name: CSV_COL_JOB_ID
+              value: "ASIN"
+            - name: CSV_COL_DETAILS
+              value: "Title"
+            
+            # Video generation settings
+            - name: HEYGEN_VIDEO_DURATION_SECONDS
+              value: "30"
+            - name: SHEET_VIDEO_TARGET_COLUMN_LETTER
+              value: "AB"
+            
+            # Optional: Control behavior
+            # - name: DRY_RUN_LOG_ONLY
+            #   value: "false"
+            # - name: ENFORCE_POSTING_WINDOWS
+            #   value: "false"
+            # - name: ENABLE_PLATFORMS
+            #   value: "instagram,twitter,pinterest"
+            
+            # Secrets (mounted from Secret Manager)
+            # These are automatically configured by scripts/deploy-gcp.sh
+            # Add/remove based on available credentials
+            envFrom:
+            - secretRef:
+                name: HEYGEN_API_KEY
+            - secretRef:
+                name: OPENAI_API_KEY
+            - secretRef:
+                name: GS_SERVICE_ACCOUNT_EMAIL
+            - secretRef:
+                name: GS_SERVICE_ACCOUNT_KEY
+            # Optional platform credentials
+            - secretRef:
+                name: INSTAGRAM_ACCESS_TOKEN
+                optional: true
+            - secretRef:
+                name: INSTAGRAM_IG_ID
+                optional: true
+            - secretRef:
+                name: TWITTER_BEARER_TOKEN
+                optional: true
+            - secretRef:
+                name: TWITTER_API_KEY
+                optional: true
+            - secretRef:
+                name: TWITTER_API_SECRET
+                optional: true
+            - secretRef:
+                name: TWITTER_ACCESS_TOKEN
+                optional: true
+            - secretRef:
+                name: TWITTER_ACCESS_SECRET
+                optional: true
+            - secretRef:
+                name: PINTEREST_ACCESS_TOKEN
+                optional: true
+            - secretRef:
+                name: PINTEREST_BOARD_ID
+                optional: true
+            - secretRef:
+                name: YT_CLIENT_ID
+                optional: true
+            - secretRef:
+                name: YT_CLIENT_SECRET
+                optional: true
+            - secretRef:
+                name: YT_REFRESH_TOKEN
+                optional: true
+            
+            resources:
+              limits:
+                cpu: "2"
+                memory: "2Gi"
