@@ -636,8 +636,8 @@ async function main() {
             await cycle();
         }
         finally {
-            // Only stop health server if we started it
-            if (shouldStartHealthServer) {
+            // Only stop health server if we started it (check env var again)
+            if (process.env.SKIP_HEALTH_SERVER !== 'true') {
                 await (0, health_server_1.stopHealthServer)();
             }
         }
