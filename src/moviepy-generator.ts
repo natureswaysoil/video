@@ -341,7 +341,8 @@ async function generateVoiceoverWithElevenLabs(options: {
       }
     )
 
-    fs.writeFileSync(outputPath, Buffer.from(response.data) as any)
+    const buffer = Buffer.from(response.data)
+    fs.writeFileSync(outputPath, buffer)
     logger.info('ElevenLabs voiceover generated successfully', 'ElevenLabs', { outputPath })
   } catch (error: any) {
     logger.error('Failed to generate ElevenLabs voiceover', 'ElevenLabs', {
@@ -423,7 +424,8 @@ async function downloadProductImage(options: {
       throw new Error(`Invalid content type: ${contentType}`)
     }
 
-    fs.writeFileSync(outputPath, Buffer.from(response.data) as any)
+    const buffer = Buffer.from(response.data)
+    fs.writeFileSync(outputPath, buffer)
     logger.info('Product image downloaded successfully', 'MoviePy', { outputPath })
   } catch (error: any) {
     logger.error('Failed to download product image', 'MoviePy', {
