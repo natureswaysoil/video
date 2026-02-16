@@ -173,14 +173,36 @@ async function main() {
                                     continue;
                                 }
                                 try {
-                                    console.log('🎬 Creating video with FREE generator (MoviePy + Pexels + gTTS)...');
+                                    console.log('🎬 Creating video with FREE generator (MoviePy + Pexels + ElevenLabs/gTTS)...');
                                     const { generateVideoWithMoviePy } = await Promise.resolve().then(() => __importStar(require('./moviepy-generator')));
+                                    // Extract product image URL from various possible column names
+                                    const imageColumnCandidates = [
+                                        process.env.PRODUCT_IMAGE_COLUMN,
+                                        'Image_URL',
+                                        'Product_Image',
+                                        'ASIN_Image',
+                                        'Image',
+                                        'ProductImage',
+                                        'ImageURL'
+                                    ].filter(Boolean);
+                                    let productImageUrl;
+                                    for (const col of imageColumnCandidates) {
+                                        const val = record[col];
+                                        if (val && val.trim().length > 0 && /^https?:\/\//i.test(val)) {
+                                            productImageUrl = val.trim();
+                                            break;
+                                        }
+                                    }
+                                    if (productImageUrl) {
+                                        console.log('📸 Product image found:', productImageUrl.substring(0, 80) + '...');
+                                    }
                                     const result = await generateVideoWithMoviePy({
                                         script,
                                         productTitle: product?.title || product?.name || 'Product Video',
                                         pexelsApiKey,
                                         gcsBucketName,
-                                        searchQuery: product?.title || product?.name
+                                        searchQuery: product?.title || product?.name,
+                                        productImageUrl
                                     });
                                     videoUrl = result.videoUrl;
                                     console.log('✅ Free video generation complete:', videoUrl);

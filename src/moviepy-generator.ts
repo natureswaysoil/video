@@ -26,6 +26,7 @@ export interface MoviePyGeneratorOptions {
   pexelsApiKey: string
   gcsBucketName: string
   searchQuery?: string
+  productImageUrl?: string
 }
 
 export interface MoviePyGeneratorResult {
@@ -39,13 +40,14 @@ export interface MoviePyGeneratorResult {
 export async function generateVideoWithMoviePy(
   options: MoviePyGeneratorOptions
 ): Promise<MoviePyGeneratorResult> {
-  const { script, productTitle, pexelsApiKey, gcsBucketName, searchQuery } = options
+  const { script, productTitle, pexelsApiKey, gcsBucketName, searchQuery, productImageUrl } = options
 
   // Create temporary directory for this video generation
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moviepy-'))
   const videoPath = path.join(tempDir, 'stock-video.mp4')
   const audioPath = path.join(tempDir, 'voiceover.mp3')
   const outputPath = path.join(tempDir, 'final-video.mp4')
+  const productImagePath = productImageUrl ? path.join(tempDir, 'product-image.jpg') : undefined
 
   try {
     logger.info('Starting free video generation', 'MoviePy', {
@@ -60,8 +62,24 @@ export async function generateVideoWithMoviePy(
       outputPath: videoPath
     })
 
-    // Step 2: Generate voiceover with gTTS
-    await generateVoiceoverWithGtts({
+    // Step 1b: Download product image if URL provided
+    if (productImageUrl && productImagePath) {
+      try {
+        await downloadProductImage({
+          imageUrl: productImageUrl,
+          outputPath: productImagePath
+        })
+        logger.info('Product image downloaded', 'MoviePy', { productImagePath })
+      } catch (error: any) {
+        logger.warn('Failed to download product image, continuing without it', 'MoviePy', {
+          error: error.message
+        })
+        // Continue without product image - it's optional
+      }
+    }
+
+    // Step 2: Generate voiceover with ElevenLabs or gTTS fallback
+    await generateVoiceover({
       script,
       outputPath: audioPath
     })
@@ -71,7 +89,8 @@ export async function generateVideoWithMoviePy(
       videoPath,
       audioPath,
       outputPath,
-      productTitle
+      productTitle,
+      productImagePath: productImagePath && fs.existsSync(productImagePath) ? productImagePath : undefined
     })
 
     // Step 4: Upload to Google Cloud Storage
@@ -285,6 +304,145 @@ async function generateVoiceoverWithGtts(options: {
 }
 
 /**
+ * Generate voiceover using ElevenLabs API
+ */
+async function generateVoiceoverWithElevenLabs(options: {
+  script: string
+  outputPath: string
+}): Promise<void> {
+  const { script, outputPath } = options
+  const apiKey = process.env.ELEVENLABS_API_KEY
+  const voiceId = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL' // Default: Sarah voice
+
+  try {
+    logger.info('Generating voiceover with ElevenLabs', 'ElevenLabs', {
+      scriptLength: script.length,
+      voiceId
+    })
+
+    const response = await axios.post(
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+      {
+        text: script,
+        model_id: 'eleven_monolingual_v1',
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75
+        }
+      },
+      {
+        headers: {
+          'Accept': 'audio/mpeg',
+          'xi-api-key': apiKey,
+          'Content-Type': 'application/json'
+        },
+        responseType: 'arraybuffer',
+        timeout: 60000
+      }
+    )
+
+    fs.writeFileSync(outputPath, Buffer.from(response.data) as any)
+    logger.info('ElevenLabs voiceover generated successfully', 'ElevenLabs', { outputPath })
+  } catch (error: any) {
+    logger.error('Failed to generate ElevenLabs voiceover', 'ElevenLabs', {
+      error: error.message,
+      status: error.response?.status,
+      statusText: error.response?.statusText
+    })
+
+    throw new AppError(
+      `ElevenLabs voiceover generation failed: ${error.message}`,
+      ErrorCode.PROCESSING_ERROR,
+      500,
+      true,
+      { scriptLength: script.length },
+      error
+    )
+  }
+}
+
+/**
+ * Generate voiceover with ElevenLabs or fallback to gTTS
+ */
+async function generateVoiceover(options: {
+  script: string
+  outputPath: string
+}): Promise<void> {
+  const { script, outputPath } = options
+  const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY
+
+  // Try ElevenLabs first if API key is available
+  if (elevenLabsApiKey) {
+    try {
+      await generateVoiceoverWithElevenLabs({ script, outputPath })
+      return
+    } catch (error: any) {
+      logger.warn('ElevenLabs failed, falling back to gTTS', 'MoviePy', {
+        error: error.message
+      })
+      // Fall through to gTTS
+    }
+  }
+
+  // Fallback to gTTS
+  await generateVoiceoverWithGtts({ script, outputPath })
+}
+
+/**
+ * Download product image from URL
+ */
+async function downloadProductImage(options: {
+  imageUrl: string
+  outputPath: string
+}): Promise<void> {
+  const { imageUrl, outputPath } = options
+
+  try {
+    logger.info('Downloading product image', 'MoviePy', { imageUrl })
+
+    // Validate URL format
+    try {
+      new URL(imageUrl)
+    } catch {
+      throw new Error('Invalid image URL format')
+    }
+
+    // Download the image
+    const response = await axios.get(imageUrl, {
+      responseType: 'arraybuffer',
+      timeout: 30000,
+      maxContentLength: 10 * 1024 * 1024, // 10MB max
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; VideoGenerator/1.0)'
+      }
+    })
+
+    // Validate content type
+    const contentType = response.headers['content-type']
+    if (!contentType || !contentType.startsWith('image/')) {
+      throw new Error(`Invalid content type: ${contentType}`)
+    }
+
+    fs.writeFileSync(outputPath, Buffer.from(response.data) as any)
+    logger.info('Product image downloaded successfully', 'MoviePy', { outputPath })
+  } catch (error: any) {
+    logger.error('Failed to download product image', 'MoviePy', {
+      error: error.message,
+      imageUrl
+    })
+
+    throw new AppError(
+      `Product image download failed: ${error.message}`,
+      ErrorCode.PROCESSING_ERROR,
+      500,
+      true,
+      { imageUrl },
+      error
+    )
+  }
+}
+
+/**
  * Compose final video using MoviePy Python script
  */
 async function composeVideoWithMoviePy(options: {
@@ -292,14 +450,16 @@ async function composeVideoWithMoviePy(options: {
   audioPath: string
   outputPath: string
   productTitle: string
+  productImagePath?: string
 }): Promise<void> {
-  const { videoPath, audioPath, outputPath, productTitle } = options
+  const { videoPath, audioPath, outputPath, productTitle, productImagePath } = options
 
   try {
     logger.info('Composing video with MoviePy', 'MoviePy', {
       videoPath,
       audioPath,
-      productTitle
+      productTitle,
+      hasProductImage: !!productImagePath
     })
 
     // Write config to temporary file to avoid command-line length limits and injection
@@ -308,7 +468,8 @@ async function composeVideoWithMoviePy(options: {
       videoPath,
       audioPath,
       outputPath,
-      productTitle
+      productTitle,
+      productImagePath: productImagePath || null
     }
     
     fs.writeFileSync(configPath, JSON.stringify(config))
