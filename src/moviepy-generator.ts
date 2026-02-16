@@ -1,0 +1,352 @@
+import { getLogger } from './logger'
+import { AppError, ErrorCode } from './errors'
+import { uploadToGcs } from './gcs-upload'
+import axios from 'axios'
+import * as fs from 'fs'
+import * as path from 'path'
+import * as os from 'os'
+import { spawn } from 'child_process'
+
+const logger = getLogger()
+
+export interface MoviePyGeneratorOptions {
+  script: string
+  productTitle: string
+  pexelsApiKey: string
+  gcsBucketName: string
+  searchQuery?: string
+}
+
+export interface MoviePyGeneratorResult {
+  videoUrl: string
+  gsUrl: string
+}
+
+/**
+ * Generate a video using free tools: Pexels for stock video, gTTS for voiceover, and MoviePy for composition
+ */
+export async function generateVideoWithMoviePy(
+  options: MoviePyGeneratorOptions
+): Promise<MoviePyGeneratorResult> {
+  const { script, productTitle, pexelsApiKey, gcsBucketName, searchQuery } = options
+
+  // Create temporary directory for this video generation
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moviepy-'))
+  const videoPath = path.join(tempDir, 'stock-video.mp4')
+  const audioPath = path.join(tempDir, 'voiceover.mp3')
+  const outputPath = path.join(tempDir, 'final-video.mp4')
+
+  try {
+    logger.info('Starting free video generation', 'MoviePy', {
+      productTitle,
+      searchQuery: searchQuery || productTitle
+    })
+
+    // Step 1: Download stock video from Pexels
+    await downloadPexelsVideo({
+      apiKey: pexelsApiKey,
+      searchQuery: searchQuery || productTitle,
+      outputPath: videoPath
+    })
+
+    // Step 2: Generate voiceover with gTTS
+    await generateVoiceoverWithGtts({
+      script,
+      outputPath: audioPath
+    })
+
+    // Step 3: Compose video with MoviePy
+    await composeVideoWithMoviePy({
+      videoPath,
+      audioPath,
+      outputPath,
+      productTitle
+    })
+
+    // Step 4: Upload to Google Cloud Storage
+    const uploadResult = await uploadToGcs({
+      bucketName: gcsBucketName,
+      filePath: outputPath,
+      destinationPath: `videos/${Date.now()}-${sanitizeFilename(productTitle)}.mp4`,
+      makePublic: true
+    })
+
+    logger.info('Video generation complete', 'MoviePy', {
+      publicUrl: uploadResult.publicUrl
+    })
+
+    return {
+      videoUrl: uploadResult.publicUrl,
+      gsUrl: uploadResult.gsUrl
+    }
+  } catch (error: any) {
+    logger.error('Video generation failed', 'MoviePy', {
+      error: error.message
+    })
+    throw error
+  } finally {
+    // Clean up temporary files
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+      logger.debug('Cleaned up temporary files', 'MoviePy', { tempDir })
+    } catch (e) {
+      logger.warn('Failed to clean up temporary files', 'MoviePy', {
+        tempDir,
+        error: (e as Error).message
+      })
+    }
+  }
+}
+
+/**
+ * Download a stock video from Pexels
+ */
+async function downloadPexelsVideo(options: {
+  apiKey: string
+  searchQuery: string
+  outputPath: string
+}): Promise<void> {
+  const { apiKey, searchQuery, outputPath } = options
+
+  try {
+    logger.info('Searching Pexels for stock video', 'Pexels', { searchQuery })
+
+    // Search for videos
+    const searchResponse = await axios.get('https://api.pexels.com/videos/search', {
+      headers: {
+        Authorization: apiKey
+      },
+      params: {
+        query: searchQuery,
+        per_page: 5,
+        orientation: 'landscape'
+      },
+      timeout: 30000
+    })
+
+    const videos = searchResponse.data?.videos || []
+    
+    if (videos.length === 0) {
+      // Fallback to generic search if no results
+      logger.warn('No videos found for query, using fallback', 'Pexels', {
+        originalQuery: searchQuery,
+        fallbackQuery: 'garden plants'
+      })
+
+      const fallbackResponse = await axios.get('https://api.pexels.com/videos/search', {
+        headers: {
+          Authorization: apiKey
+        },
+        params: {
+          query: 'garden plants',
+          per_page: 5,
+          orientation: 'landscape'
+        },
+        timeout: 30000
+      })
+
+      const fallbackVideos = fallbackResponse.data?.videos || []
+      if (fallbackVideos.length === 0) {
+        throw new AppError(
+          'No stock videos found from Pexels',
+          ErrorCode.EXTERNAL_API_ERROR,
+          500
+        )
+      }
+
+      videos.push(...fallbackVideos)
+    }
+
+    // Get the first HD video
+    const video = videos[0]
+    const hdFile = video.video_files?.find((f: any) => 
+      f.quality === 'hd' || f.quality === 'sd'
+    ) || video.video_files?.[0]
+
+    if (!hdFile?.link) {
+      throw new AppError(
+        'No downloadable video file found',
+        ErrorCode.EXTERNAL_API_ERROR,
+        500
+      )
+    }
+
+    logger.info('Downloading video from Pexels', 'Pexels', {
+      videoId: video.id,
+      quality: hdFile.quality,
+      url: hdFile.link
+    })
+
+    // Download the video
+    const videoResponse = await axios.get(hdFile.link, {
+      responseType: 'stream',
+      timeout: 120000 // 2 minutes for download
+    })
+
+    const writer = fs.createWriteStream(outputPath)
+    videoResponse.data.pipe(writer)
+
+    await new Promise<void>((resolve, reject) => {
+      writer.on('finish', resolve)
+      writer.on('error', reject)
+    })
+
+    logger.info('Video downloaded successfully', 'Pexels', { outputPath })
+  } catch (error: any) {
+    logger.error('Failed to download Pexels video', 'Pexels', {
+      error: error.message
+    })
+
+    throw new AppError(
+      `Pexels download failed: ${error.message}`,
+      ErrorCode.EXTERNAL_API_ERROR,
+      500,
+      { originalError: error }
+    )
+  }
+}
+
+/**
+ * Generate voiceover using gTTS (Google Text-to-Speech)
+ */
+async function generateVoiceoverWithGtts(options: {
+  script: string
+  outputPath: string
+}): Promise<void> {
+  const { script, outputPath } = options
+
+  try {
+    logger.info('Generating voiceover with gTTS', 'gTTS', {
+      scriptLength: script.length
+    })
+
+    // Use gtts-cli command
+    await new Promise<void>((resolve, reject) => {
+      const gttsProcess = spawn('gtts-cli', [
+        '--output', outputPath,
+        '--lang', 'en',
+        '--tld', 'com',
+        script
+      ])
+
+      let stderr = ''
+
+      gttsProcess.stderr.on('data', (data) => {
+        stderr += data.toString()
+      })
+
+      gttsProcess.on('close', (code) => {
+        if (code === 0) {
+          logger.info('Voiceover generated successfully', 'gTTS', { outputPath })
+          resolve()
+        } else {
+          reject(new Error(`gTTS failed with code ${code}: ${stderr}`))
+        }
+      })
+
+      gttsProcess.on('error', (err) => {
+        reject(new Error(`Failed to spawn gtts-cli: ${err.message}`))
+      })
+    })
+  } catch (error: any) {
+    logger.error('Failed to generate voiceover', 'gTTS', {
+      error: error.message
+    })
+
+    throw new AppError(
+      `gTTS voiceover generation failed: ${error.message}`,
+      ErrorCode.EXTERNAL_API_ERROR,
+      500,
+      { originalError: error }
+    )
+  }
+}
+
+/**
+ * Compose final video using MoviePy Python script
+ */
+async function composeVideoWithMoviePy(options: {
+  videoPath: string
+  audioPath: string
+  outputPath: string
+  productTitle: string
+}): Promise<void> {
+  const { videoPath, audioPath, outputPath, productTitle } = options
+
+  try {
+    logger.info('Composing video with MoviePy', 'MoviePy', {
+      videoPath,
+      audioPath,
+      productTitle
+    })
+
+    const config = JSON.stringify({
+      videoPath,
+      audioPath,
+      outputPath,
+      productTitle
+    })
+
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'generate-video.py')
+
+    await new Promise<void>((resolve, reject) => {
+      const pythonProcess = spawn('python3', [scriptPath, config])
+
+      let stdout = ''
+      let stderr = ''
+
+      pythonProcess.stdout.on('data', (data) => {
+        stdout += data.toString()
+      })
+
+      pythonProcess.stderr.on('data', (data) => {
+        stderr += data.toString()
+      })
+
+      pythonProcess.on('close', (code) => {
+        if (code === 0) {
+          try {
+            const result = JSON.parse(stdout)
+            if (result.success) {
+              logger.info('Video composed successfully', 'MoviePy', {
+                outputPath: result.outputPath
+              })
+              resolve()
+            } else {
+              reject(new Error(result.error || 'Unknown error from Python script'))
+            }
+          } catch (e) {
+            reject(new Error(`Failed to parse Python output: ${stdout}`))
+          }
+        } else {
+          reject(new Error(`MoviePy failed with code ${code}: ${stderr}`))
+        }
+      })
+
+      pythonProcess.on('error', (err) => {
+        reject(new Error(`Failed to spawn Python: ${err.message}`))
+      })
+    })
+  } catch (error: any) {
+    logger.error('Failed to compose video', 'MoviePy', {
+      error: error.message
+    })
+
+    throw new AppError(
+      `MoviePy composition failed: ${error.message}`,
+      ErrorCode.EXTERNAL_API_ERROR,
+      500,
+      { originalError: error }
+    )
+  }
+}
+
+/**
+ * Sanitize filename to remove invalid characters
+ */
+function sanitizeFilename(filename: string): string {
+  return filename
+    .replace(/[^a-z0-9\-_]/gi, '-')
+    .replace(/-+/g, '-')
+    .substring(0, 100)
+}
