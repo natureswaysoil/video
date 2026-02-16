@@ -644,11 +644,15 @@ async function main() {
     }
   }
   if (runOnce) {
+    let exitCode = 0
     try {
       await cycle()
+    } catch (error) {
+      console.error('Error during cycle:', error)
+      exitCode = 1
     } finally {
       await stopHealthServer()
-      process.exit(0)
+      process.exit(exitCode)
     }
   }
   while (true) {
