@@ -196,7 +196,10 @@ async function main() {
                                         }
                                     }
                                     if (productImageUrl) {
-                                        console.log('📸 Product image found:', productImageUrl.substring(0, MAX_URL_DISPLAY_LENGTH) + '...');
+                                        const displayUrl = productImageUrl.length > MAX_URL_DISPLAY_LENGTH
+                                            ? productImageUrl.substring(0, MAX_URL_DISPLAY_LENGTH) + '...'
+                                            : productImageUrl;
+                                        console.log('📸 Product image found:', displayUrl);
                                     }
                                     const result = await generateVideoWithMoviePy({
                                         script,

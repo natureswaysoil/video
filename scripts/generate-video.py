@@ -12,7 +12,7 @@ TEXT_FONTSIZE_BOTTOM = 40  # Font size for bottom text overlay (with product ima
 TEXT_FONTSIZE_TOP = 50  # Font size for top text overlay (without product image)
 TEXT_BOTTOM_MARGIN = 30  # Pixels from bottom for text overlay
 TEXT_TOP_MARGIN = 50  # Pixels from top for text overlay
-TEXT_HORIZONTAL_MARGIN = 100  # Total horizontal margin for text
+TEXT_HORIZONTAL_MARGIN = 100  # Total horizontal margin (left + right) for text
 TEXT_STROKE_WIDTH = 2  # Border width around text
 
 def main():
