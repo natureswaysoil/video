@@ -17,11 +17,11 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies for video generation
+# Install Python dependencies for video generation with pinned versions
 RUN pip3 install --no-cache-dir \
-    moviepy \
-    gTTS \
-    Pillow \
+    moviepy==1.0.3 \
+    gTTS==2.5.4 \
+    Pillow==11.2.0 \
     --break-system-packages
 
 WORKDIR /app

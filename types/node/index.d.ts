@@ -80,6 +80,7 @@ declare module 'fs' {
   export function mkdtempSync(prefix: string): string
   export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void
   export function createWriteStream(path: string): any
+  export function unlinkSync(path: string): void
 }
 
 declare module 'fs/promises' {

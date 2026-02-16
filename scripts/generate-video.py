@@ -6,20 +6,21 @@ This script is called from TypeScript to generate videos using free tools.
 import sys
 import json
 import os
-import tempfile
-from pathlib import Path
 
 def main():
     """Main entry point for video generation."""
     if len(sys.argv) != 2:
         print(json.dumps({
             "success": False,
-            "error": "Usage: generate-video.py <config-json>"
+            "error": "Usage: generate-video.py <config-file-path>"
         }))
         sys.exit(1)
     
     try:
-        config = json.loads(sys.argv[1])
+        # Read configuration from file
+        config_path = sys.argv[1]
+        with open(config_path, 'r') as f:
+            config = json.load(f)
         
         # Extract configuration
         video_path = config.get('videoPath')

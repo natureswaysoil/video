@@ -75,10 +75,13 @@ export async function generateVideoWithMoviePy(
     })
 
     // Step 4: Upload to Google Cloud Storage
+    // Generate unique filename with timestamp and random suffix
+    const randomSuffix = Math.random().toString(36).substring(2, 8)
+    const timestamp = Date.now()
     const uploadResult = await uploadToGcs({
       bucketName: gcsBucketName,
       filePath: outputPath,
-      destinationPath: `videos/${Date.now()}-${sanitizeFilename(productTitle)}.mp4`,
+      destinationPath: `videos/${timestamp}-${randomSuffix}-${sanitizeFilename(productTitle)}.mp4`,
       makePublic: true
     })
 
@@ -233,13 +236,13 @@ async function generateVoiceoverWithGtts(options: {
       scriptLength: script.length
     })
 
-    // Use gtts-cli command
+    // Use gtts-cli command with stdin to avoid shell injection
     await new Promise<void>((resolve, reject) => {
       const gttsProcess = spawn('gtts-cli', [
         '--output', outputPath,
         '--lang', 'en',
         '--tld', 'com',
-        script
+        '-'  // Read from stdin
       ])
 
       let stderr = ''
@@ -260,6 +263,10 @@ async function generateVoiceoverWithGtts(options: {
       gttsProcess.on('error', (err: Error) => {
         reject(new Error(`Failed to spawn gtts-cli: ${err.message}`))
       })
+
+      // Write script to stdin
+      gttsProcess.stdin.write(script)
+      gttsProcess.stdin.end()
     })
   } catch (error: any) {
     logger.error('Failed to generate voiceover', 'gTTS', {
@@ -295,53 +302,68 @@ async function composeVideoWithMoviePy(options: {
       productTitle
     })
 
-    const config = JSON.stringify({
+    // Write config to temporary file to avoid command-line length limits and injection
+    const configPath = path.join(os.tmpdir(), `moviepy-config-${Date.now()}.json`)
+    const config = {
       videoPath,
       audioPath,
       outputPath,
       productTitle
-    })
+    }
+    
+    fs.writeFileSync(configPath, JSON.stringify(config))
 
-    const scriptPath = path.join(getScriptPath(), '..', 'scripts', 'generate-video.py')
+    // Use environment variable for script path or fall back to relative path
+    const scriptPath = process.env.MOVIEPY_SCRIPT_PATH || 
+      path.join(getScriptPath(), '..', 'scripts', 'generate-video.py')
 
-    await new Promise<void>((resolve, reject) => {
-      const pythonProcess = spawn('python3', [scriptPath, config])
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const pythonProcess = spawn('python3', [scriptPath, configPath])
 
-      let stdout = ''
-      let stderr = ''
+        let stdout = ''
+        let stderr = ''
 
-      pythonProcess.stdout.on('data', (data: Buffer) => {
-        stdout += data.toString()
-      })
+        pythonProcess.stdout.on('data', (data: Buffer) => {
+          stdout += data.toString()
+        })
 
-      pythonProcess.stderr.on('data', (data: Buffer) => {
-        stderr += data.toString()
-      })
+        pythonProcess.stderr.on('data', (data: Buffer) => {
+          stderr += data.toString()
+        })
 
-      pythonProcess.on('close', (code: number | null) => {
-        if (code === 0) {
-          try {
-            const result = JSON.parse(stdout)
-            if (result.success) {
-              logger.info('Video composed successfully', 'MoviePy', {
-                outputPath: result.outputPath
-              })
-              resolve()
-            } else {
-              reject(new Error(result.error || 'Unknown error from Python script'))
+        pythonProcess.on('close', (code: number | null) => {
+          if (code === 0) {
+            try {
+              const result = JSON.parse(stdout)
+              if (result.success) {
+                logger.info('Video composed successfully', 'MoviePy', {
+                  outputPath: result.outputPath
+                })
+                resolve()
+              } else {
+                reject(new Error(result.error || 'Unknown error from Python script'))
+              }
+            } catch (e) {
+              reject(new Error(`Failed to parse Python output: ${stdout}`))
             }
-          } catch (e) {
-            reject(new Error(`Failed to parse Python output: ${stdout}`))
+          } else {
+            reject(new Error(`MoviePy failed with code ${code}: ${stderr}`))
           }
-        } else {
-          reject(new Error(`MoviePy failed with code ${code}: ${stderr}`))
-        }
-      })
+        })
 
-      pythonProcess.on('error', (err: Error) => {
-        reject(new Error(`Failed to spawn Python: ${err.message}`))
+        pythonProcess.on('error', (err: Error) => {
+          reject(new Error(`Failed to spawn Python: ${err.message}`))
+        })
       })
-    })
+    } finally {
+      // Clean up config file
+      try {
+        fs.unlinkSync(configPath)
+      } catch (e) {
+        logger.warn('Failed to delete config file', 'MoviePy', { configPath })
+      }
+    }
   } catch (error: any) {
     logger.error('Failed to compose video', 'MoviePy', {
       error: error.message
