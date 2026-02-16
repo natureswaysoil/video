@@ -54,7 +54,7 @@ export async function uploadToGcs(options: GcsUploadOptions): Promise<GcsUploadR
       metadata: {
         contentType: getContentType(filePath)
       }
-    })
+    } as any)
 
     logger.info('File uploaded successfully', 'GCS', { fileName })
 
@@ -83,9 +83,11 @@ export async function uploadToGcs(options: GcsUploadOptions): Promise<GcsUploadR
 
     throw new AppError(
       `GCS upload failed: ${error.message}`,
-      ErrorCode.EXTERNAL_API_ERROR,
+      ErrorCode.PROCESSING_ERROR,
       500,
-      { originalError: error }
+      true,
+      { bucketName, filePath },
+      error
     )
   }
 }

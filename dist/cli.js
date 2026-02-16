@@ -137,9 +137,10 @@ async function main() {
                     let videoUrl = await resolveVideoUrlAsync({ jobId, record });
                     // Prefer ASIN from the sheet for identification
                     const asin = getValueFromRecord(record, process.env.CSV_COL_ASIN || 'ASIN,Parent_ASIN,SKU,Product_ID') || jobId;
-                    // Step 2: If no video exists, create one with HeyGen
+                    // Step 2: If no video exists, create one with HeyGen or free generator
                     if (!videoUrl || !(await urlLooksReachable(videoUrl))) {
-                        console.log('No existing video found. Creating new video with HeyGen...');
+                        const useFreeGenerator = String(process.env.USE_FREE_VIDEO_GENERATOR || 'false').toLowerCase() === 'true';
+                        console.log(`No existing video found. Creating new video with ${useFreeGenerator ? 'FREE generator (MoviePy + Pexels + gTTS)' : 'HeyGen'}...`);
                         // 2a: Generate marketing script with OpenAI
                         let script;
                         if (process.env.OPENAI_API_KEY) {
@@ -155,66 +156,103 @@ async function main() {
                             console.log('⚠️  OPENAI_API_KEY not set, using product description as script');
                             script = (product?.details ?? product?.title ?? product?.name ?? '').toString();
                         }
-                        // 2b: Create video with HeyGen
+                        // 2b: Create video with FREE generator (MoviePy) or HeyGen
                         if (script) {
-                            const hasHeyGenCreds = process.env.HEYGEN_API_KEY || process.env.GCP_SECRET_HEYGEN_API_KEY;
-                            if (!hasHeyGenCreds) {
-                                console.error('❌ HeyGen credentials not configured. Set HEYGEN_API_KEY or GCP_SECRET_HEYGEN_API_KEY');
-                                console.warn('⏭️  Skipping row - cannot generate video without HeyGen credentials');
-                                continue;
-                            }
-                            try {
-                                console.log('🎬 Creating video with HeyGen...');
-                                const heygenClient = await (0, heygen_1.createClientWithSecrets)();
-                                // Map product to HeyGen payload with avatar/voice selection
-                                const mapping = (0, heygen_adapter_1.mapProductToHeyGenPayload)(record);
-                                const payload = {
-                                    ...mapping.payload,
-                                    script,
-                                    title: `${product?.title || product?.name || 'Product Video'} (${asin})`,
-                                    meta: { asin, jobId }
-                                };
-                                console.log('📝 HeyGen mapping:', {
-                                    avatar: mapping.avatar,
-                                    voice: mapping.voice,
-                                    lengthSeconds: mapping.lengthSeconds,
-                                    reason: mapping.reason
-                                });
-                                // Create video job
-                                const heygenJobId = await heygenClient.createVideoJob(payload);
-                                console.log('✅ Created HeyGen video job:', heygenJobId);
-                                // Write HeyGen mapping info back to sheet (optional)
-                                if ((0, google_auth_1.hasConfiguredGoogleCredentials)()) {
-                                    try {
-                                        const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
-                                        const sheetGid = extractGidFromCsv(csvUrl);
-                                        const { writeBackMappingsToSheet } = await Promise.resolve().then(() => __importStar(require('./heygen-adapter')));
-                                        await writeBackMappingsToSheet(spreadsheetId, String(sheetGid || 0), [{
-                                                HEYGEN_AVATAR: mapping.avatar,
-                                                HEYGEN_VOICE: mapping.voice,
-                                                HEYGEN_LENGTH_SECONDS: String(mapping.lengthSeconds),
-                                                HEYGEN_MAPPING_REASON: mapping.reason,
-                                                HEYGEN_MAPPED_AT: new Date().toISOString()
-                                            }]);
-                                        console.log('✅ Wrote HeyGen mapping to sheet');
-                                    }
-                                    catch (e) {
-                                        console.error('⚠️  Failed to write HeyGen mapping to sheet:', e?.message || e);
-                                    }
+                            if (useFreeGenerator) {
+                                // === FREE VIDEO GENERATION PATH ===
+                                const pexelsApiKey = process.env.PEXELS_API_KEY;
+                                const gcsBucketName = process.env.GCS_BUCKET_NAME;
+                                if (!pexelsApiKey) {
+                                    console.error('❌ PEXELS_API_KEY not set. Required for free video generation.');
+                                    console.warn('⏭️  Skipping row - cannot generate video without Pexels API key');
+                                    continue;
                                 }
-                                // Poll for video completion
-                                console.log('⏳ Waiting for HeyGen video completion...');
-                                videoUrl = await heygenClient.pollJobForVideoUrl(heygenJobId, {
-                                    timeoutMs: 25 * 60_000, // 25 minutes
-                                    intervalMs: 15_000 // Check every 15 seconds
-                                });
-                                console.log('✅ HeyGen video ready:', videoUrl);
+                                if (!gcsBucketName) {
+                                    console.error('❌ GCS_BUCKET_NAME not set. Required for free video generation.');
+                                    console.warn('⏭️  Skipping row - cannot upload video without GCS bucket');
+                                    continue;
+                                }
+                                try {
+                                    console.log('🎬 Creating video with FREE generator (MoviePy + Pexels + gTTS)...');
+                                    const { generateVideoWithMoviePy } = await Promise.resolve().then(() => __importStar(require('./moviepy-generator')));
+                                    const result = await generateVideoWithMoviePy({
+                                        script,
+                                        productTitle: product?.title || product?.name || 'Product Video',
+                                        pexelsApiKey,
+                                        gcsBucketName,
+                                        searchQuery: product?.title || product?.name
+                                    });
+                                    videoUrl = result.videoUrl;
+                                    console.log('✅ Free video generation complete:', videoUrl);
+                                }
+                                catch (e) {
+                                    console.error('❌ Free video generation failed:', e?.message || e);
+                                    console.warn('⏭️  Skipping row - video generation failed');
+                                    (0, health_server_1.addError)(`MoviePy: ${product?.title || jobId} - ${e?.message || String(e)}`);
+                                    continue;
+                                }
                             }
-                            catch (e) {
-                                console.error('❌ HeyGen video generation failed:', e?.message || e);
-                                console.warn('⏭️  Skipping row - video generation failed');
-                                (0, health_server_1.addError)(`HeyGen: ${product?.title || jobId} - ${e?.message || String(e)}`);
-                                continue;
+                            else {
+                                // === HEYGEN VIDEO GENERATION PATH ===
+                                const hasHeyGenCreds = process.env.HEYGEN_API_KEY || process.env.GCP_SECRET_HEYGEN_API_KEY;
+                                if (!hasHeyGenCreds) {
+                                    console.error('❌ HeyGen credentials not configured. Set HEYGEN_API_KEY or GCP_SECRET_HEYGEN_API_KEY');
+                                    console.warn('⏭️  Skipping row - cannot generate video without HeyGen credentials');
+                                    continue;
+                                }
+                                try {
+                                    console.log('🎬 Creating video with HeyGen...');
+                                    const heygenClient = await (0, heygen_1.createClientWithSecrets)();
+                                    // Map product to HeyGen payload with avatar/voice selection
+                                    const mapping = (0, heygen_adapter_1.mapProductToHeyGenPayload)(record);
+                                    const payload = {
+                                        ...mapping.payload,
+                                        script,
+                                        title: `${product?.title || product?.name || 'Product Video'} (${asin})`,
+                                        meta: { asin, jobId }
+                                    };
+                                    console.log('📝 HeyGen mapping:', {
+                                        avatar: mapping.avatar,
+                                        voice: mapping.voice,
+                                        lengthSeconds: mapping.lengthSeconds,
+                                        reason: mapping.reason
+                                    });
+                                    // Create video job
+                                    const heygenJobId = await heygenClient.createVideoJob(payload);
+                                    console.log('✅ Created HeyGen video job:', heygenJobId);
+                                    // Write HeyGen mapping info back to sheet (optional)
+                                    if ((0, google_auth_1.hasConfiguredGoogleCredentials)()) {
+                                        try {
+                                            const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
+                                            const sheetGid = extractGidFromCsv(csvUrl);
+                                            const { writeBackMappingsToSheet } = await Promise.resolve().then(() => __importStar(require('./heygen-adapter')));
+                                            await writeBackMappingsToSheet(spreadsheetId, String(sheetGid || 0), [{
+                                                    HEYGEN_AVATAR: mapping.avatar,
+                                                    HEYGEN_VOICE: mapping.voice,
+                                                    HEYGEN_LENGTH_SECONDS: String(mapping.lengthSeconds),
+                                                    HEYGEN_MAPPING_REASON: mapping.reason,
+                                                    HEYGEN_MAPPED_AT: new Date().toISOString()
+                                                }]);
+                                            console.log('✅ Wrote HeyGen mapping to sheet');
+                                        }
+                                        catch (e) {
+                                            console.error('⚠️  Failed to write HeyGen mapping to sheet:', e?.message || e);
+                                        }
+                                    }
+                                    // Poll for video completion
+                                    console.log('⏳ Waiting for HeyGen video completion...');
+                                    videoUrl = await heygenClient.pollJobForVideoUrl(heygenJobId, {
+                                        timeoutMs: 25 * 60_000, // 25 minutes
+                                        intervalMs: 15_000 // Check every 15 seconds
+                                    });
+                                    console.log('✅ HeyGen video ready:', videoUrl);
+                                }
+                                catch (e) {
+                                    console.error('❌ HeyGen video generation failed:', e?.message || e);
+                                    console.warn('⏭️  Skipping row - video generation failed');
+                                    (0, health_server_1.addError)(`HeyGen: ${product?.title || jobId} - ${e?.message || String(e)}`);
+                                    continue;
+                                }
                             }
                         }
                         else {

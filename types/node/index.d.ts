@@ -14,6 +14,8 @@ declare namespace NodeJS {
 
 declare var process: NodeJS.Process
 declare var global: any
+declare var __dirname: string
+declare var __filename: string
 
 declare class Buffer extends Uint8Array {
   static from(data: ArrayBuffer | ArrayLike<number> | string, encoding?: string): Buffer
@@ -75,6 +77,9 @@ declare module 'fs' {
   export function existsSync(path: string): boolean
   export function mkdirSync(path: string, options?: any): void
   export function writeFileSync(path: string, data: string): void
+  export function mkdtempSync(prefix: string): string
+  export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void
+  export function createWriteStream(path: string): any
 }
 
 declare module 'fs/promises' {
@@ -86,6 +91,16 @@ declare module 'fs/promises' {
 declare module 'path' {
   export function dirname(path: string): string
   export function join(...paths: string[]): string
+  export function basename(path: string, ext?: string): string
+  export function extname(path: string): string
+}
+
+declare module 'os' {
+  export function tmpdir(): string
+}
+
+declare module 'child_process' {
+  export function spawn(command: string, args?: string[], options?: any): any
 }
 
 declare module 'zod' {

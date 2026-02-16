@@ -9,6 +9,17 @@ import { spawn } from 'child_process'
 
 const logger = getLogger()
 
+// Get script path for Python script
+const getScriptPath = (): string => {
+  // In CommonJS modules, __dirname is available
+  // In compiled dist, we're in dist/ and scripts/ is at the same level as dist/
+  if (typeof __dirname !== 'undefined') {
+    return __dirname
+  }
+  // Fallback to process.cwd()
+  return process.cwd()
+}
+
 export interface MoviePyGeneratorOptions {
   script: string
   productTitle: string
@@ -149,7 +160,7 @@ async function downloadPexelsVideo(options: {
       if (fallbackVideos.length === 0) {
         throw new AppError(
           'No stock videos found from Pexels',
-          ErrorCode.EXTERNAL_API_ERROR,
+          ErrorCode.PROCESSING_ERROR,
           500
         )
       }
@@ -166,7 +177,7 @@ async function downloadPexelsVideo(options: {
     if (!hdFile?.link) {
       throw new AppError(
         'No downloadable video file found',
-        ErrorCode.EXTERNAL_API_ERROR,
+        ErrorCode.PROCESSING_ERROR,
         500
       )
     }
@@ -199,9 +210,11 @@ async function downloadPexelsVideo(options: {
 
     throw new AppError(
       `Pexels download failed: ${error.message}`,
-      ErrorCode.EXTERNAL_API_ERROR,
+      ErrorCode.PROCESSING_ERROR,
       500,
-      { originalError: error }
+      true,
+      { searchQuery },
+      error
     )
   }
 }
@@ -231,11 +244,11 @@ async function generateVoiceoverWithGtts(options: {
 
       let stderr = ''
 
-      gttsProcess.stderr.on('data', (data) => {
+      gttsProcess.stderr.on('data', (data: Buffer) => {
         stderr += data.toString()
       })
 
-      gttsProcess.on('close', (code) => {
+      gttsProcess.on('close', (code: number | null) => {
         if (code === 0) {
           logger.info('Voiceover generated successfully', 'gTTS', { outputPath })
           resolve()
@@ -244,7 +257,7 @@ async function generateVoiceoverWithGtts(options: {
         }
       })
 
-      gttsProcess.on('error', (err) => {
+      gttsProcess.on('error', (err: Error) => {
         reject(new Error(`Failed to spawn gtts-cli: ${err.message}`))
       })
     })
@@ -255,9 +268,11 @@ async function generateVoiceoverWithGtts(options: {
 
     throw new AppError(
       `gTTS voiceover generation failed: ${error.message}`,
-      ErrorCode.EXTERNAL_API_ERROR,
+      ErrorCode.PROCESSING_ERROR,
       500,
-      { originalError: error }
+      true,
+      { scriptLength: script.length },
+      error
     )
   }
 }
@@ -287,7 +302,7 @@ async function composeVideoWithMoviePy(options: {
       productTitle
     })
 
-    const scriptPath = path.join(__dirname, '..', 'scripts', 'generate-video.py')
+    const scriptPath = path.join(getScriptPath(), '..', 'scripts', 'generate-video.py')
 
     await new Promise<void>((resolve, reject) => {
       const pythonProcess = spawn('python3', [scriptPath, config])
@@ -295,15 +310,15 @@ async function composeVideoWithMoviePy(options: {
       let stdout = ''
       let stderr = ''
 
-      pythonProcess.stdout.on('data', (data) => {
+      pythonProcess.stdout.on('data', (data: Buffer) => {
         stdout += data.toString()
       })
 
-      pythonProcess.stderr.on('data', (data) => {
+      pythonProcess.stderr.on('data', (data: Buffer) => {
         stderr += data.toString()
       })
 
-      pythonProcess.on('close', (code) => {
+      pythonProcess.on('close', (code: number | null) => {
         if (code === 0) {
           try {
             const result = JSON.parse(stdout)
@@ -323,7 +338,7 @@ async function composeVideoWithMoviePy(options: {
         }
       })
 
-      pythonProcess.on('error', (err) => {
+      pythonProcess.on('error', (err: Error) => {
         reject(new Error(`Failed to spawn Python: ${err.message}`))
       })
     })
@@ -334,9 +349,11 @@ async function composeVideoWithMoviePy(options: {
 
     throw new AppError(
       `MoviePy composition failed: ${error.message}`,
-      ErrorCode.EXTERNAL_API_ERROR,
+      ErrorCode.PROCESSING_ERROR,
       500,
-      { originalError: error }
+      true,
+      { productTitle },
+      error
     )
   }
 }
