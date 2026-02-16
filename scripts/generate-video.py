@@ -7,6 +7,14 @@ import sys
 import json
 import os
 
+# Layout constants
+TEXT_FONTSIZE_BOTTOM = 40  # Font size for bottom text overlay (with product image)
+TEXT_FONTSIZE_TOP = 50  # Font size for top text overlay (without product image)
+TEXT_BOTTOM_MARGIN = 30  # Pixels from bottom for text overlay
+TEXT_TOP_MARGIN = 50  # Pixels from top for text overlay
+TEXT_HORIZONTAL_MARGIN = 100  # Total horizontal margin (left + right) for text
+TEXT_STROKE_WIDTH = 2  # Border width around text
+
 def main():
     """Main entry point for video generation."""
     if len(sys.argv) != 2:
@@ -27,12 +35,13 @@ def main():
         audio_path = config.get('audioPath')
         output_path = config.get('outputPath')
         product_title = config.get('productTitle', '')
+        product_image_path = config.get('productImagePath')
         
         if not all([video_path, audio_path, output_path]):
             raise ValueError("Missing required paths: videoPath, audioPath, or outputPath")
         
         # Import moviepy only when needed
-        from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip
+        from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip, ImageClip
         
         # Load video and audio
         video = VideoFileClip(video_path)
@@ -48,29 +57,97 @@ def main():
         # Trim to exact audio duration
         video = video.subclip(0, audio_duration)
         
-        # Add audio to video
-        video = video.set_audio(audio)
-        
-        # Add text overlay with product title
-        if product_title:
-            # Create text clip with styling
-            txt_clip = TextClip(
-                product_title,
-                fontsize=50,
-                color='white',
-                font='Arial',
-                stroke_color='black',
-                stroke_width=2,
-                method='caption',
-                size=(video.w - 100, None)
-            )
-            txt_clip = txt_clip.set_position(('center', 50)).set_duration(audio_duration)
+        # Handle product image if provided (split-screen layout)
+        if product_image_path and os.path.exists(product_image_path):
+            try:
+                # Save original video dimensions before resizing
+                # This is needed for accurate width calculations in the split-screen layout
+                original_video_width = video.w
+                original_video_height = video.h
+                
+                # Load product image
+                product_img = ImageClip(product_image_path)
+                
+                # Resize product image to fit left half (maintain aspect ratio)
+                target_height = original_video_height
+                product_img = product_img.resize(height=target_height)
+                
+                # If image is too wide, resize to fit half width
+                if product_img.w > original_video_width // 2:
+                    product_img = product_img.resize(width=original_video_width // 2)
+                
+                product_img = product_img.set_position(('left', 'center'))
+                product_img = product_img.set_duration(audio_duration)
+                
+                # Resize stock video to fit right half
+                video = video.resize(width=original_video_width // 2)
+                video = video.set_position(('right', 'center'))
+                
+                # Add audio to video
+                video = video.set_audio(audio)
+                
+                # Create base composite with image and video
+                clips = [product_img, video]
+                
+                # Add text overlay with product title at bottom
+                if product_title:
+                    txt_clip = TextClip(
+                        product_title,
+                        fontsize=TEXT_FONTSIZE_BOTTOM,
+                        color='white',
+                        font='Arial',
+                        stroke_color='black',
+                        stroke_width=TEXT_STROKE_WIDTH,
+                        method='caption',
+                        size=(original_video_width - TEXT_HORIZONTAL_MARGIN, None)  # Full width minus margins
+                    )
+                    txt_clip = txt_clip.set_position(('center', original_video_height - txt_clip.h - TEXT_BOTTOM_MARGIN)).set_duration(audio_duration)
+                    clips.append(txt_clip)
+                
+                # Composite all clips
+                final_video = CompositeVideoClip(clips, size=(original_video_width, original_video_height))
+            except Exception as img_error:
+                # If image processing fails, fall back to full-width video
+                print(f"Warning: Failed to process product image, using fallback: {str(img_error)}", file=sys.stderr)
+                video = video.set_audio(audio)
+                
+                if product_title:
+                    txt_clip = TextClip(
+                        product_title,
+                        fontsize=TEXT_FONTSIZE_TOP,
+                        color='white',
+                        font='Arial',
+                        stroke_color='black',
+                        stroke_width=TEXT_STROKE_WIDTH,
+                        method='caption',
+                        size=(video.w - TEXT_HORIZONTAL_MARGIN, None)
+                    )
+                    txt_clip = txt_clip.set_position(('center', TEXT_TOP_MARGIN)).set_duration(audio_duration)
+                    final_video = CompositeVideoClip([video, txt_clip])
+                else:
+                    final_video = video
+        else:
+            # No product image - use full-width stock video
+            video = video.set_audio(audio)
             
-            # Composite video with text overlay
-            video = CompositeVideoClip([video, txt_clip])
+            if product_title:
+                txt_clip = TextClip(
+                    product_title,
+                    fontsize=TEXT_FONTSIZE_TOP,
+                    color='white',
+                    font='Arial',
+                    stroke_color='black',
+                    stroke_width=TEXT_STROKE_WIDTH,
+                    method='caption',
+                    size=(video.w - TEXT_HORIZONTAL_MARGIN, None)
+                )
+                txt_clip = txt_clip.set_position(('center', TEXT_TOP_MARGIN)).set_duration(audio_duration)
+                final_video = CompositeVideoClip([video, txt_clip])
+            else:
+                final_video = video
         
         # Export final video
-        video.write_videofile(
+        final_video.write_videofile(
             output_path,
             codec='libx264',
             audio_codec='aac',
@@ -80,7 +157,7 @@ def main():
         )
         
         # Clean up
-        video.close()
+        final_video.close()
         audio.close()
         
         print(json.dumps({

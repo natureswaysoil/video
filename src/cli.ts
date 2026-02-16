@@ -14,6 +14,10 @@ import { hasConfiguredGoogleCredentials } from './google-auth'
 import { validateConfig } from './config-validator'
 
 const auditLogger = getAuditLogger()
+
+// Constants
+const MAX_URL_DISPLAY_LENGTH = 80 // Maximum length for displaying URLs in logs
+
 // Retry helper with exponential backoff
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
@@ -166,15 +170,43 @@ async function main() {
                 }
                 
                 try {
-                  console.log('🎬 Creating video with FREE generator (MoviePy + Pexels + gTTS)...')
+                  console.log('🎬 Creating video with free generator (MoviePy + Pexels + ElevenLabs/gTTS)...')
                   const { generateVideoWithMoviePy } = await import('./moviepy-generator')
+                  
+                  // Extract product image URL from various possible column names
+                  const imageColumnCandidates = [
+                    process.env.PRODUCT_IMAGE_COLUMN,
+                    'Image_URL',
+                    'Product_Image',
+                    'ASIN_Image',
+                    'Image',
+                    'ProductImage',
+                    'ImageURL'
+                  ].filter(Boolean) as string[]
+                  
+                  let productImageUrl: string | undefined
+                  for (const col of imageColumnCandidates) {
+                    const val = record[col]
+                    if (val && val.trim().length > 0 && /^https?:\/\//i.test(val)) {
+                      productImageUrl = val.trim()
+                      break
+                    }
+                  }
+                  
+                  if (productImageUrl) {
+                    const displayUrl = productImageUrl.length > MAX_URL_DISPLAY_LENGTH 
+                      ? productImageUrl.substring(0, MAX_URL_DISPLAY_LENGTH) + '...' 
+                      : productImageUrl
+                    console.log('📸 Product image found:', displayUrl)
+                  }
                   
                   const result = await generateVideoWithMoviePy({
                     script,
                     productTitle: product?.title || product?.name || 'Product Video',
                     pexelsApiKey,
                     gcsBucketName,
-                    searchQuery: product?.title || product?.name
+                    searchQuery: product?.title || product?.name,
+                    productImageUrl
                   })
                   
                   videoUrl = result.videoUrl

@@ -48,6 +48,8 @@ const audit_logger_1 = require("./audit-logger");
 const google_auth_1 = require("./google-auth");
 const config_validator_1 = require("./config-validator");
 const auditLogger = (0, audit_logger_1.getAuditLogger)();
+// Constants
+const MAX_URL_DISPLAY_LENGTH = 80; // Maximum length for displaying URLs in logs
 // Retry helper with exponential backoff
 async function retryWithBackoff(fn, options = {}) {
     const { maxRetries = 3, initialDelayMs = 1000, maxDelayMs = 16000, operation = 'Operation' } = options;
@@ -173,14 +175,39 @@ async function main() {
                                     continue;
                                 }
                                 try {
-                                    console.log('🎬 Creating video with FREE generator (MoviePy + Pexels + gTTS)...');
+                                    console.log('🎬 Creating video with free generator (MoviePy + Pexels + ElevenLabs/gTTS)...');
                                     const { generateVideoWithMoviePy } = await Promise.resolve().then(() => __importStar(require('./moviepy-generator')));
+                                    // Extract product image URL from various possible column names
+                                    const imageColumnCandidates = [
+                                        process.env.PRODUCT_IMAGE_COLUMN,
+                                        'Image_URL',
+                                        'Product_Image',
+                                        'ASIN_Image',
+                                        'Image',
+                                        'ProductImage',
+                                        'ImageURL'
+                                    ].filter(Boolean);
+                                    let productImageUrl;
+                                    for (const col of imageColumnCandidates) {
+                                        const val = record[col];
+                                        if (val && val.trim().length > 0 && /^https?:\/\//i.test(val)) {
+                                            productImageUrl = val.trim();
+                                            break;
+                                        }
+                                    }
+                                    if (productImageUrl) {
+                                        const displayUrl = productImageUrl.length > MAX_URL_DISPLAY_LENGTH
+                                            ? productImageUrl.substring(0, MAX_URL_DISPLAY_LENGTH) + '...'
+                                            : productImageUrl;
+                                        console.log('📸 Product image found:', displayUrl);
+                                    }
                                     const result = await generateVideoWithMoviePy({
                                         script,
                                         productTitle: product?.title || product?.name || 'Product Video',
                                         pexelsApiKey,
                                         gcsBucketName,
-                                        searchQuery: product?.title || product?.name
+                                        searchQuery: product?.title || product?.name,
+                                        productImageUrl
                                     });
                                     videoUrl = result.videoUrl;
                                     console.log('✅ Free video generation complete:', videoUrl);
