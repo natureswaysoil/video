@@ -19,6 +19,7 @@ For complete details: [Production Deployment Guide](./PRODUCTION_DEPLOYMENT.md)
 - Generate marketing scripts with OpenAI
 - **Create videos with HeyGen AI** (avatar-based video generation with intelligent voice/avatar mapping)
 - Posts generated video to Instagram, Twitter, Pinterest, and optionally YouTube
+- **Selective platform posting**: Configure which platforms to use via `ENABLE_PLATFORMS` environment variable
 - Iterates through all CSV rows; skips those without a job ID or disabled status
 - Skips rows marked as Posted; respects Ready/Enabled when present
 - Video URL resolution is configurable: prefer a CSV "video_url" column, otherwise build from a template
@@ -47,6 +48,7 @@ npm run test:youtube
 **📚 Detailed Guides:**
 - **[VERIFICATION_QUICKSTART.md](./VERIFICATION_QUICKSTART.md)** - 5-minute quick start guide
 - **[VERIFICATION_GUIDE.md](./VERIFICATION_GUIDE.md)** - Complete verification documentation
+- **[PLATFORM_CONFIGURATION_GUIDE.md](./PLATFORM_CONFIGURATION_GUIDE.md)** - Configure specific social media platforms with Google Secrets
 
 ## Architecture
 
@@ -251,11 +253,17 @@ SPREADSHEET_ID=your_id GID=your_gid ./scripts/cleanup-stray-files.sh
 
 **🎯 For deployment instructions, see [GCLOUD_DEPLOYMENT.md](./GCLOUD_DEPLOYMENT.md)**
 
+**🔧 To configure specific platforms, see [PLATFORM_CONFIGURATION_GUIDE.md](./PLATFORM_CONFIGURATION_GUIDE.md)**
+
 Quick automated deployment:
 
 ```bash
 export PROJECT_ID=your-gcp-project-id
 export REGION=us-east1
+
+# Optional: Set specific platforms (instagram,twitter,pinterest,youtube)
+# Leave empty to use all platforms with credentials
+export ENABLE_PLATFORMS=instagram,twitter
 
 # Create secrets and deploy
 ./scripts/create-secrets-from-env.sh

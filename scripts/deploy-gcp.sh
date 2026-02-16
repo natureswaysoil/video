@@ -117,7 +117,9 @@ fi
 
 echo "Creating Cloud Run Job (or updating if exists)..."
 # Environment variables for HeyGen-based video generation
-ENV_VARS="RUN_ONCE=true,CSV_URL=${CSV_URL_DEFAULT},CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title,HEYGEN_VIDEO_DURATION_SECONDS=30,SHEET_VIDEO_TARGET_COLUMN_LETTER=AB"
+# Use ENABLE_PLATFORMS from environment, or default to empty (all platforms)
+ENABLE_PLATFORMS_VALUE="${ENABLE_PLATFORMS:-}"
+ENV_VARS="RUN_ONCE=true,CSV_URL=${CSV_URL_DEFAULT},CSV_COL_JOB_ID=ASIN,CSV_COL_DETAILS=Title,HEYGEN_VIDEO_DURATION_SECONDS=30,SHEET_VIDEO_TARGET_COLUMN_LETTER=AB,ENABLE_PLATFORMS=${ENABLE_PLATFORMS_VALUE}"
 
 if gcloud run jobs describe "$JOB_NAME" --region="$REGION" >/dev/null 2>&1; then
   if ! gcloud run jobs update "$JOB_NAME" \
