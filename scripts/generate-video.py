@@ -7,6 +7,14 @@ import sys
 import json
 import os
 
+# Layout constants
+TEXT_FONTSIZE_BOTTOM = 40  # Font size for bottom text overlay (with product image)
+TEXT_FONTSIZE_TOP = 50  # Font size for top text overlay (without product image)
+TEXT_BOTTOM_MARGIN = 30  # Pixels from bottom for text overlay
+TEXT_TOP_MARGIN = 50  # Pixels from top for text overlay
+TEXT_HORIZONTAL_MARGIN = 100  # Total horizontal margin for text
+TEXT_STROKE_WIDTH = 2  # Border width around text
+
 def main():
     """Main entry point for video generation."""
     if len(sys.argv) != 2:
@@ -84,15 +92,15 @@ def main():
                 if product_title:
                     txt_clip = TextClip(
                         product_title,
-                        fontsize=40,
+                        fontsize=TEXT_FONTSIZE_BOTTOM,
                         color='white',
                         font='Arial',
                         stroke_color='black',
-                        stroke_width=2,
+                        stroke_width=TEXT_STROKE_WIDTH,
                         method='caption',
-                        size=(original_video_width - 100, None)  # Full width minus margins
+                        size=(original_video_width - TEXT_HORIZONTAL_MARGIN, None)  # Full width minus margins
                     )
-                    txt_clip = txt_clip.set_position(('center', original_video_height - txt_clip.h - 30)).set_duration(audio_duration)
+                    txt_clip = txt_clip.set_position(('center', original_video_height - txt_clip.h - TEXT_BOTTOM_MARGIN)).set_duration(audio_duration)
                     clips.append(txt_clip)
                 
                 # Composite all clips
@@ -105,15 +113,15 @@ def main():
                 if product_title:
                     txt_clip = TextClip(
                         product_title,
-                        fontsize=50,
+                        fontsize=TEXT_FONTSIZE_TOP,
                         color='white',
                         font='Arial',
                         stroke_color='black',
-                        stroke_width=2,
+                        stroke_width=TEXT_STROKE_WIDTH,
                         method='caption',
-                        size=(video.w - 100, None)
+                        size=(video.w - TEXT_HORIZONTAL_MARGIN, None)
                     )
-                    txt_clip = txt_clip.set_position(('center', 50)).set_duration(audio_duration)
+                    txt_clip = txt_clip.set_position(('center', TEXT_TOP_MARGIN)).set_duration(audio_duration)
                     final_video = CompositeVideoClip([video, txt_clip])
                 else:
                     final_video = video
@@ -124,15 +132,15 @@ def main():
             if product_title:
                 txt_clip = TextClip(
                     product_title,
-                    fontsize=50,
+                    fontsize=TEXT_FONTSIZE_TOP,
                     color='white',
                     font='Arial',
                     stroke_color='black',
-                    stroke_width=2,
+                    stroke_width=TEXT_STROKE_WIDTH,
                     method='caption',
-                    size=(video.w - 100, None)
+                    size=(video.w - TEXT_HORIZONTAL_MARGIN, None)
                 )
-                txt_clip = txt_clip.set_position(('center', 50)).set_duration(audio_duration)
+                txt_clip = txt_clip.set_position(('center', TEXT_TOP_MARGIN)).set_duration(audio_duration)
                 final_video = CompositeVideoClip([video, txt_clip])
             else:
                 final_video = video

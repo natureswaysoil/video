@@ -48,6 +48,8 @@ const audit_logger_1 = require("./audit-logger");
 const google_auth_1 = require("./google-auth");
 const config_validator_1 = require("./config-validator");
 const auditLogger = (0, audit_logger_1.getAuditLogger)();
+// Constants
+const MAX_URL_DISPLAY_LENGTH = 80; // Maximum length for displaying URLs in logs
 // Retry helper with exponential backoff
 async function retryWithBackoff(fn, options = {}) {
     const { maxRetries = 3, initialDelayMs = 1000, maxDelayMs = 16000, operation = 'Operation' } = options;
@@ -194,7 +196,7 @@ async function main() {
                                         }
                                     }
                                     if (productImageUrl) {
-                                        console.log('📸 Product image found:', productImageUrl.substring(0, 80) + '...');
+                                        console.log('📸 Product image found:', productImageUrl.substring(0, MAX_URL_DISPLAY_LENGTH) + '...');
                                     }
                                     const result = await generateVideoWithMoviePy({
                                         script,

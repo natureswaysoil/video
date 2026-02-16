@@ -14,6 +14,10 @@ import { hasConfiguredGoogleCredentials } from './google-auth'
 import { validateConfig } from './config-validator'
 
 const auditLogger = getAuditLogger()
+
+// Constants
+const MAX_URL_DISPLAY_LENGTH = 80 // Maximum length for displaying URLs in logs
+
 // Retry helper with exponential backoff
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
@@ -190,7 +194,7 @@ async function main() {
                   }
                   
                   if (productImageUrl) {
-                    console.log('📸 Product image found:', productImageUrl.substring(0, 80) + '...')
+                    console.log('📸 Product image found:', productImageUrl.substring(0, MAX_URL_DISPLAY_LENGTH) + '...')
                   }
                   
                   const result = await generateVideoWithMoviePy({
