@@ -312,7 +312,8 @@ async function generateVoiceoverWithElevenLabs(options: {
 }): Promise<void> {
   const { script, outputPath } = options
   const apiKey = process.env.ELEVENLABS_API_KEY
-  const voiceId = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL' // Default: Sarah voice
+  // Default voice ID is for 'Sarah' - see https://elevenlabs.io/voice-library for other voices
+  const voiceId = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL'
 
   try {
     logger.info('Generating voiceover with ElevenLabs', 'ElevenLabs', {

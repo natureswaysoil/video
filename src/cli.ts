@@ -170,7 +170,7 @@ async function main() {
                 }
                 
                 try {
-                  console.log('🎬 Creating video with FREE generator (MoviePy + Pexels + ElevenLabs/gTTS)...')
+                  console.log('🎬 Creating video with free generator (MoviePy + Pexels + ElevenLabs/gTTS)...')
                   const { generateVideoWithMoviePy } = await import('./moviepy-generator')
                   
                   // Extract product image URL from various possible column names

@@ -184,7 +184,9 @@ Popular voices:
 ### Free Tier Limits
 
 - **10,000 characters/month** (resets monthly)
-- Approximately **25-30 product videos** (assuming ~350 chars per script)
+- Approximately **25-30 product videos** (based on typical ~350 character scripts)
+  - **Note**: Monitor your actual character usage as script lengths vary significantly based on product descriptions
+  - Check usage at [ElevenLabs Dashboard](https://elevenlabs.io/speech-synthesis)
 - No credit card required
 - No expiration
 

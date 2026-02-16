@@ -61,6 +61,7 @@ def main():
         if product_image_path and os.path.exists(product_image_path):
             try:
                 # Save original video dimensions before resizing
+                # This is needed for accurate width calculations in the split-screen layout
                 original_video_width = video.w
                 original_video_height = video.h
                 

@@ -175,7 +175,7 @@ async function main() {
                                     continue;
                                 }
                                 try {
-                                    console.log('🎬 Creating video with FREE generator (MoviePy + Pexels + ElevenLabs/gTTS)...');
+                                    console.log('🎬 Creating video with free generator (MoviePy + Pexels + ElevenLabs/gTTS)...');
                                     const { generateVideoWithMoviePy } = await Promise.resolve().then(() => __importStar(require('./moviepy-generator')));
                                     // Extract product image URL from various possible column names
                                     const imageColumnCandidates = [
