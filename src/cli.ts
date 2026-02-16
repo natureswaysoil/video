@@ -648,8 +648,8 @@ async function main() {
       await cycle()
     } finally {
       await stopHealthServer()
+      process.exit(0)
     }
-    return
   }
   while (true) {
     await cycle()
