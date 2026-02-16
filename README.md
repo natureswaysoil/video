@@ -17,7 +17,9 @@ For complete details: [Production Deployment Guide](./PRODUCTION_DEPLOYMENT.md)
 ## Features
 - Fetch products from a Google Sheet (CSV export URL)
 - Generate marketing scripts with OpenAI
-- **Create videos with HeyGen AI** (avatar-based video generation with intelligent voice/avatar mapping)
+- **Video Generation Options:**
+  - **HeyGen AI** (Paid: $29-89/month) - Professional avatar-based videos with intelligent voice/avatar mapping
+  - **FREE Alternative** (MoviePy + Pexels + gTTS) - Stock footage with text-to-speech voiceovers (~$7/month for storage only)
 - Posts generated video to Instagram, Twitter, Pinterest, and optionally YouTube
 - **Selective platform posting**: Configure which platforms to use via `ENABLE_PLATFORMS` environment variable
 - Iterates through all CSV rows; skips those without a job ID or disabled status
@@ -55,7 +57,9 @@ npm run test:youtube
 ```
 Google Sheet (CSV) → OpenAI (script generation)
                     ↓
-                HeyGen (video generation with avatars)
+        Video Generation (choose one):
+        ├─ HeyGen API (Paid: AI avatars + voices)
+        └─ FREE (MoviePy + Pexels + gTTS + GCS)
                     ↓
             Social Media Posts
             (Instagram, Twitter, Pinterest, YouTube)
@@ -68,9 +72,22 @@ Google Sheet (CSV) → OpenAI (script generation)
    ```
    npm install
    ```
-3. Configure video generation:
-   - **HeyGen**: Set `HEYGEN_API_KEY`
-     - Or use GCP Secret Manager: `GCP_SECRET_HEYGEN_API_KEY`
+3. Configure video generation - Choose ONE option:
+   
+   **Option A: HeyGen (Paid - Professional Quality)**
+   - Set `HEYGEN_API_KEY` in `.env`
+   - Or use GCP Secret Manager: `GCP_SECRET_HEYGEN_API_KEY`
+   - Cost: $29-89/month
+   - Features: AI avatars, professional voices, customization
+   
+   **Option B: FREE Video Generation (MoviePy + Pexels + gTTS)**
+   - Set `USE_FREE_VIDEO_GENERATOR=true` in `.env`
+   - Set `PEXELS_API_KEY` (free from [Pexels](https://www.pexels.com/api/))
+   - Set `GCS_BUCKET_NAME` (Google Cloud Storage bucket)
+   - Cost: ~$7/month (storage/bandwidth only)
+   - Features: Stock videos, text-to-speech, text overlays
+   - See **[MOVIEPY_SETUP.md](./MOVIEPY_SETUP.md)** for detailed setup instructions
+   
 4. Run the CLI:
    ```
    npm run dev
