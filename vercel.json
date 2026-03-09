@@ -1,7 +1,17 @@
 {
-  "buildCommand": "echo 'Static site ready'",
+  "buildCommand": "npm run build",
   "outputDirectory": "public",
+  "crons": [
+    {
+      "path": "/api/cron",
+      "schedule": "0 13,22 * * *"
+    }
+  ],
   "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
