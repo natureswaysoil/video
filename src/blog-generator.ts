@@ -4,6 +4,7 @@
  */
 
 import 'dotenv/config'
+import axios from 'axios'
 import { generateScript } from './openai'
 import { createClientWithSecrets } from './heygen'
 import { postToYouTube } from './youtube'
@@ -351,7 +352,106 @@ export async function postBlogVideoToSocial(blogPost: BlogPost, videoUrl: string
   } else {
     console.log('⏭️  Skipping Pinterest - board ID not configured')
   }
-  
+
+  // Facebook
+  if (process.env.FACEBOOK_PAGE_ACCESS_TOKEN && process.env.FACEBOOK_PAGE_ID) {
+    try {
+      console.log('👤 Posting to Facebook...')
+      const fbRes = await axios.post(
+        `https://graph.facebook.com/v19.0/${process.env.FACEBOOK_PAGE_ID}/videos`,
+        {
+          file_url: videoUrl,
+          description: caption,
+          access_token: process.env.FACEBOOK_PAGE_ACCESS_TOKEN,
+        }
+      )
+      console.log('✅ Posted to Facebook:', fbRes.data?.id)
+      results.facebook = { success: true, postId: fbRes.data?.id }
+    } catch (error: any) {
+      console.error('❌ Facebook post failed:', error?.response?.data || error.message)
+      results.facebook = { success: false, error: error.message }
+    }
+  } else {
+    console.log('⏭️  Skipping Facebook - credentials not configured')
+  }
+
+  // LinkedIn
+  if (process.env.LINKEDIN_ACCESS_TOKEN && process.env.LINKEDIN_PERSON_ID) {
+    try {
+      console.log('💼 Posting to LinkedIn...')
+      const liRes = await axios.post(
+        'https://api.linkedin.com/v2/ugcPosts',
+        {
+          author: `urn:li:person:${process.env.LINKEDIN_PERSON_ID}`,
+          lifecycleState: 'PUBLISHED',
+          specificContent: {
+            'com.linkedin.ugc.ShareContent': {
+              shareCommentary: { text: caption },
+              shareMediaCategory: 'VIDEO',
+              media: [{
+                status: 'READY',
+                description: { text: blogPost.excerpt.substring(0, 200) },
+                media: videoUrl,
+                title: { text: blogPost.title },
+              }],
+            },
+          },
+          visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.LINKEDIN_ACCESS_TOKEN}`,
+            'Content-Type': 'application/json',
+            'X-Restli-Protocol-Version': '2.0.0',
+          },
+        }
+      )
+      console.log('✅ Posted to LinkedIn:', liRes.data?.id)
+      results.linkedin = { success: true, postId: liRes.data?.id }
+    } catch (error: any) {
+      console.error('❌ LinkedIn post failed:', error?.response?.data || error.message)
+      results.linkedin = { success: false, error: error.message }
+    }
+  } else {
+    console.log('⏭️  Skipping LinkedIn - credentials not configured')
+  }
+
+  // TikTok
+  if (process.env.TIKTOK_ACCESS_TOKEN) {
+    try {
+      console.log('🎵 Posting to TikTok...')
+      const ttRes = await axios.post(
+        'https://open.tiktokapis.com/v2/post/publish/video/init/',
+        {
+          post_info: {
+            title: blogPost.title.substring(0, 150),
+            privacy_level: process.env.TIKTOK_PRIVACY_LEVEL || 'PUBLIC_TO_EVERYONE',
+            disable_duet: false,
+            disable_comment: false,
+            disable_stitch: false,
+          },
+          source_info: {
+            source: 'PULL_FROM_URL',
+            video_url: videoUrl,
+          },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.TIKTOK_ACCESS_TOKEN}`,
+            'Content-Type': 'application/json; charset=UTF-8',
+          },
+        }
+      )
+      console.log('✅ Posted to TikTok, publish_id:', ttRes.data?.data?.publish_id)
+      results.tiktok = { success: true, publishId: ttRes.data?.data?.publish_id }
+    } catch (error: any) {
+      console.error('❌ TikTok post failed:', error?.response?.data || error.message)
+      results.tiktok = { success: false, error: error.message }
+    }
+  } else {
+    console.log('⏭️  Skipping TikTok - access token not configured')
+  }
+
   return results
 }
 
@@ -389,10 +489,13 @@ export async function runBlogGeneration() {
     console.log(`Slug: ${blogPost.slug}`)
     console.log(`Video: ${videoUrl || 'Not generated'}`)
     console.log(`Social Media:`)
-    console.log(`  YouTube: ${socialResults.youtube?.success ? '✅' : '❌'}`)
-    console.log(`  Instagram: ${socialResults.instagram?.success ? '✅' : '❌'}`)
-    console.log(`  Twitter: ${socialResults.twitter?.success ? '✅' : '❌'}`)
-    console.log(`  Pinterest: ${socialResults.pinterest?.success ? '✅' : '❌'}`)
+    console.log(`  YouTube:   ${socialResults.youtube?.success   ? '✅' : socialResults.youtube   ? '❌' : '⏭️  skipped'}`)
+    console.log(`  Instagram: ${socialResults.instagram?.success ? '✅' : socialResults.instagram ? '❌' : '⏭️  skipped'}`)
+    console.log(`  Twitter:   ${socialResults.twitter?.success   ? '✅' : socialResults.twitter   ? '❌' : '⏭️  skipped'}`)
+    console.log(`  Pinterest: ${socialResults.pinterest?.success ? '✅' : socialResults.pinterest ? '❌' : '⏭️  skipped'}`)
+    console.log(`  Facebook:  ${socialResults.facebook?.success  ? '✅' : socialResults.facebook  ? '❌' : '⏭️  skipped'}`)
+    console.log(`  LinkedIn:  ${socialResults.linkedin?.success  ? '✅' : socialResults.linkedin  ? '❌' : '⏭️  skipped'}`)
+    console.log(`  TikTok:    ${socialResults.tiktok?.success    ? '✅' : socialResults.tiktok    ? '❌' : '⏭️  skipped'}`)
     console.log('='.repeat(60) + '\n')
     
   } catch (error: any) {

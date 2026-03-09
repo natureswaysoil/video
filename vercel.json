@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build",
+  "buildCommand": "echo 'Using pre-compiled dist'",
   "outputDirectory": "public",
   "crons": [
     {
@@ -7,14 +7,9 @@
       "schedule": "0 13,22 * * *"
     }
   ],
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
+  "functions": {
+    "api/cron.ts": {
+      "maxDuration": 300
     }
-  ]
+  }
 }
