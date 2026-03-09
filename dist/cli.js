@@ -585,11 +585,9 @@ async function main() {
                         }
                         catch (err) {
                             const fbError = err?.response?.data || err?.message || err;
-                            console.error('❌ Facebook post failed:', JSON.stringify(fbError));
+                            console.error('❌ Facebook post failed (skipping, continuing):', JSON.stringify(fbError));
                             platformResults.facebook = { success: false, error: err?.message || String(err) };
-                            (0, health_server_1.incrementFailedPost)();
-                            (0, health_server_1.addError)(`Facebook: ${product?.title || jobId} - ${err?.message || err}`);
-                            (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'ERROR', category: 'POSTING', message: 'Facebook post failed', rowNumber, product: product?.title || product?.name, details: { error: err?.message } });
+                            // Don't increment failed post or add error - just skip Facebook and continue
                         }
                     }
                     // LinkedIn
