@@ -10,5 +10,5 @@ deploy.log
 amazon-ppc-fixed
 amazon_ppc_optimizer_complete
 docs
-*.ts
 package-lock.json
+!api/*.ts
