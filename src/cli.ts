@@ -79,8 +79,10 @@ async function main() {
   const enforcePostingWindows = String(process.env.ENFORCE_POSTING_WINDOWS || 'false').toLowerCase() === 'true'
   const targetColumnLetter = (process.env.SHEET_VIDEO_TARGET_COLUMN_LETTER || 'AB').toUpperCase()
 
-  // Start health server for monitoring/webhooks (will be stopped in run-once mode)
-  startHealthServer()
+  // Skip health server in Vercel serverless environment (no persistent ports)
+  if (!process.env.VERCEL) {
+    startHealthServer()
+  }
 
   // Log initial configuration
   getAuditLogger().logEvent({

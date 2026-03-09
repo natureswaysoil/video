@@ -95,8 +95,10 @@ async function main() {
     const enabledPlatforms = new Set(enabledPlatformsEnv.split(',').map(s => s.trim()).filter(Boolean));
     const enforcePostingWindows = String(process.env.ENFORCE_POSTING_WINDOWS || 'false').toLowerCase() === 'true';
     const targetColumnLetter = (process.env.SHEET_VIDEO_TARGET_COLUMN_LETTER || 'AB').toUpperCase();
-    // Start health server for monitoring/webhooks (will be stopped in run-once mode)
-    (0, health_server_1.startHealthServer)();
+    // Skip health server in Vercel serverless environment (no persistent ports)
+    if (!process.env.VERCEL) {
+        (0, health_server_1.startHealthServer)();
+    }
     // Log initial configuration
     (0, audit_logger_1.getAuditLogger)().logEvent({
         level: 'INFO',
