@@ -71,6 +71,8 @@ async function main() {
   const seen = new Set<string>()
   const intervalMs = Number(process.env.POLL_INTERVAL_MS ?? '60000')
   const runOnce = String(process.env.RUN_ONCE || '').toLowerCase() === 'true'
+  // ROWS_PER_RUN: how many unposted rows to process per cycle (default 1 to prevent duplicates on cold starts)
+  const rowsPerRun = Number(process.env.ROWS_PER_RUN ?? '1')
   const dryRun = String(process.env.DRY_RUN_LOG_ONLY || '').toLowerCase() === 'true'
   const enabledPlatformsEnv = (process.env.ENABLE_PLATFORMS || '').toLowerCase()
   const enabledPlatforms = new Set(enabledPlatformsEnv.split(',').map(s => s.trim()).filter(Boolean))
@@ -115,8 +117,13 @@ async function main() {
       const result = await processCsvUrl(csvUrl)
       if (!result.skipped && result.rows.length > 0) {
         updateStatus({ status: 'processing-rows', rowsProcessed: 0 })
+        let rowsThisCycle = 0
         for (const { product, jobId, rowNumber, headers, record } of result.rows) {
           if (!jobId || seen.has(jobId)) continue
+          if (rowsThisCycle >= rowsPerRun) {
+            console.log(`⏸️  ROWS_PER_RUN limit (${rowsPerRun}) reached — remaining rows deferred to next cycle`)
+            break
+          }
           
           console.log(`\n========== Processing Row ${rowNumber} ==========`)
           console.log('Product:', product)
@@ -560,6 +567,137 @@ async function main() {
           } else if (process.env.ENABLE_BLOG_POSTING === 'true') {
             console.log('⚠️ Blog posting enabled but GITHUB_TOKEN not set')
           }
+
+          // Facebook
+          if (dryRun || !canPostNow) {
+            console.log('[DRY RUN] Would post to Facebook:', { videoUrl, caption })
+            platformResults.facebook = { success: true, result: 'DRY_RUN' }
+          } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('facebook')) && process.env.FACEBOOK_PAGE_ACCESS_TOKEN && process.env.FACEBOOK_PAGE_ID) {
+            getAuditLogger().logEvent({ level: 'INFO', category: 'POSTING', message: 'Attempting Facebook post', rowNumber, product: product?.title || product?.name })
+            try {
+              const fbResult = await retryWithBackoff(async () => {
+                const axios = await import('axios')
+                // Post video to Facebook Page
+                const res = await axios.default.post(
+                  `https://graph.facebook.com/v19.0/${process.env.FACEBOOK_PAGE_ID}/videos`,
+                  {
+                    file_url: videoUrl,
+                    description: caption,
+                    access_token: process.env.FACEBOOK_PAGE_ACCESS_TOKEN,
+                  }
+                )
+                return res.data
+              }, { maxRetries: 2, operation: 'Facebook post', initialDelayMs: 3000 })
+              if (fbResult?.id) {
+                console.log('✅ Posted to Facebook:', fbResult.id)
+                platformResults.facebook = { success: true, result: fbResult.id }
+                postedAtLeastOne = true
+                incrementSuccessfulPost()
+                getAuditLogger().logEvent({ level: 'SUCCESS', category: 'POSTING', message: 'Facebook post successful', rowNumber, product: product?.title || product?.name })
+              }
+            } catch (err: any) {
+              console.error('❌ Facebook post failed:', err?.response?.data || err?.message || err)
+              platformResults.facebook = { success: false, error: err?.message || String(err) }
+              incrementFailedPost()
+              addError(`Facebook: ${product?.title || jobId} - ${err?.message || err}`)
+              getAuditLogger().logEvent({ level: 'ERROR', category: 'POSTING', message: 'Facebook post failed', rowNumber, product: product?.title || product?.name, details: { error: err?.message } })
+            }
+          }
+
+          // LinkedIn
+          if (dryRun || !canPostNow) {
+            console.log('[DRY RUN] Would post to LinkedIn:', { videoUrl, caption })
+            platformResults.linkedin = { success: true, result: 'DRY_RUN' }
+          } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('linkedin')) && process.env.LINKEDIN_ACCESS_TOKEN && process.env.LINKEDIN_PERSON_ID) {
+            getAuditLogger().logEvent({ level: 'INFO', category: 'POSTING', message: 'Attempting LinkedIn post', rowNumber, product: product?.title || product?.name })
+            try {
+              const liResult = await retryWithBackoff(async () => {
+                const axios = await import('axios')
+                // Share video post on LinkedIn
+                const res = await axios.default.post(
+                  'https://api.linkedin.com/v2/ugcPosts',
+                  {
+                    author: `urn:li:person:${process.env.LINKEDIN_PERSON_ID}`,
+                    lifecycleState: 'PUBLISHED',
+                    specificContent: {
+                      'com.linkedin.ugc.ShareContent': {
+                        shareCommentary: { text: caption },
+                        shareMediaCategory: 'VIDEO',
+                        media: [{
+                          status: 'READY',
+                          description: { text: caption.substring(0, 200) },
+                          media: videoUrl,
+                          title: { text: product?.title || product?.name || 'Nature\'s Way Soil' },
+                        }],
+                      },
+                    },
+                    visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
+                  },
+                  { headers: { Authorization: `Bearer ${process.env.LINKEDIN_ACCESS_TOKEN}`, 'Content-Type': 'application/json', 'X-Restli-Protocol-Version': '2.0.0' } }
+                )
+                return res.data
+              }, { maxRetries: 2, operation: 'LinkedIn post', initialDelayMs: 3000 })
+              if (liResult?.id) {
+                console.log('✅ Posted to LinkedIn:', liResult.id)
+                platformResults.linkedin = { success: true, result: liResult.id }
+                postedAtLeastOne = true
+                incrementSuccessfulPost()
+                getAuditLogger().logEvent({ level: 'SUCCESS', category: 'POSTING', message: 'LinkedIn post successful', rowNumber, product: product?.title || product?.name })
+              }
+            } catch (err: any) {
+              console.error('❌ LinkedIn post failed:', err?.response?.data || err?.message || err)
+              platformResults.linkedin = { success: false, error: err?.message || String(err) }
+              incrementFailedPost()
+              addError(`LinkedIn: ${product?.title || jobId} - ${err?.message || err}`)
+              getAuditLogger().logEvent({ level: 'ERROR', category: 'POSTING', message: 'LinkedIn post failed', rowNumber, product: product?.title || product?.name, details: { error: err?.message } })
+            }
+          }
+
+          // TikTok
+          if (dryRun || !canPostNow) {
+            console.log('[DRY RUN] Would post to TikTok:', { videoUrl, caption })
+            platformResults.tiktok = { success: true, result: 'DRY_RUN' }
+          } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('tiktok')) && process.env.TIKTOK_ACCESS_TOKEN) {
+            getAuditLogger().logEvent({ level: 'INFO', category: 'POSTING', message: 'Attempting TikTok post', rowNumber, product: product?.title || product?.name })
+            try {
+              const ttResult = await retryWithBackoff(async () => {
+                const axios = await import('axios')
+                // Step 1: Init upload
+                const initRes = await axios.default.post(
+                  'https://open.tiktokapis.com/v2/post/publish/video/init/',
+                  {
+                    post_info: {
+                      title: caption.substring(0, 150),
+                      privacy_level: process.env.TIKTOK_PRIVACY_LEVEL || 'PUBLIC_TO_EVERYONE',
+                      disable_duet: false,
+                      disable_comment: false,
+                      disable_stitch: false,
+                    },
+                    source_info: {
+                      source: 'PULL_FROM_URL',
+                      video_url: videoUrl,
+                    },
+                  },
+                  { headers: { Authorization: `Bearer ${process.env.TIKTOK_ACCESS_TOKEN}`, 'Content-Type': 'application/json; charset=UTF-8' } }
+                )
+                return initRes.data
+              }, { maxRetries: 2, operation: 'TikTok post', initialDelayMs: 3000 })
+              if (ttResult?.data?.publish_id) {
+                console.log('✅ Posted to TikTok, publish_id:', ttResult.data.publish_id)
+                platformResults.tiktok = { success: true, result: ttResult.data.publish_id }
+                postedAtLeastOne = true
+                incrementSuccessfulPost()
+                getAuditLogger().logEvent({ level: 'SUCCESS', category: 'POSTING', message: 'TikTok post successful', rowNumber, product: product?.title || product?.name })
+              }
+            } catch (err: any) {
+              console.error('❌ TikTok post failed:', err?.response?.data || err?.message || err)
+              platformResults.tiktok = { success: false, error: err?.message || String(err) }
+              incrementFailedPost()
+              addError(`TikTok: ${product?.title || jobId} - ${err?.message || err}`)
+              getAuditLogger().logEvent({ level: 'ERROR', category: 'POSTING', message: 'TikTok post failed', rowNumber, product: product?.title || product?.name, details: { error: err?.message } })
+            }
+          }
+
           // Summary of platform results
           console.log('\n📊 Platform Posting Summary:', {
             product: product?.title || product?.name,
@@ -589,6 +727,7 @@ async function main() {
               console.error('Failed to mark row posted:', err)
             }
             seen.add(jobId)
+            rowsThisCycle++
           }
           
           // Update status after each row
@@ -672,26 +811,38 @@ function checkPlatformAvailability(enabledPlatforms: Set<string>) {
   const hasTwitterCreds = Boolean(process.env.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds())
   const hasPinterestCreds = Boolean(process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID)
   const hasYouTubeCreds = Boolean(process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN)
-  
+  const hasFacebookCreds = Boolean(process.env.FACEBOOK_PAGE_ACCESS_TOKEN && process.env.FACEBOOK_PAGE_ID)
+  const hasLinkedInCreds = Boolean(process.env.LINKEDIN_ACCESS_TOKEN && process.env.LINKEDIN_PERSON_ID)
+  const hasTikTokCreds = Boolean(process.env.TIKTOK_ACCESS_TOKEN)
+
   const instagramEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')) && hasInstagramCreds
   const twitterEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')) && hasTwitterCreds
   const pinterestEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')) && hasPinterestCreds
   const youtubeEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')) && hasYouTubeCreds
-  
+  const facebookEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('facebook')) && hasFacebookCreds
+  const linkedinEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('linkedin')) && hasLinkedInCreds
+  const tiktokEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('tiktok')) && hasTikTokCreds
+
   return {
     credentials: {
       hasInstagramCreds,
       hasTwitterCreds,
       hasPinterestCreds,
-      hasYouTubeCreds
+      hasYouTubeCreds,
+      hasFacebookCreds,
+      hasLinkedInCreds,
+      hasTikTokCreds,
     },
     enabled: {
       instagram: instagramEnabled,
       twitter: twitterEnabled,
       pinterest: pinterestEnabled,
-      youtube: youtubeEnabled
+      youtube: youtubeEnabled,
+      facebook: facebookEnabled,
+      linkedin: linkedinEnabled,
+      tiktok: tiktokEnabled,
     },
-    anyEnabled: instagramEnabled || twitterEnabled || pinterestEnabled || youtubeEnabled
+    anyEnabled: instagramEnabled || twitterEnabled || pinterestEnabled || youtubeEnabled || facebookEnabled || linkedinEnabled || tiktokEnabled
   }
 }
 
