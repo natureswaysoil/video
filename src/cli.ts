@@ -585,9 +585,12 @@ async function main() {
                   {
                     file_url: videoUrl,
                     description: caption,
+                    title: (product?.title || product?.name || 'Nature\'s Way Soil').substring(0, 100),
+                    published: true,
                     access_token: process.env.FACEBOOK_PAGE_ACCESS_TOKEN,
                   }
                 )
+                console.log('📘 Facebook video URL:', videoUrl)
                 return res.data
               }, { maxRetries: 2, operation: 'Facebook post', initialDelayMs: 3000 })
               if (fbResult?.id) {
@@ -598,7 +601,8 @@ async function main() {
                 getAuditLogger().logEvent({ level: 'SUCCESS', category: 'POSTING', message: 'Facebook post successful', rowNumber, product: product?.title || product?.name })
               }
             } catch (err: any) {
-              console.error('❌ Facebook post failed:', err?.response?.data || err?.message || err)
+              const fbError = err?.response?.data || err?.message || err
+              console.error('❌ Facebook post failed:', JSON.stringify(fbError))
               platformResults.facebook = { success: false, error: err?.message || String(err) }
               incrementFailedPost()
               addError(`Facebook: ${product?.title || jobId} - ${err?.message || err}`)
