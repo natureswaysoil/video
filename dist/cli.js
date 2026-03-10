@@ -635,6 +635,29 @@ async function main() {
                             (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'ERROR', category: 'POSTING', message: 'LinkedIn post failed', rowNumber, product: product?.title || product?.name, details: { error: err?.message } });
                         }
                     }
+                    // Google Business Profile
+                    if (dryRun || !canPostNow) {
+                        console.log('[DRY RUN] Would post to Google Business Profile:', { videoUrl, caption });
+                        platformResults.googleBusiness = { success: true, result: 'DRY_RUN' };
+                    }
+                    else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('googlebusiness')) && process.env.GOOGLE_BUSINESS_ACCESS_TOKEN && process.env.GOOGLE_BUSINESS_ACCOUNT_ID && process.env.GOOGLE_BUSINESS_LOCATION_ID) {
+                        (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'INFO', category: 'POSTING', message: 'Attempting Google Business post', rowNumber, product: product?.title || product?.name });
+                        try {
+                            const { postToGoogleBusiness } = await Promise.resolve().then(() => __importStar(require('./google-business')));
+                            const gbResult = await retryWithBackoff(() => postToGoogleBusiness(caption, videoUrl, 'https://natureswaysoil.com'), { maxRetries: 2, operation: 'Google Business post', initialDelayMs: 3000 });
+                            console.log('✅ Posted to Google Business Profile:', gbResult.name);
+                            platformResults.googleBusiness = { success: true, result: gbResult.name };
+                            incrementSuccessPost();
+                            (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'SUCCESS', category: 'POSTING', message: 'Google Business post successful', rowNumber, product: product?.title || product?.name });
+                        }
+                        catch (err) {
+                            console.error('❌ Google Business post failed:', err?.response?.data || err?.message || err);
+                            platformResults.googleBusiness = { success: false, error: err?.message || String(err) };
+                            (0, health_server_1.incrementFailedPost)();
+                            (0, health_server_1.addError)(`Google Business: ${product?.title || jobId} - ${err?.message || err}`);
+                            (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'ERROR', category: 'POSTING', message: 'Google Business post failed', rowNumber, product: product?.title || product?.name, details: { error: err?.message } });
+                        }
+                    }
                     // TikTok
                     if (dryRun || !canPostNow) {
                         console.log('[DRY RUN] Would post to TikTok:', { videoUrl, caption });
