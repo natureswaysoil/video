@@ -19,8 +19,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       maxBuffer: 50 * 1024 * 1024, // 50MB buffer
       env: process.env,
     }, (error: any, stdout: any, stderr: any) => {
-      if (stdout) console.log(stdout)
-      if (stderr) console.error(stderr)
+      // Log only last 1000 chars to avoid buffer spam
+      if (stdout) console.log('CLI stdout (tail):', stdout.slice(-1000))
+      if (stderr) console.error('CLI stderr (tail):', stderr.slice(-1000))
       resolve({
         stdout: stdout || '',
         stderr: stderr || '',
