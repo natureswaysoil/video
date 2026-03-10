@@ -14,6 +14,10 @@ import { hasConfiguredGoogleCredentials } from './google-auth'
 import { validateConfig } from './config-validator'
 
 const auditLogger = getAuditLogger()
+
+// Constants
+const MAX_URL_DISPLAY_LENGTH = 80 // Maximum length for displaying URLs in logs
+
 // Retry helper with exponential backoff
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
@@ -136,9 +140,10 @@ async function main() {
           // Prefer ASIN from the sheet for identification
           const asin = getValueFromRecord(record, process.env.CSV_COL_ASIN || 'ASIN,Parent_ASIN,SKU,Product_ID') || jobId
           
-          // Step 2: If no video exists, create one with HeyGen
+          // Step 2: If no video exists, create one with HeyGen or free generator
           if (!videoUrl || !(await urlLooksReachable(videoUrl))) {
-            console.log('No existing video found. Creating new video with HeyGen...')
+            const useFreeGenerator = String(process.env.USE_FREE_VIDEO_GENERATOR || 'false').toLowerCase() === 'true'
+            console.log(`No existing video found. Creating new video with ${useFreeGenerator ? 'FREE generator (MoviePy + Pexels + gTTS)' : 'HeyGen'}...`)
             
             // 2a: Generate marketing script with OpenAI
             let script: string | undefined
@@ -154,71 +159,139 @@ async function main() {
               script = (product?.details ?? product?.title ?? product?.name ?? '').toString()
             }
             
-            // 2b: Create video with HeyGen
+            // 2b: Create video with FREE generator (MoviePy) or HeyGen
             if (script) {
-              const hasHeyGenCreds = process.env.HEYGEN_API_KEY || process.env.GCP_SECRET_HEYGEN_API_KEY
-              
-              if (!hasHeyGenCreds) {
-                console.error('❌ HeyGen credentials not configured. Set HEYGEN_API_KEY or GCP_SECRET_HEYGEN_API_KEY')
-                console.warn('⏭️  Skipping row - cannot generate video without HeyGen credentials')
-                continue
-              }
-
-              try {
-                console.log('🎬 Creating video with HeyGen...')
-                const heygenClient = await createHeyGenClient()
+              if (useFreeGenerator) {
+                // === FREE VIDEO GENERATION PATH ===
+                const pexelsApiKey = process.env.PEXELS_API_KEY
+                const gcsBucketName = process.env.GCS_BUCKET_NAME
                 
-                // Map product to HeyGen payload with avatar/voice selection
-                const mapping = mapProductToHeyGenPayload(record)
-                const payload = {
-                  ...mapping.payload,
-                  script,
-                  title: `${product?.title || product?.name || 'Product Video'} (${asin})`,
-                  meta: { asin, jobId }
+                if (!pexelsApiKey) {
+                  console.error('❌ PEXELS_API_KEY not set. Required for free video generation.')
+                  console.warn('⏭️  Skipping row - cannot generate video without Pexels API key')
+                  continue
                 }
                 
-                console.log('📝 HeyGen mapping:', {
-                  avatar: mapping.avatar,
-                  voice: mapping.voice,
-                  lengthSeconds: mapping.lengthSeconds,
-                  reason: mapping.reason
-                })
+                if (!gcsBucketName) {
+                  console.error('❌ GCS_BUCKET_NAME not set. Required for free video generation.')
+                  console.warn('⏭️  Skipping row - cannot upload video without GCS bucket')
+                  continue
+                }
                 
-                // Create video job
-                const heygenJobId = await heygenClient.createVideoJob(payload)
-                console.log('✅ Created HeyGen video job:', heygenJobId)
-                
-                // Write HeyGen mapping info back to sheet (optional)
-                if (hasConfiguredGoogleCredentials()) {
-                  try {
-                    const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
-                    const sheetGid = extractGidFromCsv(csvUrl)
-                    const { writeBackMappingsToSheet } = await import('./heygen-adapter')
-                    await writeBackMappingsToSheet(spreadsheetId, String(sheetGid || 0), [{
-                      HEYGEN_AVATAR: mapping.avatar,
-                      HEYGEN_VOICE: mapping.voice,
-                      HEYGEN_LENGTH_SECONDS: String(mapping.lengthSeconds),
-                      HEYGEN_MAPPING_REASON: mapping.reason,
-                      HEYGEN_MAPPED_AT: new Date().toISOString()
-                    }])
-                    console.log('✅ Wrote HeyGen mapping to sheet')
-                  } catch (e: any) {
-                    console.error('⚠️  Failed to write HeyGen mapping to sheet:', e?.message || e)
+                try {
+                  console.log('🎬 Creating video with free generator (MoviePy + Pexels + ElevenLabs/gTTS)...')
+                  const { generateVideoWithMoviePy } = await import('./moviepy-generator')
+                  
+                  // Extract product image URL from various possible column names
+                  const imageColumnCandidates = [
+                    process.env.PRODUCT_IMAGE_COLUMN,
+                    'Image_URL',
+                    'Product_Image',
+                    'ASIN_Image',
+                    'Image',
+                    'ProductImage',
+                    'ImageURL'
+                  ].filter(Boolean) as string[]
+                  
+                  let productImageUrl: string | undefined
+                  for (const col of imageColumnCandidates) {
+                    const val = record[col]
+                    if (val && val.trim().length > 0 && /^https?:\/\//i.test(val)) {
+                      productImageUrl = val.trim()
+                      break
+                    }
                   }
+                  
+                  if (productImageUrl) {
+                    const displayUrl = productImageUrl.length > MAX_URL_DISPLAY_LENGTH 
+                      ? productImageUrl.substring(0, MAX_URL_DISPLAY_LENGTH) + '...' 
+                      : productImageUrl
+                    console.log('📸 Product image found:', displayUrl)
+                  }
+                  
+                  const result = await generateVideoWithMoviePy({
+                    script,
+                    productTitle: product?.title || product?.name || 'Product Video',
+                    pexelsApiKey,
+                    gcsBucketName,
+                    searchQuery: product?.title || product?.name,
+                    productImageUrl
+                  })
+                  
+                  videoUrl = result.videoUrl
+                  console.log('✅ Free video generation complete:', videoUrl)
+                } catch (e: any) {
+                  console.error('❌ Free video generation failed:', e?.message || e)
+                  console.warn('⏭️  Skipping row - video generation failed')
+                  addError(`MoviePy: ${product?.title || jobId} - ${e?.message || String(e)}`)
+                  continue
                 }
+              } else {
+                // === HEYGEN VIDEO GENERATION PATH ===
+                const hasHeyGenCreds = process.env.HEYGEN_API_KEY || process.env.GCP_SECRET_HEYGEN_API_KEY
                 
-                // Poll for video completion
-                console.log('⏳ Waiting for HeyGen video completion...')
-                videoUrl = await heygenClient.pollJobForVideoUrl(heygenJobId, {
-                  timeoutMs: 25 * 60_000, // 25 minutes
-                  intervalMs: 15_000 // Check every 15 seconds
-                })
-                console.log('✅ HeyGen video ready:', videoUrl)
-              } catch (e: any) {
-                console.error('❌ HeyGen video generation failed:', e?.message || e)
-                console.warn('⏭️  Skipping row - video generation failed')
-                addError(`HeyGen: ${product?.title || jobId} - ${e?.message || String(e)}`)
-                continue
+                if (!hasHeyGenCreds) {
+                  console.error('❌ HeyGen credentials not configured. Set HEYGEN_API_KEY or GCP_SECRET_HEYGEN_API_KEY')
+                  console.warn('⏭️  Skipping row - cannot generate video without HeyGen credentials')
+                  continue
+                }
+
+                try {
+                  console.log('🎬 Creating video with HeyGen...')
+                  const heygenClient = await createHeyGenClient()
+                  
+                  // Map product to HeyGen payload with avatar/voice selection
+                  const mapping = mapProductToHeyGenPayload(record)
+                  const payload = {
+                    ...mapping.payload,
+                    script,
+                    title: `${product?.title || product?.name || 'Product Video'} (${asin})`,
+                    meta: { asin, jobId }
+                  }
+                  
+                  console.log('📝 HeyGen mapping:', {
+                    avatar: mapping.avatar,
+                    voice: mapping.voice,
+                    lengthSeconds: mapping.lengthSeconds,
+                    reason: mapping.reason
+                  })
+                  
+                  // Create video job
+                  const heygenJobId = await heygenClient.createVideoJob(payload)
+                  console.log('✅ Created HeyGen video job:', heygenJobId)
+                  
+                  // Write HeyGen mapping info back to sheet (optional)
+                  if (hasConfiguredGoogleCredentials()) {
+                    try {
+                      const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
+                      const sheetGid = extractGidFromCsv(csvUrl)
+                      const { writeBackMappingsToSheet } = await import('./heygen-adapter')
+                      await writeBackMappingsToSheet(spreadsheetId, String(sheetGid || 0), [{
+                        HEYGEN_AVATAR: mapping.avatar,
+                        HEYGEN_VOICE: mapping.voice,
+                        HEYGEN_LENGTH_SECONDS: String(mapping.lengthSeconds),
+                        HEYGEN_MAPPING_REASON: mapping.reason,
+                        HEYGEN_MAPPED_AT: new Date().toISOString()
+                      }])
+                      console.log('✅ Wrote HeyGen mapping to sheet')
+                    } catch (e: any) {
+                      console.error('⚠️  Failed to write HeyGen mapping to sheet:', e?.message || e)
+                    }
+                  }
+                  
+                  // Poll for video completion
+                  console.log('⏳ Waiting for HeyGen video completion...')
+                  videoUrl = await heygenClient.pollJobForVideoUrl(heygenJobId, {
+                    timeoutMs: 25 * 60_000, // 25 minutes
+                    intervalMs: 15_000 // Check every 15 seconds
+                  })
+                  console.log('✅ HeyGen video ready:', videoUrl)
+                } catch (e: any) {
+                  console.error('❌ HeyGen video generation failed:', e?.message || e)
+                  console.warn('⏭️  Skipping row - video generation failed')
+                  addError(`HeyGen: ${product?.title || jobId} - ${e?.message || String(e)}`)
+                  continue
+                }
               }
             } else {
               console.error('❌ No script available for video generation')
