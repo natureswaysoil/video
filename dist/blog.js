@@ -26,10 +26,23 @@ async function postBlogArticle(articleData, githubToken, repo = 'natureswaysoil/
         });
         const currentContent = Buffer.from(fileResponse.data.content, 'base64').toString('utf-8');
         const currentArticles = JSON.parse(currentContent);
-        // Step 3: Add new article to the beginning (newest first)
+        // Step 3: Build slug from generated title (not product title) to avoid duplicates
+        const baseSlug = article.title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+        // Check for duplicate slugs and append timestamp if needed
+        const existingSlugs = new Set(currentArticles.map((a) => a.slug));
+        const slug = existingSlugs.has(baseSlug) ? `${baseSlug}-${Date.now()}` : baseSlug;
+        // Also check for duplicate titles to avoid reposting same topic
+        const existingTitles = new Set(currentArticles.map((a) => a.title.toLowerCase()));
+        if (existingTitles.has(article.title.toLowerCase())) {
+            console.log(`⚠️ Blog article "${article.title}" already exists — skipping duplicate`);
+            return { success: true, articleId: 'duplicate-skipped' };
+        }
         const newArticle = {
             id: article.id || `article_${Date.now()}`,
-            slug: article.slug || articleData.productTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+            slug,
             title: article.title,
             excerpt: article.excerpt,
             content: article.content,
