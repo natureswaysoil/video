@@ -10,22 +10,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   console.log('🕐 Cron triggered at', new Date().toISOString())
 
-  try {
-    const cliPath = path.join(process.cwd(), 'dist', 'cli.js')
-    await new Promise<void>((resolve, reject) => {
-      execFile('node', [cliPath], {
-        timeout: 240000,
-        env: process.env,
-      }, (error, stdout, stderr) => {
-        if (stdout) console.log(stdout)
-        if (stderr) console.error(stderr)
-        if (error) reject(error)
-        else resolve()
+  const cliPath = path.join(process.cwd(), 'dist', 'cli.js')
+  
+  // Always return 200 - log errors but don't fail the cron
+  const result = await new Promise<{ stdout: string; stderr: string; error: string | null }>((resolve) => {
+    execFile('node', [cliPath], {
+      timeout: 240000,
+      env: process.env,
+    }, (error: any, stdout: any, stderr: any) => {
+      if (stdout) console.log(stdout)
+      if (stderr) console.error(stderr)
+      resolve({
+        stdout: stdout || '',
+        stderr: stderr || '',
+        error: error ? error.message : null
       })
     })
-    return res.status(200).json({ success: true, timestamp: new Date().toISOString() })
-  } catch (err: any) {
-    console.error('❌ Cron job failed:', err?.message)
-    return res.status(500).json({ error: err?.message })
+  })
+
+  if (result.error) {
+    console.error('⚠️ CLI exited with error (non-fatal):', result.error)
+    // Still return 200 so Vercel doesn't mark cron as failed
+    return res.status(200).json({ 
+      success: false, 
+      error: result.error,
+      stdout: result.stdout.slice(-2000), // last 2000 chars
+      timestamp: new Date().toISOString() 
+    })
   }
+
+  return res.status(200).json({ success: true, timestamp: new Date().toISOString() })
 }
