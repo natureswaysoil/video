@@ -554,12 +554,11 @@ async function main() {
                     else if (process.env.ENABLE_BLOG_POSTING === 'true') {
                         console.log('⚠️ Blog posting enabled but GITHUB_TOKEN not set');
                     }
-                    // Facebook
-                    if (dryRun || !canPostNow) {
-                        console.log('[DRY RUN] Would post to Facebook:', { videoUrl, caption });
-                        platformResults.facebook = { success: true, result: 'DRY_RUN' };
+                    // Facebook - temporarily disabled until token is resolved
+                    if (false && process.env.FACEBOOK_PAGE_ACCESS_TOKEN) {
+                        console.log('[FACEBOOK DISABLED] Skipping until token is fixed');
                     }
-                    else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('facebook')) && process.env.FACEBOOK_PAGE_ACCESS_TOKEN && process.env.FACEBOOK_PAGE_ID) {
+                    else if (false) {
                         (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'INFO', category: 'POSTING', message: 'Attempting Facebook post', rowNumber, product: product?.title || product?.name });
                         try {
                             const fbResult = await retryWithBackoff(async () => {
