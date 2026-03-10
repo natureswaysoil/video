@@ -16,6 +16,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const result = await new Promise<{ stdout: string; stderr: string; error: string | null }>((resolve) => {
     execFile('node', [cliPath], {
       timeout: 240000,
+      maxBuffer: 50 * 1024 * 1024, // 50MB buffer
       env: process.env,
     }, (error: any, stdout: any, stderr: any) => {
       if (stdout) console.log(stdout)
