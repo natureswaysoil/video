@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { execFile } from 'child_process'
+import { spawn } from 'child_process'
 import path from 'path'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -11,35 +11,46 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   console.log('🕐 Cron triggered at', new Date().toISOString())
 
   const cliPath = path.join(process.cwd(), 'dist', 'cli.js')
-  
-  // Always return 200 - log errors but don't fail the cron
-  const result = await new Promise<{ stdout: string; stderr: string; error: string | null }>((resolve) => {
-    execFile('node', [cliPath], {
+
+  const exitCode = await new Promise<number>((resolve) => {
+    const child = spawn('node', [cliPath], {
       timeout: 240000,
-      maxBuffer: 50 * 1024 * 1024, // 50MB buffer
       env: process.env,
-    }, (error: any, stdout: any, stderr: any) => {
-      // Log only last 1000 chars to avoid buffer spam
-      if (stdout) console.log('CLI stdout (tail):', stdout.slice(-1000))
-      if (stderr) console.error('CLI stderr (tail):', stderr.slice(-1000))
-      resolve({
-        stdout: stdout || '',
-        stderr: stderr || '',
-        error: error ? error.message : null
-      })
+    })
+
+    // Stream stdout line by line — no buffering, no overflow
+    let stdoutBuf = ''
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdoutBuf += chunk.toString()
+      const lines = stdoutBuf.split('\n')
+      stdoutBuf = lines.pop() || ''
+      for (const line of lines) {
+        if (line.trim()) console.log('[CLI]', line.slice(0, 500))
+      }
+    })
+
+    let stderrBuf = ''
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderrBuf += chunk.toString()
+      const lines = stderrBuf.split('\n')
+      stderrBuf = lines.pop() || ''
+      for (const line of lines) {
+        if (line.trim()) console.error('[CLI ERR]', line.slice(0, 500))
+      }
+    })
+
+    child.on('close', (code) => {
+      if (stdoutBuf.trim()) console.log('[CLI]', stdoutBuf.slice(0, 500))
+      if (stderrBuf.trim()) console.error('[CLI ERR]', stderrBuf.slice(0, 500))
+      resolve(code ?? 0)
+    })
+
+    child.on('error', (err) => {
+      console.error('❌ Failed to spawn CLI:', err.message)
+      resolve(1)
     })
   })
 
-  if (result.error) {
-    console.error('⚠️ CLI exited with error (non-fatal):', result.error)
-    // Still return 200 so Vercel doesn't mark cron as failed
-    return res.status(200).json({ 
-      success: false, 
-      error: result.error,
-      stdout: result.stdout.slice(-2000), // last 2000 chars
-      timestamp: new Date().toISOString() 
-    })
-  }
-
-  return res.status(200).json({ success: true, timestamp: new Date().toISOString() })
+  console.log('✅ Cron complete, exit code:', exitCode)
+  return res.status(200).json({ success: exitCode === 0, exitCode, timestamp: new Date().toISOString() })
 }
