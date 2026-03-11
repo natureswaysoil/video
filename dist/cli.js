@@ -146,8 +146,9 @@ async function main() {
                     let videoUrl = await resolveVideoUrlAsync({ jobId, record });
                     // Prefer ASIN from the sheet for identification
                     const asin = getValueFromRecord(record, process.env.CSV_COL_ASIN || 'ASIN,Parent_ASIN,SKU,Product_ID') || jobId;
-                    // Step 2: If no video exists, create one with HeyGen
-                    if (!videoUrl || !(await urlLooksReachable(videoUrl))) {
+                    // Step 2: If no video exists or ALWAYS_GENERATE_NEW_VIDEO is set, create one with HeyGen
+                    const alwaysGenerate = String(process.env.ALWAYS_GENERATE_NEW_VIDEO || 'false').toLowerCase() === 'true';
+                    if (!videoUrl || alwaysGenerate || !(await urlLooksReachable(videoUrl))) {
                         console.log('No existing video found. Creating new video with HeyGen...');
                         // 2a: Generate marketing script with OpenAI
                         let script;
@@ -271,7 +272,7 @@ async function main() {
                     }
                     // Step 3.5: Validate video URL is actually reachable before posting
                     console.log('🔍 Validating video URL accessibility...');
-                    const isReachable = await urlLooksReachable(videoUrl);
+                    const isReachable = alwaysGenerate || await urlLooksReachable(videoUrl);
                     if (!isReachable) {
                         console.error(`❌ Video URL not reachable for row ${rowNumber}:`, {
                             url: videoUrl,
