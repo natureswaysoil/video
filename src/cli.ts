@@ -277,6 +277,17 @@ async function main() {
             continue
           }
           console.log('✅ Video URL validated successfully')
+
+          // Step 3.6: Re-host video via Cloudinary so Instagram/Pinterest can fetch it reliably
+          if (process.env.CLOUDINARY_API_KEY) {
+            try {
+              const { uploadVideoToCloudinary } = await import('./cloudinary-upload')
+              const cloudUrl = await uploadVideoToCloudinary(videoUrl)
+              videoUrl = cloudUrl
+            } catch (err: any) {
+              console.warn('⚠️  Cloudinary upload failed, falling back to original URL:', err.message)
+            }
+          }
           
           const caption: string = (product?.details ?? product?.title ?? product?.name ?? '').toString()
 
