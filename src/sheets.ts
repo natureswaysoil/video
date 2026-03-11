@@ -372,3 +372,51 @@ function columnToLetter(col: number): string {
   }
   return temp
 }
+
+export async function resetPostedColumn(params: {
+  spreadsheetId: string
+  sheetGid?: string | number
+  totalRows: number
+  postedColumn?: string
+  timestampColumn?: string
+  headers: string[]
+}) {
+  const {
+    spreadsheetId,
+    sheetGid,
+    totalRows,
+    headers,
+    postedColumn = process.env.CSV_COL_POSTED || 'Posted',
+    timestampColumn = process.env.CSV_COL_POSTED_AT || 'Posted_At',
+  } = params
+
+  const authClient = await createGoogleAuthClient(['https://www.googleapis.com/auth/spreadsheets'])
+  const sheets = google.sheets({ version: 'v4', auth: authClient })
+  const sheetName = await resolveSheetName(sheets, spreadsheetId, sheetGid)
+
+  const postedColIndex = headers.indexOf(postedColumn)
+  const tsColIndex = timestampColumn ? headers.indexOf(timestampColumn) : -1
+
+  if (postedColIndex === -1) return // no Posted column to clear
+
+  // Build batch clear — blank out Posted and Posted_At for all data rows (row 2 to totalRows+1)
+  const data: any[] = []
+  for (let row = 2; row <= totalRows + 1; row++) {
+    data.push({ range: a1(sheetName, row, postedColIndex + 1), values: [['']] })
+    if (tsColIndex >= 0) {
+      data.push({ range: a1(sheetName, row, tsColIndex + 1), values: [['']] })
+    }
+  }
+
+  if (data.length === 0) return
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: { valueInputOption: 'RAW', data },
+  })
+
+  logger.info('Reset Posted column — starting loop from row 1', 'Sheets', {
+    spreadsheetId,
+    rowsCleared: totalRows,
+  })
+}

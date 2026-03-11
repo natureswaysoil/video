@@ -645,9 +645,9 @@ async function main() {
                         try {
                             const { postToGoogleBusiness } = await Promise.resolve().then(() => __importStar(require('./google-business')));
                             const gbResult = await retryWithBackoff(() => postToGoogleBusiness(caption, videoUrl, 'https://natureswaysoil.com'), { maxRetries: 2, operation: 'Google Business post', initialDelayMs: 3000 });
-                            console.log('✅ Posted to Google Business Profile:', gbResult.name);
-                            platformResults.googleBusiness = { success: true, result: gbResult.name };
-                            incrementSuccessPost();
+                            console.log('✅ Posted to Google Business Profile:', gbResult?.name);
+                            platformResults.googleBusiness = { success: true, result: gbResult?.name };
+                            (0, health_server_1.incrementSuccessfulPost)();
                             (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'SUCCESS', category: 'POSTING', message: 'Google Business post successful', rowNumber, product: product?.title || product?.name });
                         }
                         catch (err) {
@@ -743,24 +743,31 @@ async function main() {
                 });
             }
             else {
-                console.log('⚠️  No valid products found in sheet.');
-                console.log('💡 Troubleshooting tips:');
-                console.log('   1. Verify CSV_URL is accessible and contains data');
-                console.log('   2. Ensure CSV has a column for product ID (jobId, ASIN, SKU, Product_ID, etc.)');
-                console.log('   3. Check if rows are filtered by Posted/Ready status columns');
-                console.log('   4. Set ALWAYS_GENERATE_NEW_VIDEO=true to reprocess posted items');
-                console.log('   5. Review CSV_COL_* environment variables for correct column mappings');
-                console.log('   6. Check logs above for detailed skip reasons and available CSV headers');
-                console.log('\n📋 Run with LOG_LEVEL=debug for detailed row-by-row analysis');
-                (0, audit_logger_1.getAuditLogger)().logEvent({
-                    level: 'WARN',
-                    category: 'CSV',
-                    message: 'No valid products found in sheet',
-                    details: {
-                        csvUrl,
-                        suggestion: 'Check logs for detailed diagnostics including skip reasons and available headers'
+                // Check if all rows are already posted — reset Posted column and loop from row 1
+                const spreadsheetIdMatch = csvUrl.match(/spreadsheets\/d\/([^/]+)/);
+                const gidMatch = csvUrl.match(/[?&]gid=(\d+)/);
+                const spreadsheetId = spreadsheetIdMatch?.[1];
+                const sheetGid = gidMatch?.[1];
+                if (spreadsheetId && result.skipped === false) {
+                    console.log('🔁 All rows already posted — resetting Posted column to loop from row 1');
+                    try {
+                        // Fetch raw CSV to get headers and row count
+                        const axios = require('axios');
+                        const csvResp = await axios.get(csvUrl, { responseType: 'text', timeout: 15000 });
+                        const lines = csvResp.data.trim().split('\n');
+                        const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
+                        const totalDataRows = lines.length - 1;
+                        await (0, sheets_1.resetPostedColumn)({ spreadsheetId, sheetGid, totalRows: totalDataRows, headers });
+                        seen.clear();
+                        console.log(`✅ Reset ${totalDataRows} rows — will post from row 1 on next cycle`);
                     }
-                });
+                    catch (resetErr) {
+                        console.error('❌ Failed to reset Posted column:', resetErr?.message);
+                    }
+                }
+                else {
+                    console.log('⚠️  No valid products found in sheet. Check CSV_URL and column mappings.');
+                }
                 (0, health_server_1.updateStatus)({ status: 'idle-no-products' });
             }
         }
