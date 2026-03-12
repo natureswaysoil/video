@@ -3,13 +3,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.uploadVideoToCloudinary = uploadVideoToCloudinary;
 const cloudinary_1 = require("cloudinary");
 async function uploadVideoToCloudinary(videoUrl) {
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-    const apiKey = process.env.CLOUDINARY_API_KEY;
-    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    // Trim all values — trailing spaces/newlines in env vars cause Invalid Signature
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME?.trim();
+    const apiKey = process.env.CLOUDINARY_API_KEY?.trim();
+    const apiSecret = process.env.CLOUDINARY_API_SECRET?.trim();
     if (!cloudName || !apiKey || !apiSecret) {
-        throw new Error('Cloudinary credentials not set');
+        throw new Error('Cloudinary credentials not set. Check CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET in env vars.');
     }
-    cloudinary_1.v2.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret });
+    cloudinary_1.v2.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret, secure: true });
     console.log('☁️  Uploading video to Cloudinary:', videoUrl);
     const result = await cloudinary_1.v2.uploader.upload(videoUrl, {
         resource_type: 'video',

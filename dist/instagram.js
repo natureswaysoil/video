@@ -93,12 +93,18 @@ async function postToInstagram(videoUrl, caption, accessToken, igId, opts = {}) 
                     accessToken,
                     apiHost,
                     apiVersion,
-                    maxAttempts: 6,
+                    maxAttempts: 24,
                     delayMs: 10000,
                     timeout: config.TIMEOUT_SOCIAL_POST,
                 });
                 if (status === 'ERROR') {
-                    throw new errors_1.AppError('Instagram: container status ERROR before publish', errors_1.ErrorCode.INSTAGRAM_API_ERROR, 500, true, { containerId, status });
+                    const errMsg = 'Instagram container ERROR. Causes: ' +
+                        '(1) Cloudinary upload failed - Meta could not fetch video URL; ' +
+                        '(2) video codec not H.264/AAC; ' +
+                        '(3) aspect ratio outside 4:5 to 1.91:1; ' +
+                        '(4) duration outside 3-90s. ' +
+                        'ContainerID: ' + containerId;
+                    throw new errors_1.AppError(errMsg, errors_1.ErrorCode.INSTAGRAM_API_ERROR, 500, true, { containerId, status });
                 }
                 logger.debug('Instagram container ready', 'Instagram', { containerId, status });
                 // Step 2: Publish media container

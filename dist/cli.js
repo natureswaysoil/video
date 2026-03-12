@@ -50,7 +50,7 @@ const config_validator_1 = require("./config-validator");
 const auditLogger = (0, audit_logger_1.getAuditLogger)();
 // Retry helper with exponential backoff
 async function retryWithBackoff(fn, options = {}) {
-    const { maxRetries = 3, initialDelayMs = 1000, maxDelayMs = 16000, operation = 'Operation' } = options;
+    const { maxRetries = 3, initialDelayMs = 1000, maxDelayMs = 16000, operation = 'Operation', shouldRetry = () => true, } = options;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             return await fn();
@@ -58,6 +58,10 @@ async function retryWithBackoff(fn, options = {}) {
         catch (error) {
             const isLastAttempt = attempt === maxRetries;
             const delay = Math.min(initialDelayMs * Math.pow(2, attempt - 1), maxDelayMs);
+            if (!shouldRetry(error)) {
+                console.error(`❌ ${operation} failed (non-retryable):`, { error: error?.message || String(error) });
+                return null;
+            }
             console.error(`❌ ${operation} attempt ${attempt}/${maxRetries} failed:`, {
                 error: error?.message || String(error),
                 willRetry: !isLastAttempt,
@@ -406,7 +410,8 @@ async function main() {
                         }, {
                             maxRetries: 3,
                             operation: 'Twitter post',
-                            initialDelayMs: 2000
+                            initialDelayMs: 2000,
+                            shouldRetry: (err) => err?.response?.status !== 403,
                         });
                         if (result) {
                             console.log('✅ Posted to Twitter:', result);
