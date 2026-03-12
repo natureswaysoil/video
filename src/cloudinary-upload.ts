@@ -14,27 +14,23 @@ export async function uploadVideoToCloudinary(videoUrl: string): Promise<string>
   const timestamp = Math.floor(Date.now() / 1000).toString()
   const publicId = `nws_video_${timestamp}`
 
-  const sigStr = `public_id=${publicId}&timestamp=${timestamp}${apiSecret}`
-  const signature = crypto.createHmac('sha256', apiSecret).update(`public_id=${publicId}&timestamp=${timestamp}`).digest('hex')
-  
-  // Actually use SHA1 which is what Cloudinary requires
+  // Cloudinary signature: SHA1 of alphabetically sorted params + secret (no resource_type in sig)
   const sigInput = `public_id=${publicId}&timestamp=${timestamp}${apiSecret}`
-  const sig = require('crypto').createHash('sha1').update(sigInput).digest('hex')
+  const signature = crypto.createHash('sha1').update(sigInput).digest('hex')
 
-  const formData = new URLSearchParams({
+  const body = new URLSearchParams({
     file: videoUrl,
     public_id: publicId,
     timestamp,
     api_key: apiKey,
-    signature: sig,
-    resource_type: 'video',
+    signature,
   })
 
   const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`
 
   const response = await fetch(uploadUrl, {
     method: 'POST',
-    body: formData.toString(),
+    body: body.toString(),
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
   })
 
