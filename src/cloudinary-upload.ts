@@ -1,4 +1,4 @@
-import crypto from 'crypto'
+import { v2 as cloudinary } from 'cloudinary'
 
 export async function uploadVideoToCloudinary(videoUrl: string): Promise<string> {
   const cloudName = process.env.CLOUDINARY_CLOUD_NAME
@@ -9,36 +9,15 @@ export async function uploadVideoToCloudinary(videoUrl: string): Promise<string>
     throw new Error('Cloudinary credentials not set')
   }
 
+  cloudinary.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret })
+
   console.log('☁️  Uploading video to Cloudinary:', videoUrl)
 
-  const timestamp = Math.floor(Date.now() / 1000).toString()
-  const publicId = `nws_video_${timestamp}`
-
-  // Cloudinary signature: SHA1 of alphabetically sorted params + secret (no resource_type in sig)
-  const sigInput = `public_id=${publicId}&timestamp=${timestamp}${apiSecret}`
-  const signature = crypto.createHash('sha1').update(sigInput).digest('hex')
-
-  const body = new URLSearchParams({
-    file: videoUrl,
-    public_id: publicId,
-    timestamp,
-    api_key: apiKey,
-    signature,
+  const result = await cloudinary.uploader.upload(videoUrl, {
+    resource_type: 'video',
+    public_id: `nws_video_${Date.now()}`,
+    overwrite: true,
   })
-
-  const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`
-
-  const response = await fetch(uploadUrl, {
-    method: 'POST',
-    body: body.toString(),
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  })
-
-  const result = await response.json() as any
-
-  if (!response.ok || result.error) {
-    throw new Error(`Cloudinary upload failed: ${JSON.stringify(result.error || result)}`)
-  }
 
   console.log('✅ Cloudinary upload complete:', result.secure_url)
   return result.secure_url
