@@ -899,15 +899,24 @@ async function resolveVideoUrlAsync(params) {
         .replaceAll('{jobId}', jobId)
         .replaceAll('{asin}', jobId);
 }
-// Quickly check if a URL is likely reachable. HEAD if supported; fallback to GET range probe.
+// Quickly check if a URL is likely reachable AND serving video (not an expired HTML error page).
 async function urlLooksReachable(url) {
     const axios = await Promise.resolve().then(() => __importStar(require('axios')));
     try {
         const res = await axios.default.head(url, { validateStatus: () => true });
-        if (res.status >= 200 && res.status < 400)
+        if (res.status >= 400)
+            return false;
+        if (res.status === 405 || res.status === 403) {
+            // HEAD not allowed — fall through to GET probe
+        }
+        else if (res.status >= 200 && res.status < 400) {
+            const ct = (res.headers['content-type'] || '').toLowerCase();
+            if (ct.includes('text/html')) {
+                console.warn('⚠️  Video URL returned HTML — URL has expired:', url);
+                return false;
+            }
             return true;
-        if (res.status === 405 || res.status === 403)
-            return true; // HEAD not allowed but likely exists
+        }
     }
     catch { }
     try {
@@ -916,7 +925,15 @@ async function urlLooksReachable(url) {
             validateStatus: () => true,
             responseType: 'stream',
         });
-        return res.status >= 200 && res.status < 400;
+        if (res.status >= 200 && res.status < 400) {
+            const ct = (res.headers['content-type'] || '').toLowerCase();
+            if (ct.includes('text/html')) {
+                console.warn('⚠️  Video URL returned HTML on GET — URL has expired:', url);
+                return false;
+            }
+            return true;
+        }
+        return false;
     }
     catch {
         return false;

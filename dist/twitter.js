@@ -124,6 +124,13 @@ async function postToTwitter(videoUrl, caption, bearerToken) {
                     });
                 }, {
                     maxRetries: 3,
+                    retryIf: (error) => {
+                        // 403 = bearer token lacks write permission — never retryable
+                        const s = error?.response?.status ?? error?.data?.status;
+                        if (s === 403)
+                            return false;
+                        return true;
+                    },
                     onRetry: (error, attempt) => {
                         logger.warn('Retrying Twitter text post', 'Twitter', {
                             attempt,
