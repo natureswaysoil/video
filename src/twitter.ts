@@ -124,10 +124,10 @@ export async function postToTwitter(
           {
             maxRetries: 3,
             retryIf: (error) => {
-              // Don't retry for validation errors or video too large
-              if (error instanceof AppError && error.code === ErrorCode.VALIDATION_ERROR) {
-                return false
-              }
+              if (error instanceof AppError && error.code === ErrorCode.VALIDATION_ERROR) return false
+              // 403 = API tier blocks video upload — retrying always fails
+              const s = (error as any)?.response?.status ?? (error as any)?.data?.status
+              if (s === 403) return false
               return true
             },
             onRetry: (error, attempt) => {

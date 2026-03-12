@@ -142,14 +142,20 @@ export async function postToInstagram(
             accessToken,
             apiHost,
             apiVersion,
-            maxAttempts: 6,
+            maxAttempts: 24,
             delayMs: 10000,
             timeout: config.TIMEOUT_SOCIAL_POST,
           })
 
           if (status === 'ERROR') {
+            const errMsg = 'Instagram container ERROR. Causes: ' +
+              '(1) Cloudinary upload failed - Meta could not fetch video URL; ' +
+              '(2) video codec not H.264/AAC; ' +
+              '(3) aspect ratio outside 4:5 to 1.91:1; ' +
+              '(4) duration outside 3-90s. ' +
+              'ContainerID: ' + containerId
             throw new AppError(
-              'Instagram: container status ERROR before publish',
+              errMsg,
               ErrorCode.INSTAGRAM_API_ERROR,
               500,
               true,
