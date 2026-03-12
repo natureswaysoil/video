@@ -279,6 +279,7 @@ async function main() {
           console.log('✅ Video URL validated successfully')
 
           // Step 3.6: Re-host video via Cloudinary so Instagram/Pinterest can fetch it reliably
+          console.log('🔑 CLOUDINARY_API_KEY present:', !!process.env.CLOUDINARY_API_KEY)
           if (process.env.CLOUDINARY_API_KEY) {
             try {
               const { uploadVideoToCloudinary } = await import('./cloudinary-upload')
