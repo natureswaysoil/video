@@ -8,12 +8,65 @@ import { createClientWithSecrets as createHeyGenClient } from './heygen'
 import { mapProductToHeyGenPayload } from './heygen-adapter'
 import { generateScript } from './openai'
 import { markRowPosted, writeColumnValues, resetPostedColumn } from './sheets'
-import { startHealthServer, stopHealthServer, updateStatus, incrementSuccessfulPost, incrementFailedPost, addError } from './health-server'
+import {
+  startHealthServer,
+  stopHealthServer,
+  updateStatus,
+  incrementSuccessfulPost,
+  incrementFailedPost,
+  addError
+} from './health-server'
 import { getAuditLogger } from './audit-logger'
 import { hasConfiguredGoogleCredentials } from './google-auth'
 import { validateConfig } from './config-validator'
 
 const auditLogger = getAuditLogger()
+
+type VideoState = {
+  videoId?: string
+  videoUrl?: string
+  videoStatus?: string
+}
+
+function pickFirstNonEmpty(record: Record<string, any> | undefined, keys: string[]): string {
+  if (!record) return ''
+  for (const key of keys) {
+    const value = record[key]
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      return String(value).trim()
+    }
+  }
+  return ''
+}
+
+function getVideoState(record: Record<string, any> | undefined): VideoState {
+  return {
+    videoId: pickFirstNonEmpty(record, ['Video_ID', 'HEYGEN_VIDEO_ID', 'HeyGen_Video_ID', 'video_id']),
+    videoUrl: pickFirstNonEmpty(record, ['Video_URL', 'Video URL', 'video_url', 'VideoURL']),
+    videoStatus: pickFirstNonEmpty(record, ['Video_Status', 'HEYGEN_VIDEO_STATUS', 'video_status']),
+  }
+}
+
+async function writeRowFields(
+  csvUrl: string,
+  headers: string[],
+  rowNumber: number,
+  updates: Record<string, string>
+) {
+  const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
+  const sheetGid = extractGidFromCsv(csvUrl)
+
+  for (const [columnName, value] of Object.entries(updates)) {
+    await writeColumnValues({
+      spreadsheetId,
+      sheetGid,
+      headers,
+      columnName,
+      rows: [{ rowNumber, value }],
+    })
+  }
+}
+
 // Retry helper with exponential backoff
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
@@ -48,23 +101,22 @@ async function retryWithBackoff<T>(
         willRetry: !isLastAttempt,
         nextRetryIn: isLastAttempt ? null : `${delay}ms`
       })
-      
+
       if (isLastAttempt) {
         return null
       }
-      
+
       await sleep(delay)
     }
   }
-  
+
   return null
 }
 
 async function main() {
-  // 1. RUN VALIDATION FIRST - validate configuration before any processing
   try {
     console.log('Validating configuration before starting polling...')
-    const config = await validateConfig()
+    await validateConfig()
     console.log('Configuration validated')
   } catch (error) {
     console.error('❌ Configuration validation failed:', error)
@@ -73,23 +125,20 @@ async function main() {
 
   const csvUrl = process.env.CSV_URL as string
   if (!csvUrl) throw new Error('CSV_URL not set in .env')
+
   const seen = new Set<string>()
   const intervalMs = Number(process.env.POLL_INTERVAL_MS ?? '60000')
   const runOnce = String(process.env.RUN_ONCE || '').toLowerCase() === 'true'
-  // ROWS_PER_RUN: how many unposted rows to process per cycle (default 1 to prevent duplicates on cold starts)
   const rowsPerRun = Number(process.env.ROWS_PER_RUN ?? '1')
   const dryRun = String(process.env.DRY_RUN_LOG_ONLY || '').toLowerCase() === 'true'
   const enabledPlatformsEnv = (process.env.ENABLE_PLATFORMS || '').toLowerCase()
   const enabledPlatforms = new Set(enabledPlatformsEnv.split(',').map(s => s.trim()).filter(Boolean))
   const enforcePostingWindows = String(process.env.ENFORCE_POSTING_WINDOWS || 'false').toLowerCase() === 'true'
-  const targetColumnLetter = (process.env.SHEET_VIDEO_TARGET_COLUMN_LETTER || 'AB').toUpperCase()
 
-  // Skip health server in Vercel serverless environment (no persistent ports)
   if (!process.env.VERCEL) {
     startHealthServer()
   }
 
-  // Log initial configuration
   getAuditLogger().logEvent({
     level: 'INFO',
     category: 'SYSTEM',
@@ -118,35 +167,75 @@ async function main() {
       message: 'Posting windows enforced - will only post at 9AM/5PM ET',
     })
   }
+
   const cycle = async () => {
     try {
       updateStatus({ status: 'processing', rowsProcessed: 0 })
       const result = await processCsvUrl(csvUrl)
+
       if (!result.skipped && result.rows.length > 0) {
         updateStatus({ status: 'processing-rows', rowsProcessed: 0 })
         let rowsThisCycle = 0
+
         for (const { product, jobId, rowNumber, headers, record } of result.rows) {
           if (!jobId || seen.has(jobId)) continue
           if (rowsThisCycle >= rowsPerRun) {
             console.log(`⏸️  ROWS_PER_RUN limit (${rowsPerRun}) reached — remaining rows deferred to next cycle`)
             break
           }
-          
-          console.log(`\n========== Processing Row ${rowNumber} ==========`)
-          console.log('Product:', product)
-          
-          // Step 1: Try to get existing video URL
-          let videoUrl = await resolveVideoUrlAsync({ jobId, record })
 
-          // Prefer ASIN from the sheet for identification
-          const asin = getValueFromRecord(record, process.env.CSV_COL_ASIN || 'ASIN,Parent_ASIN,SKU,Product_ID') || jobId
-          
-          // Step 2: If no video exists or ALWAYS_GENERATE_NEW_VIDEO is set, create one with HeyGen
+          console.log(`\n========== Processing Row ${rowNumber} ==========`) 
+          console.log('Product:', product)
+
+          const videoState = getVideoState(record)
+          let videoUrl = videoState.videoUrl || await resolveVideoUrlAsync({ jobId, record })
+          const asin =
+            getValueFromRecord(record, process.env.CSV_COL_ASIN || 'ASIN,Parent_ASIN,SKU,Product_ID') || jobId
+
           const alwaysGenerate = String(process.env.ALWAYS_GENERATE_NEW_VIDEO || 'false').toLowerCase() === 'true'
-          if (!videoUrl || alwaysGenerate || !(await urlLooksReachable(videoUrl))) {
-            console.log('No existing video found. Creating new video with HeyGen...')
-            
-            // 2a: Generate marketing script with OpenAI
+
+          if (videoState.videoUrl && !alwaysGenerate) {
+            console.log('✅ Using existing video:', videoUrl)
+          } else if (
+            !alwaysGenerate &&
+            videoState.videoId &&
+            (videoState.videoStatus || '').toLowerCase() === 'processing'
+          ) {
+            console.log(`⏳ Existing HeyGen job found for row ${rowNumber}: ${videoState.videoId}`)
+
+            try {
+              const heygenClient = await createHeyGenClient()
+              videoUrl = await heygenClient.pollJobForVideoUrl(videoState.videoId, {
+                timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 120000),
+                intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000)
+              })
+
+              if (videoUrl) {
+                console.log('✅ Existing HeyGen video ready:', videoUrl)
+                if (hasConfiguredGoogleCredentials()) {
+                  try {
+                    await writeRowFields(csvUrl, headers, rowNumber, {
+                      Video_URL: videoUrl,
+                      Video_Status: 'Completed',
+                      Video_Completed_At: new Date().toISOString(),
+                    })
+                    console.log('✅ Wrote completed video URL/state to sheet')
+                  } catch (e: any) {
+                    console.error('⚠️  Failed to write completed video URL/state to sheet:', e?.message || e)
+                  }
+                }
+              }
+            } catch (e: any) {
+              console.error('⚠️ Existing HeyGen job not ready yet:', e?.message || e)
+            }
+
+            if (!videoUrl) {
+              console.log('⏭️  Leaving row in Processing state for next cycle')
+              continue
+            }
+          } else if (!videoUrl || alwaysGenerate || !(await urlLooksReachable(videoUrl))) {
+            console.log('No existing completed video found. Creating new video with HeyGen...')
+
             let script: string | undefined
             if (process.env.OPENAI_API_KEY) {
               try {
@@ -159,117 +248,88 @@ async function main() {
               console.log('⚠️  OPENAI_API_KEY not set, using product description as script')
               script = (product?.details ?? product?.title ?? product?.name ?? '').toString()
             }
-            
-            // 2b: Create video with HeyGen
-            if (script) {
-              const hasHeyGenCreds = process.env.HEYGEN_API_KEY || process.env.GCP_SECRET_HEYGEN_API_KEY
-              
-              if (!hasHeyGenCreds) {
-                console.error('❌ HeyGen credentials not configured. Set HEYGEN_API_KEY or GCP_SECRET_HEYGEN_API_KEY')
-                console.warn('⏭️  Skipping row - cannot generate video without HeyGen credentials')
-                continue
-              }
 
-              try {
-                console.log('🎬 Creating video with HeyGen...')
-                const heygenClient = await createHeyGenClient()
-                
-                // Map product to HeyGen payload with avatar/voice selection
-                const mapping = mapProductToHeyGenPayload(record)
-                const payload = {
-                  ...mapping.payload,
-                  script,
-                  title: `${product?.title || product?.name || 'Product Video'} (${asin})`,
-                  meta: { asin, jobId }
-                }
-                
-                console.log('📝 HeyGen mapping:', {
-                  avatar: mapping.avatar,
-                  voice: mapping.voice,
-                  lengthSeconds: mapping.lengthSeconds,
-                  reason: mapping.reason
-                })
-                
-                // Create video job
-                const heygenJobId = await heygenClient.createVideoJob(payload)
-                console.log('✅ Created HeyGen video job:', heygenJobId)
-                
-                // Write HeyGen mapping info back to sheet (optional)
-                if (hasConfiguredGoogleCredentials()) {
-                  try {
-                    const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
-                    const sheetGid = extractGidFromCsv(csvUrl)
-                    const { writeBackMappingsToSheet } = await import('./heygen-adapter')
-                    await writeBackMappingsToSheet(spreadsheetId, String(sheetGid || 0), [{
-                      HEYGEN_AVATAR: mapping.avatar,
-                      HEYGEN_VOICE: mapping.voice,
-                      HEYGEN_LENGTH_SECONDS: String(mapping.lengthSeconds),
-                      HEYGEN_MAPPING_REASON: mapping.reason,
-                      HEYGEN_MAPPED_AT: new Date().toISOString()
-                    }])
-                    console.log('✅ Wrote HeyGen mapping to sheet')
-                  } catch (e: any) {
-                    console.error('⚠️  Failed to write HeyGen mapping to sheet:', e?.message || e)
-                  }
-                }
-                
-                // Poll for video completion
-                console.log('⏳ Waiting for HeyGen video completion...')
-                videoUrl = await heygenClient.pollJobForVideoUrl(heygenJobId, {
-                  timeoutMs: 25 * 60_000, // 25 minutes
-                  intervalMs: 15_000 // Check every 15 seconds
-                })
-                console.log('✅ HeyGen video ready:', videoUrl)
-              } catch (e: any) {
-                console.error('❌ HeyGen video generation failed:', e?.message || e)
-                console.warn('⏭️  Skipping row - video generation failed')
-                addError(`HeyGen: ${product?.title || jobId} - ${e?.message || String(e)}`)
-                continue
-              }
-            } else {
+            if (!script) {
               console.error('❌ No script available for video generation')
               console.warn('⏭️  Skipping row - cannot generate video without script')
               continue
             }
-            
-            // 2c: Write video URL back to sheet (prefer fixed column letter if configured)
-            if (videoUrl && hasConfiguredGoogleCredentials()) {
-              try {
-                const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
-                const sheetGid = extractGidFromCsv(csvUrl)
-                if (targetColumnLetter) {
-                  const { writeColumnLetterValues } = await import('./sheets')
-                  await writeColumnLetterValues({
-                    spreadsheetId,
-                    sheetGid,
-                    columnLetter: targetColumnLetter,
-                    rows: [{ rowNumber, value: videoUrl }]
-                  })
-                } else {
-                  await writeColumnValues({
-                    spreadsheetId,
-                    sheetGid,
-                    headers,
-                    columnName: process.env.CSV_COL_VIDEO_URL || 'Video URL',
-                    rows: [{ rowNumber, value: videoUrl }],
-                  })
-                }
-                console.log('✅ Wrote video URL to sheet')
-              } catch (e: any) {
-                console.error('⚠️  Failed to write video URL to sheet:', e?.message || e)
+
+            const hasHeyGenCreds = process.env.HEYGEN_API_KEY || process.env.GCP_SECRET_HEYGEN_API_KEY
+            if (!hasHeyGenCreds) {
+              console.error('❌ HeyGen credentials not configured. Set HEYGEN_API_KEY or GCP_SECRET_HEYGEN_API_KEY')
+              console.warn('⏭️  Skipping row - cannot generate video without HeyGen credentials')
+              continue
+            }
+
+            try {
+              console.log('🎬 Creating video with HeyGen...')
+              const heygenClient = await createHeyGenClient()
+
+              const mapping = mapProductToHeyGenPayload(record)
+              const payload = {
+                ...mapping.payload,
+                script,
+                title: `${product?.title || product?.name || 'Product Video'} (${asin})`,
+                meta: { asin, jobId }
               }
+
+              console.log('📝 HeyGen mapping:', {
+                avatar: mapping.avatar,
+                voice: mapping.voice,
+                lengthSeconds: mapping.lengthSeconds,
+                reason: mapping.reason
+              })
+
+              const heygenJobId = await heygenClient.createVideoJob(payload)
+              console.log('✅ Created HeyGen video job:', heygenJobId)
+
+              if (hasConfiguredGoogleCredentials()) {
+                try {
+                  await writeRowFields(csvUrl, headers, rowNumber, {
+                    Video_ID: heygenJobId,
+                    Video_Status: 'Processing',
+                    Script_Status: 'Generated',
+                    Script_Generated_Date: new Date().toISOString(),
+                    Video_Requested_At: new Date().toISOString(),
+                    HEYGEN_AVATAR: mapping.avatar,
+                    HEYGEN_VOICE: mapping.voice,
+                    HEYGEN_LENGTH_SECONDS: String(mapping.lengthSeconds),
+                    HEYGEN_MAPPING_REASON: mapping.reason,
+                    HEYGEN_MAPPED_AT: new Date().toISOString(),
+                  })
+                  console.log('✅ Saved HeyGen job state to sheet')
+                } catch (e: any) {
+                  console.error('⚠️  Failed to save HeyGen job state to sheet:', e?.message || e)
+                }
+              }
+
+              console.log('⏭️  Video job created; will poll on next cycle')
+              continue
+            } catch (e: any) {
+              console.error('❌ HeyGen video generation failed:', e?.message || e)
+              console.warn('⏭️  Skipping row - video generation failed')
+              addError(`HeyGen: ${product?.title || jobId} - ${e?.message || String(e)}`)
+
+              if (hasConfiguredGoogleCredentials()) {
+                try {
+                  await writeRowFields(csvUrl, headers, rowNumber, {
+                    Video_Status: 'Failed',
+                    Error_Message: String(e?.message || e).slice(0, 500),
+                  })
+                } catch {}
+              }
+              continue
             }
           } else {
             console.log('✅ Using existing video:', videoUrl)
           }
-          
-          // Step 3: If we still don't have a video, skip this row
+
           if (!videoUrl) {
             console.warn(`❌ No video URL available for row ${rowNumber}; skipping`)
             continue
           }
-          
-          // Step 3.5: Validate video URL is actually reachable before posting
+
           console.log('🔍 Validating video URL accessibility...')
           const isReachable = alwaysGenerate || await urlLooksReachable(videoUrl)
           if (!isReachable) {
@@ -283,7 +343,6 @@ async function main() {
           }
           console.log('✅ Video URL validated successfully')
 
-          // Step 3.6: Re-host video via Cloudinary so Instagram/Pinterest can fetch it reliably
           console.log('🔑 CLOUDINARY_API_KEY present:', !!process.env.CLOUDINARY_API_KEY)
           if (process.env.CLOUDINARY_API_KEY) {
             try {
@@ -294,10 +353,9 @@ async function main() {
               console.warn('⚠️  Cloudinary upload failed, falling back to original URL:', err.message)
             }
           }
-          
+
           const caption: string = (product?.details ?? product?.title ?? product?.name ?? '').toString()
 
-          // Respect posting windows: 9:00 AM and 5:00 PM Eastern
           const canPostNow = !enforcePostingWindows || isWithinPostingWindow()
           if (!canPostNow) {
             console.log('🕘 Outside posting window (9AM/5PM ET). Will not post, but video URL is ready:', videoUrl)
@@ -310,12 +368,12 @@ async function main() {
               details: { enforcePostingWindows, videoUrl }
             })
           }
+
           let postedAtLeastOne = false
           const platformResults: Record<string, { success: boolean; result?: any; error?: string }> = {}
-          
-          // Check if any platforms are enabled
+
           const platformStatus = checkPlatformAvailability(enabledPlatforms)
-          
+
           if (!platformStatus.anyEnabled && !dryRun) {
             getAuditLogger().logEvent({
               level: 'ERROR',
@@ -337,8 +395,7 @@ async function main() {
               details: platformStatus.enabled
             })
           }
-          
-          // Instagram
+
           if (dryRun || !canPostNow) {
             console.log('[DRY RUN] Would post to Instagram:', { videoUrl, caption })
             platformResults.instagram = { success: true, result: 'DRY_RUN' }
@@ -352,7 +409,7 @@ async function main() {
             })
             const result = await retryWithBackoff(
               () => postToInstagram(videoUrl!, caption, process.env.INSTAGRAM_ACCESS_TOKEN!, process.env.INSTAGRAM_IG_ID!),
-              { 
+              {
                 maxRetries: 3,
                 operation: 'Instagram post',
                 initialDelayMs: 2000
@@ -386,7 +443,7 @@ async function main() {
               })
             }
           }
-          // Twitter
+
           if (dryRun || !canPostNow) {
             console.log('[DRY RUN] Would post to Twitter:', { videoUrl, caption })
             platformResults.twitter = { success: true, result: 'DRY_RUN' }
@@ -407,7 +464,7 @@ async function main() {
                 }
                 return null
               },
-              { 
+              {
                 maxRetries: 3,
                 operation: 'Twitter post',
                 initialDelayMs: 2000,
@@ -441,7 +498,7 @@ async function main() {
               })
             }
           }
-          // Pinterest
+
           if (dryRun || !canPostNow) {
             console.log('[DRY RUN] Would post to Pinterest:', { videoUrl, caption })
             platformResults.pinterest = { success: true, result: 'DRY_RUN' }
@@ -455,7 +512,7 @@ async function main() {
             })
             const result = await retryWithBackoff(
               () => postToPinterest(videoUrl!, caption, process.env.PINTEREST_ACCESS_TOKEN!, process.env.PINTEREST_BOARD_ID!),
-              { 
+              {
                 maxRetries: 3,
                 operation: 'Pinterest post',
                 initialDelayMs: 2000
@@ -488,7 +545,7 @@ async function main() {
               })
             }
           }
-          // YouTube
+
           if (dryRun || !canPostNow) {
             console.log('[DRY RUN] Would upload to YouTube:', { videoUrl, caption })
             platformResults.youtube = { success: true, result: 'DRY_RUN' }
@@ -509,8 +566,8 @@ async function main() {
                 process.env.YT_REFRESH_TOKEN!,
                 (process.env.YT_PRIVACY_STATUS as any) || 'unlisted'
               ),
-              { 
-                maxRetries: 2, // YouTube uploads are longer, fewer retries
+              {
+                maxRetries: 2,
                 operation: 'YouTube upload',
                 initialDelayMs: 5000
               }
@@ -542,13 +599,11 @@ async function main() {
               })
             }
           }
-          
-          
-          // Blog Posting
+
           if (dryRun) {
-            console.log('[DRY RUN] Would create blog article:', { 
+            console.log('[DRY RUN] Would create blog article:', {
               productTitle: product?.title || product?.name,
-              videoUrl 
+              videoUrl
             })
             platformResults.blog = { success: true, result: 'DRY_RUN' }
           } else if (process.env.ENABLE_BLOG_POSTING === 'true' && process.env.GITHUB_TOKEN) {
@@ -589,7 +644,6 @@ async function main() {
             console.log('⚠️ Blog posting enabled but GITHUB_TOKEN not set')
           }
 
-          // Facebook - temporarily disabled until token is resolved
           if (false && process.env.FACEBOOK_PAGE_ACCESS_TOKEN) {
             console.log('[FACEBOOK DISABLED] Skipping until token is fixed')
           } else if (false) {
@@ -597,7 +651,6 @@ async function main() {
             try {
               const fbResult = await retryWithBackoff(async () => {
                 const axios = await import('axios')
-                // Post video to Facebook Page
                 const res = await axios.default.post(
                   `https://graph.facebook.com/v19.0/${process.env.FACEBOOK_PAGE_ID}/videos`,
                   {
@@ -622,11 +675,9 @@ async function main() {
               const fbError = err?.response?.data || err?.message || err
               console.error('❌ Facebook post failed (skipping, continuing):', JSON.stringify(fbError))
               platformResults.facebook = { success: false, error: err?.message || String(err) }
-              // Don't increment failed post or add error - just skip Facebook and continue
             }
           }
 
-          // LinkedIn
           if (dryRun || !canPostNow) {
             console.log('[DRY RUN] Would post to LinkedIn:', { videoUrl, caption })
             platformResults.linkedin = { success: true, result: 'DRY_RUN' }
@@ -635,7 +686,6 @@ async function main() {
             try {
               const liResult = await retryWithBackoff(async () => {
                 const axios = await import('axios')
-                // Share video post on LinkedIn
                 const res = await axios.default.post(
                   'https://api.linkedin.com/v2/ugcPosts',
                   {
@@ -655,7 +705,13 @@ async function main() {
                     },
                     visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
                   },
-                  { headers: { Authorization: `Bearer ${process.env.LINKEDIN_ACCESS_TOKEN}`, 'Content-Type': 'application/json', 'X-Restli-Protocol-Version': '2.0.0' } }
+                  {
+                    headers: {
+                      Authorization: `Bearer ${process.env.LINKEDIN_ACCESS_TOKEN}`,
+                      'Content-Type': 'application/json',
+                      'X-Restli-Protocol-Version': '2.0.0'
+                    }
+                  }
                 )
                 return res.data
               }, { maxRetries: 2, operation: 'LinkedIn post', initialDelayMs: 3000 })
@@ -675,7 +731,6 @@ async function main() {
             }
           }
 
-          // Google Business Profile
           if (dryRun || !canPostNow) {
             console.log('[DRY RUN] Would post to Google Business Profile:', { videoUrl, caption })
             platformResults.googleBusiness = { success: true, result: 'DRY_RUN' }
@@ -700,7 +755,6 @@ async function main() {
             }
           }
 
-          // TikTok
           if (dryRun || !canPostNow) {
             console.log('[DRY RUN] Would post to TikTok:', { videoUrl, caption })
             platformResults.tiktok = { success: true, result: 'DRY_RUN' }
@@ -709,7 +763,6 @@ async function main() {
             try {
               const ttResult = await retryWithBackoff(async () => {
                 const axios = await import('axios')
-                // Step 1: Init upload
                 const initRes = await axios.default.post(
                   'https://open.tiktokapis.com/v2/post/publish/video/init/',
                   {
@@ -745,7 +798,6 @@ async function main() {
             }
           }
 
-          // Summary of platform results
           console.log('\n📊 Platform Posting Summary:', {
             product: product?.title || product?.name,
             videoUrl,
@@ -754,17 +806,16 @@ async function main() {
             successCount: Object.values(platformResults).filter(r => r.success).length,
             totalAttempted: Object.keys(platformResults).length
           })
-          
-          // Mark row as posted if at least one platform succeeded
+
           if (!dryRun && postedAtLeastOne) {
             try {
-              if (process.env.GS_SERVICE_ACCOUNT_EMAIL && process.env.GS_SERVICE_ACCOUNT_KEY) {
+              if (hasConfiguredGoogleCredentials()) {
                 const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
                 const sheetGid = extractGidFromCsv(csvUrl)
                 await markRowPosted({
                   spreadsheetId,
                   sheetGid,
-                  rowNumber: rowNumber,
+                  rowNumber,
                   headers,
                   postedColumn: process.env.CSV_COL_POSTED || 'Posted',
                   timestampColumn: process.env.CSV_COL_POSTED_AT || 'Posted_At',
@@ -776,20 +827,18 @@ async function main() {
             seen.add(jobId)
             rowsThisCycle++
           }
-          
-          // Update status after each row
-          updateStatus({ 
+
+          updateStatus({
             status: 'processing',
             rowsProcessed: seen.size
           })
         }
-        
-        updateStatus({ 
+
+        updateStatus({
           status: 'idle',
           rowsProcessed: seen.size
         })
       } else {
-        // Check if all rows are already posted — reset Posted column and loop from row 1
         const spreadsheetIdMatch = csvUrl.match(/spreadsheets\/d\/([^/]+)/)
         const gidMatch = csvUrl.match(/[?&]gid=(\d+)/)
         const spreadsheetId = spreadsheetIdMatch?.[1]
@@ -798,7 +847,6 @@ async function main() {
         if (spreadsheetId && result.skipped === false) {
           console.log('🔁 All rows already posted — resetting Posted column to loop from row 1')
           try {
-            // Fetch raw CSV to get headers and row count
             const axios = require('axios')
             const csvResp = await axios.get(csvUrl, { responseType: 'text', timeout: 15000 })
             const lines = (csvResp.data as string).trim().split('\n')
@@ -826,15 +874,14 @@ async function main() {
       })
       updateStatus({ status: 'error' })
     }
-    
-    // Print audit summary at the end of each cycle
+
     getAuditLogger().printSummary()
-    
-    // Clear audit log for next cycle (unless runOnce mode)
+
     if (!runOnce) {
       getAuditLogger().clear()
     }
   }
+
   if (runOnce) {
     let exitCode = 0
     try {
@@ -847,6 +894,7 @@ async function main() {
       process.exit(exitCode)
     }
   }
+
   while (true) {
     await cycle()
     await sleep(intervalMs)
@@ -856,7 +904,12 @@ async function main() {
 main().catch(e => console.error(e))
 
 function hasTwitterUploadCreds(): boolean {
-  return Boolean(process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env.TWITTER_ACCESS_TOKEN && process.env.TWITTER_ACCESS_SECRET)
+  return Boolean(
+    process.env.TWITTER_API_KEY &&
+    process.env.TWITTER_API_SECRET &&
+    process.env.TWITTER_ACCESS_TOKEN &&
+    process.env.TWITTER_ACCESS_SECRET
+  )
 }
 
 function checkPlatformAvailability(enabledPlatforms: Set<string>) {
@@ -904,7 +957,6 @@ function sleep(ms: number) {
 }
 
 function extractSpreadsheetIdFromCsv(csvUrl: string): string {
-  // Expects /spreadsheets/d/<id>/export
   const m = csvUrl.match(/\/spreadsheets\/d\/([^/]+)/)
   if (!m) throw new Error('Unable to parse spreadsheetId from CSV_URL')
   return m[1]
@@ -915,32 +967,27 @@ function extractGidFromCsv(csvUrl: string): number | undefined {
   return m ? Number(m[1]) : undefined
 }
 
-// Build the video URL from CSV or template
 async function resolveVideoUrlAsync(params: { jobId: string; record?: Record<string, string> }): Promise<string | undefined> {
   const { jobId, record } = params
-  // 1) If CSV provides a direct video URL column (configurable), prefer that
-  const directCol = (process.env.CSV_COL_VIDEO_URL || 'video_url,Video URL,VideoURL').split(',').map((s: string) => s.trim())
+  const directCol = (process.env.CSV_COL_VIDEO_URL || 'video_url,Video URL,VideoURL,Video_URL').split(',').map((s: string) => s.trim())
   if (record) {
     for (const key of directCol) {
       const v = record[key]
       if (v && /^https?:\/\//i.test(v)) return v
     }
   }
-  // 2) Template-based resolution (for backward compatibility with existing sheets)
   const template = process.env.VIDEO_URL_TEMPLATE || process.env.WAVE_VIDEO_URL_TEMPLATE || 'https://heygen.ai/jobs/{jobId}/video.mp4'
   return template
     .replaceAll('{jobId}', jobId)
     .replaceAll('{asin}', jobId)
 }
 
-// Quickly check if a URL is likely reachable AND serving video (not an expired HTML error page).
 async function urlLooksReachable(url: string): Promise<boolean> {
   const axios = await import('axios')
   try {
     const res = await axios.default.head(url, { validateStatus: () => true })
     if (res.status >= 400) return false
     if (res.status === 405 || res.status === 403) {
-      // HEAD not allowed — fall through to GET probe
     } else if (res.status >= 200 && res.status < 400) {
       const ct: string = (res.headers['content-type'] || '').toLowerCase()
       if (ct.includes('text/html')) {
@@ -950,6 +997,7 @@ async function urlLooksReachable(url: string): Promise<boolean> {
       return true
     }
   } catch {}
+
   try {
     const res = await axios.default.get(url, {
       headers: { Range: 'bytes=0-0' },
@@ -970,16 +1018,13 @@ async function urlLooksReachable(url: string): Promise<boolean> {
   }
 }
 
-// Posting windows: allow posting within 5 minutes of 9:00 AM or 5:00 PM Eastern
 function isWithinPostingWindow(): boolean {
   try {
     const nowUtc = new Date()
-    // Offsets to Eastern Time (naive: use -4 in DST, -5 otherwise); allow override via env
     const offset = Number(process.env.EASTERN_UTC_OFFSET_HOURS || '-4')
     const nowEt = new Date(nowUtc.getTime() + offset * 3600 * 1000)
     const hour = nowEt.getUTCHours()
     const minute = nowEt.getUTCMinutes()
-    // 9:00 and 17:00 ET with 5-minute window
     const windows = [
       { h: (9 - offset + 24) % 24, m: 0 },
       { h: (17 - offset + 24) % 24, m: 0 },
@@ -989,11 +1034,10 @@ function isWithinPostingWindow(): boolean {
     }
     return false
   } catch {
-    return true // fail-open to avoid blocking
+    return true
   }
 }
 
-// Helper: pull first non-empty value for comma-separated header candidates
 function getValueFromRecord(record: Record<string, string> | undefined, columnsCsv: string): string | undefined {
   if (!record) return undefined
   for (const key of columnsCsv.split(',').map(s => s.trim())) {
