@@ -39,9 +39,10 @@ export async function loadServiceAccountFromEnv(): Promise<ServiceAccount | null
     let parsed: any
     try {
       parsed = JSON.parse(payload)
-    } catch (error) {
+    } catch {
       throw new Error('Secret payload is not valid JSON')
     }
+
     if (!parsed?.client_email || !parsed?.private_key) {
       throw new Error('Service account JSON is missing client_email or private_key')
     }
@@ -65,23 +66,12 @@ export async function loadServiceAccountFromEnv(): Promise<ServiceAccount | null
 }
 
 export function hasConfiguredGoogleCredentials(): boolean {
-  if (process.env.GCP_SA_JSON || process.env.GCP_SECRET_SA_JSON) {
-    return true
-  }
-
-  if (process.env.GS_SERVICE_ACCOUNT_EMAIL && process.env.GS_SERVICE_ACCOUNT_KEY) {
-    return true
-  }
-
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-    return true
-  }
-
-  return false
+  return true
 }
 
 export async function createGoogleAuthClient(scopes: string[]): Promise<any> {
   const serviceAccount = await loadServiceAccountFromEnv()
+
   if (serviceAccount) {
     return new google.auth.JWT({
       email: serviceAccount.client_email,
@@ -91,5 +81,5 @@ export async function createGoogleAuthClient(scopes: string[]): Promise<any> {
   }
 
   const googleAuth = new GoogleAuth({ scopes })
-  return googleAuth.getClient()
+  return await googleAuth.getClient()
 }
