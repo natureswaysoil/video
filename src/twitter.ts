@@ -23,7 +23,7 @@ export async function postToTwitter(
   videoUrl: string,
   caption: string,
   bearerToken?: string
-): Promise<void> {
+): Promise<string> {
   const startTime = Date.now()
 
   try {
@@ -51,8 +51,10 @@ export async function postToTwitter(
       captionLength: caption.length,
     })
 
+    let postId = ''
+
     if (canUpload) {
-      await rateLimiters.execute('twitter', async () => {
+      postId = await rateLimiters.execute('twitter', async () => {
         return withRetry(
           async () => {
             const client = new TwitterApi({
@@ -114,12 +116,13 @@ export async function postToTwitter(
 
             // Post tweet with media
             logger.debug('Posting tweet', 'Twitter')
-            await rwClient.v2.tweet({
+            const tweetResult = await rwClient.v2.tweet({
               text: caption,
               media: { media_ids: [mediaId] },
             })
 
             logger.debug('Tweet posted successfully', 'Twitter')
+            return tweetResult.data.id
           },
           {
             maxRetries: 3,
@@ -149,10 +152,10 @@ export async function postToTwitter(
         )
       }
 
-      await rateLimiters.execute('twitter', async () => {
+      postId = await rateLimiters.execute('twitter', async () => {
         return withRetry(
           async () => {
-            await axios.post(
+            const res = await axios.post(
               'https://api.twitter.com/2/tweets',
               { text: `${caption}\n${videoUrl}` },
               {
@@ -160,6 +163,7 @@ export async function postToTwitter(
                 timeout: config.TIMEOUT_SOCIAL_POST,
               }
             )
+            return String(res.data?.data?.id ?? '')
           },
           {
             maxRetries: 3,
@@ -185,6 +189,7 @@ export async function postToTwitter(
     metrics.recordHistogram('twitter.duration', duration)
 
     logger.info('Successfully posted to Twitter', 'Twitter', { duration })
+    return postId
   } catch (error: any) {
     const duration = Date.now() - startTime
     metrics.incrementCounter('twitter.error')
