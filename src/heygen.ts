@@ -115,7 +115,26 @@ export class HeyGenClient {
       const jobId = await rateLimiters.execute('heygen', async () => {
         return withRetry(
           async () => {
-            const response = await this.axios.post('/v1/video.generate', payload, {
+            // HeyGen v2 API
+            const v2Body: Record<string, any> = {
+              video_inputs: [{
+                character: {
+                  type: 'avatar',
+                  avatar_id: (payload as any).avatar_id || payload.avatar || 'Daisy-inTshirt-20220818',
+                  avatar_style: 'normal',
+                },
+                voice: {
+                  type: 'text',
+                  input_text: payload.script,
+                  voice_id: (payload as any).voice_id || payload.voice || '2d5b0e6cf36f460aa7fc47e3eee4ba54',
+                  speed: 1.0,
+                },
+                background: { type: 'color', value: '#1a1a1a' },
+              }],
+              dimension: { width: 720, height: 1280 },
+              ...(payload.title ? { title: payload.title } : {}),
+            }
+            const response = await this.axios.post('/v2/video/generate', v2Body, {
               timeout: config.TIMEOUT_HEYGEN,
             })
             
@@ -205,7 +224,7 @@ export class HeyGenClient {
         )
       }
 
-      const response = await this.axios.get(`/v1/video_status.get?video_id=${jobId}`, {
+      const response = await this.axios.get(`/v2/video/${jobId}`, {
         timeout: config.TIMEOUT_HEYGEN,
       })
       

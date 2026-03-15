@@ -333,6 +333,7 @@ async function main() {
                   })
                 } catch {}
               }
+              rowsThisCycle++ // count against ROWS_PER_RUN limit
               continue
             }
           } else {
