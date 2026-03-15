@@ -134,6 +134,7 @@ async function main() {
   const enabledPlatformsEnv = (process.env.ENABLE_PLATFORMS || '').toLowerCase()
   const enabledPlatforms = new Set(enabledPlatformsEnv.split(',').map(s => s.trim()).filter(Boolean))
   const enforcePostingWindows = String(process.env.ENFORCE_POSTING_WINDOWS || 'false').toLowerCase() === 'true'
+  const loopResetPosted = String(process.env.LOOP_RESET_POSTED || 'false').toLowerCase() === 'true'
 
   if (!process.env.VERCEL) {
     startHealthServer()
@@ -179,6 +180,19 @@ async function main() {
 
         for (const { product, jobId, rowNumber, headers, record } of result.rows) {
           if (!jobId || seen.has(jobId)) continue
+          if (isRowDeferred(record)) {
+            const nextAt = pickFirstNonEmpty(record, ['Post_Next_Attempt_At'])
+            console.log(`⏳ Row ${rowNumber} deferred until ${nextAt} — skipping this cycle`)
+            getAuditLogger().logEvent({
+              level: 'SKIP',
+              category: 'POSTING',
+              message: 'Row deferred — skipping until Post_Next_Attempt_At',
+              rowNumber,
+              product: product?.title || product?.name,
+              details: { nextAt }
+            })
+            continue
+          }
           if (rowsThisCycle >= rowsPerRun) {
             console.log(`⏸️  ROWS_PER_RUN limit (${rowsPerRun}) reached — remaining rows deferred to next cycle`)
             break
@@ -371,6 +385,7 @@ async function main() {
 
           let postedAtLeastOne = false
           const platformResults: Record<string, { success: boolean; result?: any; error?: string }> = {}
+          const platformErrors: Record<string, { message: string; retryable: boolean; raw: any }> = {}
 
           const platformStatus = checkPlatformAvailability(enabledPlatforms)
 
@@ -396,207 +411,284 @@ async function main() {
             })
           }
 
+          // Write pre-posting state to sheet (best effort)
+          if (!dryRun && canPostNow && hasConfiguredGoogleCredentials()) {
+            const attempts = getPostAttempts(record) + 1
+            try {
+              await writeRowFields(csvUrl, headers, rowNumber, {
+                Post_Status: 'Attempting',
+                Post_Attempts: String(attempts),
+                Post_Last_Attempt_At: new Date().toISOString(),
+              })
+            } catch (e: any) {
+              console.warn('⚠️ Failed to write pre-posting state to sheet:', e?.message)
+            }
+          }
+
+          // ── Instagram ───────────────────────────────────────────────────
           if (dryRun || !canPostNow) {
             console.log('[DRY RUN] Would post to Instagram:', { videoUrl, caption })
             platformResults.instagram = { success: true, result: 'DRY_RUN' }
           } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')) && process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID) {
-            getAuditLogger().logEvent({
-              level: 'INFO',
-              category: 'POSTING',
-              message: 'Attempting Instagram post',
-              rowNumber,
-              product: product?.title || product?.name
-            })
-            const result = await retryWithBackoff(
-              () => postToInstagram(videoUrl!, caption, process.env.INSTAGRAM_ACCESS_TOKEN!, process.env.INSTAGRAM_IG_ID!),
-              {
-                maxRetries: 3,
-                operation: 'Instagram post',
-                initialDelayMs: 2000
-              }
-            )
-            if (result) {
-              console.log('✅ Posted to Instagram:', result)
-              platformResults.instagram = { success: true, result }
+            const existingId = pickFirstNonEmpty(record, ['Instagram_Media_ID'])
+            if (existingId) {
+              console.log(`⏭️  Row ${rowNumber} already posted to Instagram (${existingId}) — skipping`)
+              platformResults.instagram = { success: true, result: existingId }
               postedAtLeastOne = true
-              incrementSuccessfulPost()
               getAuditLogger().logEvent({
-                level: 'SUCCESS',
+                level: 'INFO',
                 category: 'POSTING',
-                message: 'Instagram post successful',
+                message: 'Instagram already posted (idempotency check)',
                 rowNumber,
                 product: product?.title || product?.name,
-                details: { mediaId: result }
+                details: { mediaId: existingId }
               })
             } else {
-              console.error('❌ Instagram post failed after all retries')
-              platformResults.instagram = { success: false, error: 'Failed after 3 retries' }
-              incrementFailedPost()
-              addError(`Instagram: ${product?.title || jobId} - Failed after 3 retries`)
               getAuditLogger().logEvent({
-                level: 'ERROR',
+                level: 'INFO',
                 category: 'POSTING',
-                message: 'Instagram post failed',
+                message: 'Attempting Instagram post',
                 rowNumber,
-                product: product?.title || product?.name,
-                details: { error: 'Failed after 3 retries' }
+                product: product?.title || product?.name
               })
+              try {
+                const mediaId = await postToInstagram(videoUrl!, caption, process.env.INSTAGRAM_ACCESS_TOKEN!, process.env.INSTAGRAM_IG_ID!)
+                console.log('✅ Posted to Instagram:', mediaId)
+                platformResults.instagram = { success: true, result: mediaId }
+                postedAtLeastOne = true
+                incrementSuccessfulPost()
+                if (hasConfiguredGoogleCredentials()) {
+                  try {
+                    await writeRowFields(csvUrl, headers, rowNumber, { Instagram_Media_ID: mediaId })
+                  } catch (e: any) {
+                    console.warn('⚠️ Failed to persist Instagram_Media_ID:', e?.message)
+                  }
+                }
+                getAuditLogger().logEvent({
+                  level: 'SUCCESS',
+                  category: 'POSTING',
+                  message: 'Instagram post successful',
+                  rowNumber,
+                  product: product?.title || product?.name,
+                  details: { mediaId }
+                })
+              } catch (err: any) {
+                console.error('❌ Instagram post failed:', err?.message || err)
+                platformResults.instagram = { success: false, error: err?.message || String(err) }
+                platformErrors.instagram = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err }
+                incrementFailedPost()
+                addError(`Instagram: ${product?.title || jobId} - ${err?.message || String(err)}`)
+                getAuditLogger().logEvent({
+                  level: 'ERROR',
+                  category: 'POSTING',
+                  message: 'Instagram post failed',
+                  rowNumber,
+                  product: product?.title || product?.name,
+                  details: { error: err?.message }
+                })
+              }
             }
           }
 
+          // ── Twitter ─────────────────────────────────────────────────────
           if (dryRun || !canPostNow) {
             console.log('[DRY RUN] Would post to Twitter:', { videoUrl, caption })
             platformResults.twitter = { success: true, result: 'DRY_RUN' }
           } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')) && (process.env.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds())) {
-            getAuditLogger().logEvent({
-              level: 'INFO',
-              category: 'POSTING',
-              message: 'Attempting Twitter post',
-              rowNumber,
-              product: product?.title || product?.name
-            })
-            const result = await retryWithBackoff(
-              async () => {
-                if (hasTwitterUploadCreds()) {
-                  return await postToTwitter(videoUrl!, caption, process.env.TWITTER_BEARER_TOKEN ?? '')
-                } else if (process.env.TWITTER_BEARER_TOKEN) {
-                  return await postToTwitter(videoUrl!, caption, process.env.TWITTER_BEARER_TOKEN)
-                }
-                return null
-              },
-              {
-                maxRetries: 3,
-                operation: 'Twitter post',
-                initialDelayMs: 2000,
-                shouldRetry: (err: any) => err?.response?.status !== 403,
-              }
-            )
-            if (result) {
-              console.log('✅ Posted to Twitter:', result)
-              platformResults.twitter = { success: true, result }
+            const existingId = pickFirstNonEmpty(record, ['Twitter_Post_ID'])
+            if (existingId) {
+              console.log(`⏭️  Row ${rowNumber} already posted to Twitter (${existingId}) — skipping`)
+              platformResults.twitter = { success: true, result: existingId }
               postedAtLeastOne = true
-              incrementSuccessfulPost()
               getAuditLogger().logEvent({
-                level: 'SUCCESS',
+                level: 'INFO',
                 category: 'POSTING',
-                message: 'Twitter post successful',
+                message: 'Twitter already posted (idempotency check)',
+                rowNumber,
+                product: product?.title || product?.name,
+                details: { tweetId: existingId }
+              })
+            } else {
+              getAuditLogger().logEvent({
+                level: 'INFO',
+                category: 'POSTING',
+                message: 'Attempting Twitter post',
                 rowNumber,
                 product: product?.title || product?.name
               })
-            } else {
-              console.error('❌ Twitter post failed after all retries')
-              platformResults.twitter = { success: false, error: 'Failed after 3 retries' }
-              incrementFailedPost()
-              addError(`Twitter: ${product?.title || jobId} - Failed after 3 retries`)
-              getAuditLogger().logEvent({
-                level: 'ERROR',
-                category: 'POSTING',
-                message: 'Twitter post failed',
-                rowNumber,
-                product: product?.title || product?.name,
-                details: { error: 'Failed after 3 retries' }
-              })
+              try {
+                const tweetId = await postToTwitter(videoUrl!, caption, process.env.TWITTER_BEARER_TOKEN ?? '')
+                console.log('✅ Posted to Twitter:', tweetId)
+                platformResults.twitter = { success: true, result: tweetId }
+                postedAtLeastOne = true
+                incrementSuccessfulPost()
+                if (hasConfiguredGoogleCredentials() && tweetId.length > 0) {
+                  try {
+                    await writeRowFields(csvUrl, headers, rowNumber, { Twitter_Post_ID: tweetId })
+                  } catch (e: any) {
+                    console.warn('⚠️ Failed to persist Twitter_Post_ID:', e?.message)
+                  }
+                }
+                getAuditLogger().logEvent({
+                  level: 'SUCCESS',
+                  category: 'POSTING',
+                  message: 'Twitter post successful',
+                  rowNumber,
+                  product: product?.title || product?.name,
+                  details: { tweetId }
+                })
+              } catch (err: any) {
+                console.error('❌ Twitter post failed:', err?.message || err)
+                platformResults.twitter = { success: false, error: err?.message || String(err) }
+                platformErrors.twitter = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err }
+                incrementFailedPost()
+                addError(`Twitter: ${product?.title || jobId} - ${err?.message || String(err)}`)
+                getAuditLogger().logEvent({
+                  level: 'ERROR',
+                  category: 'POSTING',
+                  message: 'Twitter post failed',
+                  rowNumber,
+                  product: product?.title || product?.name,
+                  details: { error: err?.message }
+                })
+              }
             }
           }
 
+          // ── Pinterest ────────────────────────────────────────────────────
           if (dryRun || !canPostNow) {
             console.log('[DRY RUN] Would post to Pinterest:', { videoUrl, caption })
             platformResults.pinterest = { success: true, result: 'DRY_RUN' }
           } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')) && process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID) {
-            getAuditLogger().logEvent({
-              level: 'INFO',
-              category: 'POSTING',
-              message: 'Attempting Pinterest post',
-              rowNumber,
-              product: product?.title || product?.name
-            })
-            const result = await retryWithBackoff(
-              () => postToPinterest(videoUrl!, caption, process.env.PINTEREST_ACCESS_TOKEN!, process.env.PINTEREST_BOARD_ID!),
-              {
-                maxRetries: 3,
-                operation: 'Pinterest post',
-                initialDelayMs: 2000
-              }
-            )
-            if (result) {
-              console.log('✅ Posted to Pinterest:', result)
-              platformResults.pinterest = { success: true, result }
+            const existingId = pickFirstNonEmpty(record, ['Pinterest_Pin_ID'])
+            if (existingId) {
+              console.log(`⏭️  Row ${rowNumber} already posted to Pinterest (${existingId}) — skipping`)
+              platformResults.pinterest = { success: true, result: existingId }
               postedAtLeastOne = true
-              incrementSuccessfulPost()
               getAuditLogger().logEvent({
-                level: 'SUCCESS',
+                level: 'INFO',
                 category: 'POSTING',
-                message: 'Pinterest post successful',
+                message: 'Pinterest already posted (idempotency check)',
+                rowNumber,
+                product: product?.title || product?.name,
+                details: { pinId: existingId }
+              })
+            } else {
+              getAuditLogger().logEvent({
+                level: 'INFO',
+                category: 'POSTING',
+                message: 'Attempting Pinterest post',
                 rowNumber,
                 product: product?.title || product?.name
               })
-            } else {
-              console.error('❌ Pinterest post failed after all retries')
-              platformResults.pinterest = { success: false, error: 'Failed after 3 retries' }
-              incrementFailedPost()
-              addError(`Pinterest: ${product?.title || jobId} - Failed after 3 retries`)
-              getAuditLogger().logEvent({
-                level: 'ERROR',
-                category: 'POSTING',
-                message: 'Pinterest post failed',
-                rowNumber,
-                product: product?.title || product?.name,
-                details: { error: 'Failed after 3 retries' }
-              })
+              try {
+                const pinId = await postToPinterest(videoUrl!, caption, process.env.PINTEREST_ACCESS_TOKEN!, process.env.PINTEREST_BOARD_ID!)
+                console.log('✅ Posted to Pinterest:', pinId)
+                platformResults.pinterest = { success: true, result: pinId }
+                postedAtLeastOne = true
+                incrementSuccessfulPost()
+                if (hasConfiguredGoogleCredentials() && pinId.length > 0) {
+                  try {
+                    await writeRowFields(csvUrl, headers, rowNumber, { Pinterest_Pin_ID: pinId })
+                  } catch (e: any) {
+                    console.warn('⚠️ Failed to persist Pinterest_Pin_ID:', e?.message)
+                  }
+                }
+                getAuditLogger().logEvent({
+                  level: 'SUCCESS',
+                  category: 'POSTING',
+                  message: 'Pinterest post successful',
+                  rowNumber,
+                  product: product?.title || product?.name,
+                  details: { pinId }
+                })
+              } catch (err: any) {
+                console.error('❌ Pinterest post failed:', err?.message || err)
+                platformResults.pinterest = { success: false, error: err?.message || String(err) }
+                platformErrors.pinterest = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err }
+                incrementFailedPost()
+                addError(`Pinterest: ${product?.title || jobId} - ${err?.message || String(err)}`)
+                getAuditLogger().logEvent({
+                  level: 'ERROR',
+                  category: 'POSTING',
+                  message: 'Pinterest post failed',
+                  rowNumber,
+                  product: product?.title || product?.name,
+                  details: { error: err?.message }
+                })
+              }
             }
           }
 
+          // ── YouTube ──────────────────────────────────────────────────────
           if (dryRun || !canPostNow) {
             console.log('[DRY RUN] Would upload to YouTube:', { videoUrl, caption })
             platformResults.youtube = { success: true, result: 'DRY_RUN' }
           } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')) && process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN) {
-            getAuditLogger().logEvent({
-              level: 'INFO',
-              category: 'POSTING',
-              message: 'Attempting YouTube upload',
-              rowNumber,
-              product: product?.title || product?.name
-            })
-            const result = await retryWithBackoff(
-              () => postToYouTube(
-                videoUrl!,
-                caption,
-                process.env.YT_CLIENT_ID!,
-                process.env.YT_CLIENT_SECRET!,
-                process.env.YT_REFRESH_TOKEN!,
-                (process.env.YT_PRIVACY_STATUS as any) || 'unlisted'
-              ),
-              {
-                maxRetries: 2,
-                operation: 'YouTube upload',
-                initialDelayMs: 5000
-              }
-            )
-            if (result) {
-              console.log('✅ Posted to YouTube:', result)
-              platformResults.youtube = { success: true, result }
+            const existingId = pickFirstNonEmpty(record, ['YouTube_Video_ID'])
+            if (existingId) {
+              console.log(`⏭️  Row ${rowNumber} already uploaded to YouTube (${existingId}) — skipping`)
+              platformResults.youtube = { success: true, result: existingId }
               postedAtLeastOne = true
-              incrementSuccessfulPost()
               getAuditLogger().logEvent({
-                level: 'SUCCESS',
+                level: 'INFO',
                 category: 'POSTING',
-                message: 'YouTube upload successful',
+                message: 'YouTube already uploaded (idempotency check)',
+                rowNumber,
+                product: product?.title || product?.name,
+                details: { videoId: existingId }
+              })
+            } else {
+              getAuditLogger().logEvent({
+                level: 'INFO',
+                category: 'POSTING',
+                message: 'Attempting YouTube upload',
                 rowNumber,
                 product: product?.title || product?.name
               })
-            } else {
-              console.error('❌ YouTube upload failed after all retries')
-              platformResults.youtube = { success: false, error: 'Failed after 2 retries' }
-              incrementFailedPost()
-              addError(`YouTube: ${product?.title || jobId} - Failed after 2 retries`)
-              getAuditLogger().logEvent({
-                level: 'ERROR',
-                category: 'POSTING',
-                message: 'YouTube upload failed',
-                rowNumber,
-                product: product?.title || product?.name,
-                details: { error: 'Failed after 2 retries' }
-              })
+              try {
+                const videoId = await postToYouTube(
+                  videoUrl!,
+                  caption,
+                  process.env.YT_CLIENT_ID!,
+                  process.env.YT_CLIENT_SECRET!,
+                  process.env.YT_REFRESH_TOKEN!,
+                  (process.env.YT_PRIVACY_STATUS as any) || 'unlisted'
+                )
+                console.log('✅ Posted to YouTube:', videoId)
+                platformResults.youtube = { success: true, result: videoId }
+                postedAtLeastOne = true
+                incrementSuccessfulPost()
+                if (hasConfiguredGoogleCredentials() && videoId.length > 0) {
+                  try {
+                    await writeRowFields(csvUrl, headers, rowNumber, { YouTube_Video_ID: videoId })
+                  } catch (e: any) {
+                    console.warn('⚠️ Failed to persist YouTube_Video_ID:', e?.message)
+                  }
+                }
+                getAuditLogger().logEvent({
+                  level: 'SUCCESS',
+                  category: 'POSTING',
+                  message: 'YouTube upload successful',
+                  rowNumber,
+                  product: product?.title || product?.name,
+                  details: { videoId }
+                })
+              } catch (err: any) {
+                console.error('❌ YouTube upload failed:', err?.message || err)
+                platformResults.youtube = { success: false, error: err?.message || String(err) }
+                platformErrors.youtube = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err }
+                incrementFailedPost()
+                addError(`YouTube: ${product?.title || jobId} - ${err?.message || String(err)}`)
+                getAuditLogger().logEvent({
+                  level: 'ERROR',
+                  category: 'POSTING',
+                  message: 'YouTube upload failed',
+                  rowNumber,
+                  product: product?.title || product?.name,
+                  details: { error: err?.message }
+                })
+              }
             }
           }
 
@@ -608,8 +700,8 @@ async function main() {
             platformResults.blog = { success: true, result: 'DRY_RUN' }
           } else if (process.env.ENABLE_BLOG_POSTING === 'true' && process.env.GITHUB_TOKEN) {
             const { postBlogArticle } = await import('./blog')
-            const result = await retryWithBackoff(
-              () => postBlogArticle(
+            try {
+              const blogResult = await postBlogArticle(
                 {
                   productTitle: product?.title || product?.name || 'Product',
                   productDescription: product?.details,
@@ -619,26 +711,20 @@ async function main() {
                 process.env.GITHUB_TOKEN!,
                 process.env.GITHUB_REPO,
                 process.env.GITHUB_BRANCH
-              ),
-              {
-                maxRetries: 2,
-                operation: 'Blog article posting',
-                initialDelayMs: 3000
-              }
-            )
-            if (result) {
+              )
               console.log('✅ Blog article published:', {
-                articleId: result.articleId,
-                commitSha: result.commitSha?.substring(0, 7)
+                articleId: blogResult.articleId,
+                commitSha: blogResult.commitSha?.substring(0, 7)
               })
-              platformResults.blog = { success: true, result: result.articleId }
+              platformResults.blog = { success: true, result: blogResult.articleId }
               postedAtLeastOne = true
               incrementSuccessfulPost()
-            } else {
-              console.error('❌ Blog article posting failed after all retries')
-              platformResults.blog = { success: false, error: 'Failed after 2 retries' }
+            } catch (err: any) {
+              console.error('❌ Blog article posting failed:', err?.message || err)
+              platformResults.blog = { success: false, error: err?.message || String(err) }
+              platformErrors.blog = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err }
               incrementFailedPost()
-              addError(`Blog: ${product?.title || jobId} - Failed after 2 retries`)
+              addError(`Blog: ${product?.title || jobId} - ${err?.message || String(err)}`)
             }
           } else if (process.env.ENABLE_BLOG_POSTING === 'true') {
             console.log('⚠️ Blog posting enabled but GITHUB_TOKEN not set')
@@ -684,40 +770,37 @@ async function main() {
           } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('linkedin')) && process.env.LINKEDIN_ACCESS_TOKEN && process.env.LINKEDIN_PERSON_ID) {
             getAuditLogger().logEvent({ level: 'INFO', category: 'POSTING', message: 'Attempting LinkedIn post', rowNumber, product: product?.title || product?.name })
             try {
-              const liResult = await retryWithBackoff(async () => {
-                const axios = await import('axios')
-                const res = await axios.default.post(
-                  'https://api.linkedin.com/v2/ugcPosts',
-                  {
-                    author: `urn:li:person:${process.env.LINKEDIN_PERSON_ID}`,
-                    lifecycleState: 'PUBLISHED',
-                    specificContent: {
-                      'com.linkedin.ugc.ShareContent': {
-                        shareCommentary: { text: caption },
-                        shareMediaCategory: 'VIDEO',
-                        media: [{
-                          status: 'READY',
-                          description: { text: caption.substring(0, 200) },
-                          media: videoUrl,
-                          title: { text: product?.title || product?.name || 'Nature\'s Way Soil' },
-                        }],
-                      },
+              const axios = await import('axios')
+              const liResult = await axios.default.post(
+                'https://api.linkedin.com/v2/ugcPosts',
+                {
+                  author: `urn:li:person:${process.env.LINKEDIN_PERSON_ID}`,
+                  lifecycleState: 'PUBLISHED',
+                  specificContent: {
+                    'com.linkedin.ugc.ShareContent': {
+                      shareCommentary: { text: caption },
+                      shareMediaCategory: 'VIDEO',
+                      media: [{
+                        status: 'READY',
+                        description: { text: caption.substring(0, 200) },
+                        media: videoUrl,
+                        title: { text: product?.title || product?.name || 'Nature\'s Way Soil' },
+                      }],
                     },
-                    visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
                   },
-                  {
-                    headers: {
-                      Authorization: `Bearer ${process.env.LINKEDIN_ACCESS_TOKEN}`,
-                      'Content-Type': 'application/json',
-                      'X-Restli-Protocol-Version': '2.0.0'
-                    }
+                  visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
+                },
+                {
+                  headers: {
+                    Authorization: `Bearer ${process.env.LINKEDIN_ACCESS_TOKEN}`,
+                    'Content-Type': 'application/json',
+                    'X-Restli-Protocol-Version': '2.0.0'
                   }
-                )
-                return res.data
-              }, { maxRetries: 2, operation: 'LinkedIn post', initialDelayMs: 3000 })
-              if (liResult?.id) {
-                console.log('✅ Posted to LinkedIn:', liResult.id)
-                platformResults.linkedin = { success: true, result: liResult.id }
+                }
+              )
+              if (liResult?.data?.id) {
+                console.log('✅ Posted to LinkedIn:', liResult.data.id)
+                platformResults.linkedin = { success: true, result: liResult.data.id }
                 postedAtLeastOne = true
                 incrementSuccessfulPost()
                 getAuditLogger().logEvent({ level: 'SUCCESS', category: 'POSTING', message: 'LinkedIn post successful', rowNumber, product: product?.title || product?.name })
@@ -725,6 +808,7 @@ async function main() {
             } catch (err: any) {
               console.error('❌ LinkedIn post failed:', err?.response?.data || err?.message || err)
               platformResults.linkedin = { success: false, error: err?.message || String(err) }
+              platformErrors.linkedin = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err }
               incrementFailedPost()
               addError(`LinkedIn: ${product?.title || jobId} - ${err?.message || err}`)
               getAuditLogger().logEvent({ level: 'ERROR', category: 'POSTING', message: 'LinkedIn post failed', rowNumber, product: product?.title || product?.name, details: { error: err?.message } })
@@ -738,17 +822,16 @@ async function main() {
             getAuditLogger().logEvent({ level: 'INFO', category: 'POSTING', message: 'Attempting Google Business post', rowNumber, product: product?.title || product?.name })
             try {
               const { postToGoogleBusiness } = await import('./google-business')
-              const gbResult = await retryWithBackoff(
-                () => postToGoogleBusiness(caption, videoUrl, 'https://natureswaysoil.com'),
-                { maxRetries: 2, operation: 'Google Business post', initialDelayMs: 3000 }
-              )
+              const gbResult = await postToGoogleBusiness(caption, videoUrl, 'https://natureswaysoil.com')
               console.log('✅ Posted to Google Business Profile:', gbResult?.name)
               platformResults.googleBusiness = { success: true, result: gbResult?.name }
+              postedAtLeastOne = true
               incrementSuccessfulPost()
               getAuditLogger().logEvent({ level: 'SUCCESS', category: 'POSTING', message: 'Google Business post successful', rowNumber, product: product?.title || product?.name })
             } catch (err: any) {
               console.error('❌ Google Business post failed:', err?.response?.data || err?.message || err)
               platformResults.googleBusiness = { success: false, error: err?.message || String(err) }
+              platformErrors.googleBusiness = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err }
               incrementFailedPost()
               addError(`Google Business: ${product?.title || jobId} - ${err?.message || err}`)
               getAuditLogger().logEvent({ level: 'ERROR', category: 'POSTING', message: 'Google Business post failed', rowNumber, product: product?.title || product?.name, details: { error: err?.message } })
@@ -761,30 +844,27 @@ async function main() {
           } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('tiktok')) && process.env.TIKTOK_ACCESS_TOKEN) {
             getAuditLogger().logEvent({ level: 'INFO', category: 'POSTING', message: 'Attempting TikTok post', rowNumber, product: product?.title || product?.name })
             try {
-              const ttResult = await retryWithBackoff(async () => {
-                const axios = await import('axios')
-                const initRes = await axios.default.post(
-                  'https://open.tiktokapis.com/v2/post/publish/video/init/',
-                  {
-                    post_info: {
-                      title: caption.substring(0, 150),
-                      privacy_level: process.env.TIKTOK_PRIVACY_LEVEL || 'PUBLIC_TO_EVERYONE',
-                      disable_duet: false,
-                      disable_comment: false,
-                      disable_stitch: false,
-                    },
-                    source_info: {
-                      source: 'PULL_FROM_URL',
-                      video_url: videoUrl,
-                    },
+              const axios = await import('axios')
+              const initRes = await axios.default.post(
+                'https://open.tiktokapis.com/v2/post/publish/video/init/',
+                {
+                  post_info: {
+                    title: caption.substring(0, 150),
+                    privacy_level: process.env.TIKTOK_PRIVACY_LEVEL || 'PUBLIC_TO_EVERYONE',
+                    disable_duet: false,
+                    disable_comment: false,
+                    disable_stitch: false,
                   },
-                  { headers: { Authorization: `Bearer ${process.env.TIKTOK_ACCESS_TOKEN}`, 'Content-Type': 'application/json; charset=UTF-8' } }
-                )
-                return initRes.data
-              }, { maxRetries: 2, operation: 'TikTok post', initialDelayMs: 3000 })
-              if (ttResult?.data?.publish_id) {
-                console.log('✅ Posted to TikTok, publish_id:', ttResult.data.publish_id)
-                platformResults.tiktok = { success: true, result: ttResult.data.publish_id }
+                  source_info: {
+                    source: 'PULL_FROM_URL',
+                    video_url: videoUrl,
+                  },
+                },
+                { headers: { Authorization: `Bearer ${process.env.TIKTOK_ACCESS_TOKEN}`, 'Content-Type': 'application/json; charset=UTF-8' } }
+              )
+              if (initRes.data?.data?.publish_id) {
+                console.log('✅ Posted to TikTok, publish_id:', initRes.data.data.publish_id)
+                platformResults.tiktok = { success: true, result: initRes.data.data.publish_id }
                 postedAtLeastOne = true
                 incrementSuccessfulPost()
                 getAuditLogger().logEvent({ level: 'SUCCESS', category: 'POSTING', message: 'TikTok post successful', rowNumber, product: product?.title || product?.name })
@@ -792,6 +872,7 @@ async function main() {
             } catch (err: any) {
               console.error('❌ TikTok post failed:', err?.response?.data || err?.message || err)
               platformResults.tiktok = { success: false, error: err?.message || String(err) }
+              platformErrors.tiktok = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err }
               incrementFailedPost()
               addError(`TikTok: ${product?.title || jobId} - ${err?.message || err}`)
               getAuditLogger().logEvent({ level: 'ERROR', category: 'POSTING', message: 'TikTok post failed', rowNumber, product: product?.title || product?.name, details: { error: err?.message } })
@@ -806,6 +887,54 @@ async function main() {
             successCount: Object.values(platformResults).filter(r => r.success).length,
             totalAttempted: Object.keys(platformResults).length
           })
+
+          if (!dryRun && canPostNow && hasConfiguredGoogleCredentials()) {
+            if (postedAtLeastOne) {
+              // Write Post_Status=Posted (best effort)
+              try {
+                await writeRowFields(csvUrl, headers, rowNumber, { Post_Status: 'Posted' })
+              } catch (e: any) {
+                console.warn('⚠️ Failed to write Post_Status=Posted:', e?.message)
+              }
+            } else if (Object.keys(platformErrors).length > 0) {
+              const allErrors = Object.entries(platformErrors)
+                .map(([p, e]) => `${p}: ${e.message}`)
+                .join('; ')
+                .slice(0, 500)
+              const anyRetryable = Object.values(platformErrors).some(e => e.retryable)
+              const representativeError = Object.values(platformErrors).find(e => e.retryable)?.raw ||
+                Object.values(platformErrors)[0]?.raw
+              const stateUpdate: Record<string, string> = { Post_Last_Error: allErrors }
+              if (anyRetryable) {
+                stateUpdate.Post_Status = 'Deferred'
+                stateUpdate.Post_Next_Attempt_At = computeNextAttemptAt(representativeError)
+                console.log(`⏳ Row ${rowNumber} deferred — will retry at ${stateUpdate.Post_Next_Attempt_At}`)
+                getAuditLogger().logEvent({
+                  level: 'WARN',
+                  category: 'POSTING',
+                  message: 'Row deferred after transient errors',
+                  rowNumber,
+                  product: product?.title || product?.name,
+                  details: { nextAt: stateUpdate.Post_Next_Attempt_At, errors: allErrors }
+                })
+              } else {
+                stateUpdate.Post_Status = 'Failed'
+                getAuditLogger().logEvent({
+                  level: 'ERROR',
+                  category: 'POSTING',
+                  message: 'Row marked Failed after non-retryable errors',
+                  rowNumber,
+                  product: product?.title || product?.name,
+                  details: { errors: allErrors }
+                })
+              }
+              try {
+                await writeRowFields(csvUrl, headers, rowNumber, stateUpdate)
+              } catch (e: any) {
+                console.warn('⚠️ Failed to write post-posting error state:', e?.message)
+              }
+            }
+          }
 
           if (!dryRun && postedAtLeastOne) {
             try {
@@ -845,18 +974,27 @@ async function main() {
         const sheetGid = gidMatch?.[1]
 
         if (spreadsheetId && result.skipped === false) {
-          console.log('🔁 All rows already posted — resetting Posted column to loop from row 1')
-          try {
-            const axios = require('axios')
-            const csvResp = await axios.get(csvUrl, { responseType: 'text', timeout: 15000 })
-            const lines = (csvResp.data as string).trim().split('\n')
-            const headers = lines[0].split(',').map((h: string) => h.trim().replace(/^"|"$/g, ''))
-            const totalDataRows = lines.length - 1
-            await resetPostedColumn({ spreadsheetId, sheetGid, totalRows: totalDataRows, headers })
-            seen.clear()
-            console.log(`✅ Reset ${totalDataRows} rows — will post from row 1 on next cycle`)
-          } catch (resetErr: any) {
-            console.error('❌ Failed to reset Posted column:', resetErr?.message)
+          if (loopResetPosted) {
+            console.log('🔁 All rows already posted — resetting Posted column to loop from row 1 (LOOP_RESET_POSTED=true)')
+            try {
+              const axios = require('axios')
+              const csvResp = await axios.get(csvUrl, { responseType: 'text', timeout: 15000 })
+              const lines = (csvResp.data as string).trim().split('\n')
+              const headers = lines[0].split(',').map((h: string) => h.trim().replace(/^"|"$/g, ''))
+              const totalDataRows = lines.length - 1
+              await resetPostedColumn({ spreadsheetId, sheetGid, totalRows: totalDataRows, headers })
+              seen.clear()
+              console.log(`✅ Reset ${totalDataRows} rows — will post from row 1 on next cycle`)
+            } catch (resetErr: any) {
+              console.error('❌ Failed to reset Posted column:', resetErr?.message)
+            }
+          } else {
+            console.log('✅ All rows already posted — remaining idle (set LOOP_RESET_POSTED=true to loop from row 1)')
+            getAuditLogger().logEvent({
+              level: 'INFO',
+              category: 'SYSTEM',
+              message: 'All rows already posted — idle (LOOP_RESET_POSTED not enabled)',
+            })
           }
         } else {
           console.log('⚠️  No valid products found in sheet. Check CSV_URL and column mappings.')
@@ -954,6 +1092,43 @@ function checkPlatformAvailability(enabledPlatforms: Set<string>) {
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+// ─── per-row posting state helpers ───────────────────────────────────────────
+
+function getPostAttempts(record: Record<string, any> | undefined): number {
+  const v = pickFirstNonEmpty(record, ['Post_Attempts'])
+  const n = parseInt(v, 10)
+  return isNaN(n) ? 0 : n
+}
+
+function isRowDeferred(record: Record<string, any> | undefined): boolean {
+  const nextAt = pickFirstNonEmpty(record, ['Post_Next_Attempt_At'])
+  if (!nextAt) return false
+  try {
+    return new Date(nextAt) > new Date()
+  } catch {
+    return false
+  }
+}
+
+function isRetryableError(err: any): boolean {
+  const status = err?.response?.status ?? err?.statusCode ?? (err as any)?.data?.status
+  if (status === 429) return true
+  if (typeof status === 'number' && status >= 500 && status < 600) return true
+  const msg = (err?.message || String(err)).toLowerCase()
+  return (
+    msg.includes('network') ||
+    msg.includes('timeout') ||
+    msg.includes('econnrefused') ||
+    msg.includes('enotfound')
+  )
+}
+
+function computeNextAttemptAt(err: any): string {
+  const status = err?.response?.status ?? err?.statusCode ?? (err as any)?.data?.status
+  const delayMs = status === 429 ? 15 * 60 * 1000 : 5 * 60 * 1000
+  return new Date(Date.now() + delayMs).toISOString()
 }
 
 function extractSpreadsheetIdFromCsv(csvUrl: string): string {

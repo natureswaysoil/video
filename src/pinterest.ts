@@ -14,7 +14,7 @@ export async function postToPinterest(
   caption: string,
   accessToken: string,
   boardId: string
-): Promise<void> {
+): Promise<string> {
   const startTime = Date.now()
 
   try {
@@ -36,10 +36,10 @@ export async function postToPinterest(
     })
 
     // Apply rate limiting and retry logic
-    await rateLimiters.execute('pinterest', async () => {
+    const pinId = await rateLimiters.execute('pinterest', async () => {
       return withRetry(
         async () => {
-          await axios.post(
+          const res = await axios.post(
             `https://api.pinterest.com/v5/pins`,
             {
               board_id: boardId,
@@ -52,6 +52,7 @@ export async function postToPinterest(
               timeout: config.TIMEOUT_SOCIAL_POST,
             }
           )
+          return String(res.data?.id ?? '')
         },
         {
           maxRetries: 3,
@@ -70,6 +71,7 @@ export async function postToPinterest(
     metrics.recordHistogram('pinterest.duration', duration)
 
     logger.info('Successfully posted to Pinterest', 'Pinterest', { duration })
+    return pinId
   } catch (error: any) {
     const duration = Date.now() - startTime
     metrics.incrementCounter('pinterest.error')
