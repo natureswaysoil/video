@@ -85,6 +85,43 @@ export class HeyGenClient {
     })
   }
 
+  async resolveAvatarId(nameOrId: string): Promise<string> {
+    if ((this as any)._avatarCache?.[nameOrId]) return (this as any)._avatarCache[nameOrId]
+    try {
+      const res = await this.axios.get('/v2/avatars')
+      const avatars: any[] = res.data?.data?.avatars || res.data?.avatars || []
+      const match = avatars.find((a: any) => a.avatar_id === nameOrId)
+        || avatars.find((a: any) => (a.avatar_name || '').toLowerCase().includes(nameOrId.toLowerCase()))
+        || avatars[0]
+      const id = match?.avatar_id || nameOrId
+      if (!(this as any)._avatarCache) (this as any)._avatarCache = {}
+      for (const a of avatars) { if (a.avatar_id) (this as any)._avatarCache[a.avatar_name || a.avatar_id] = a.avatar_id; (this as any)._avatarCache[a.avatar_id] = a.avatar_id }
+      console.log('Discovered HeyGen avatar ID', { requested: nameOrId, resolved: id, total: avatars.length })
+      return id
+    } catch (e: any) {
+      console.warn('Could not list HeyGen avatars:', e?.message); return nameOrId
+    }
+  }
+
+  async resolveVoiceId(nameOrId: string): Promise<string> {
+    if ((this as any)._voiceCache?.[nameOrId]) return (this as any)._voiceCache[nameOrId]
+    try {
+      const res = await this.axios.get('/v2/voices')
+      const voices: any[] = res.data?.data?.voices || res.data?.voices || []
+      const match = voices.find((v: any) => v.voice_id === nameOrId)
+        || voices.find((v: any) => (v.name || '').toLowerCase().includes(nameOrId.toLowerCase()))
+        || voices.find((v: any) => v.language === 'en-US' || (v.locale || '').startsWith('en'))
+        || voices[0]
+      const id = match?.voice_id || nameOrId
+      if (!(this as any)._voiceCache) (this as any)._voiceCache = {}
+      for (const v of voices) { if (v.voice_id) (this as any)._voiceCache[v.name || v.voice_id] = v.voice_id; (this as any)._voiceCache[v.voice_id] = v.voice_id }
+      console.log('Discovered HeyGen voice ID', { requested: nameOrId, resolved: id })
+      return id
+    } catch (e: any) {
+      console.warn('Could not list HeyGen voices:', e?.message); return nameOrId
+    }
+  }
+
   /**
    * Create a new video generation job
    * @param payload Video generation parameters
@@ -120,13 +157,13 @@ export class HeyGenClient {
               video_inputs: [{
                 character: {
                   type: 'avatar',
-                  avatar_id: (payload as any).avatar_id || payload.avatar || 'Daisy-inTshirt-20220818',
+                  avatar_id: resolvedAvatarId,
                   avatar_style: 'normal',
                 },
                 voice: {
                   type: 'text',
                   input_text: payload.script,
-                  voice_id: (payload as any).voice_id || payload.voice || '2d5b0e6cf36f460aa7fc47e3eee4ba54',
+                  voice_id: resolvedVoiceId,
                   speed: 1.0,
                 },
                 background: { type: 'color', value: '#1a1a1a' },
