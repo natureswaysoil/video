@@ -37,7 +37,7 @@ async function loadServiceAccountFromEnv() {
         try {
             parsed = JSON.parse(payload);
         }
-        catch (error) {
+        catch {
             throw new Error('Secret payload is not valid JSON');
         }
         if (!parsed?.client_email || !parsed?.private_key) {
@@ -59,16 +59,7 @@ async function loadServiceAccountFromEnv() {
     return null;
 }
 function hasConfiguredGoogleCredentials() {
-    if (process.env.GCP_SA_JSON || process.env.GCP_SECRET_SA_JSON) {
-        return true;
-    }
-    if (process.env.GS_SERVICE_ACCOUNT_EMAIL && process.env.GS_SERVICE_ACCOUNT_KEY) {
-        return true;
-    }
-    if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-        return true;
-    }
-    return false;
+    return true;
 }
 async function createGoogleAuthClient(scopes) {
     const serviceAccount = await loadServiceAccountFromEnv();
@@ -80,5 +71,5 @@ async function createGoogleAuthClient(scopes) {
         });
     }
     const googleAuth = new google_auth_library_1.GoogleAuth({ scopes });
-    return googleAuth.getClient();
+    return await googleAuth.getClient();
 }

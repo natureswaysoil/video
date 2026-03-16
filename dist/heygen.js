@@ -47,6 +47,57 @@ class HeyGenClient {
             },
         });
     }
+    async resolveAvatarId(nameOrId) {
+        if (this._avatarCache?.[nameOrId])
+            return this._avatarCache[nameOrId];
+        try {
+            const res = await this.axios.get('/v2/avatars');
+            const avatars = res.data?.data?.avatars || res.data?.avatars || [];
+            const match = avatars.find((a) => a.avatar_id === nameOrId)
+                || avatars.find((a) => (a.avatar_name || '').toLowerCase().includes(nameOrId.toLowerCase()))
+                || avatars[0];
+            const id = match?.avatar_id || nameOrId;
+            if (!this._avatarCache)
+                this._avatarCache = {};
+            for (const a of avatars) {
+                if (a.avatar_id)
+                    this._avatarCache[a.avatar_name || a.avatar_id] = a.avatar_id;
+                this._avatarCache[a.avatar_id] = a.avatar_id;
+            }
+            console.log('Discovered HeyGen avatar ID', { requested: nameOrId, resolved: id, total: avatars.length });
+            return id;
+        }
+        catch (e) {
+            console.warn('Could not list HeyGen avatars:', e?.message);
+            return nameOrId;
+        }
+    }
+    async resolveVoiceId(nameOrId) {
+        if (this._voiceCache?.[nameOrId])
+            return this._voiceCache[nameOrId];
+        try {
+            const res = await this.axios.get('/v2/voices');
+            const voices = res.data?.data?.voices || res.data?.voices || [];
+            const match = voices.find((v) => v.voice_id === nameOrId)
+                || voices.find((v) => (v.name || '').toLowerCase().includes(nameOrId.toLowerCase()))
+                || voices.find((v) => v.language === 'en-US' || (v.locale || '').startsWith('en'))
+                || voices[0];
+            const id = match?.voice_id || nameOrId;
+            if (!this._voiceCache)
+                this._voiceCache = {};
+            for (const v of voices) {
+                if (v.voice_id)
+                    this._voiceCache[v.name || v.voice_id] = v.voice_id;
+                this._voiceCache[v.voice_id] = v.voice_id;
+            }
+            console.log('Discovered HeyGen voice ID', { requested: nameOrId, resolved: id });
+            return id;
+        }
+        catch (e) {
+            console.warn('Could not list HeyGen voices:', e?.message);
+            return nameOrId;
+        }
+    }
     /**
      * Create a new video generation job
      * @param payload Video generation parameters
@@ -66,7 +117,29 @@ class HeyGenClient {
             });
             const jobId = await rateLimiters.execute('heygen', async () => {
                 return (0, errors_1.withRetry)(async () => {
-                    const response = await this.axios.post('/v1/video.generate', payload, {
+                    // Resolve avatar and voice IDs before creating the request
+                    const resolvedAvatarId = await this.resolveAvatarId(payload.avatar || 'default');
+                    const resolvedVoiceId = await this.resolveVoiceId(payload.voice || 'default');
+                    // HeyGen v2 API
+                    const v2Body = {
+                        video_inputs: [{
+                                character: {
+                                    type: 'avatar',
+                                    avatar_id: resolvedAvatarId,
+                                    avatar_style: 'normal',
+                                },
+                                voice: {
+                                    type: 'text',
+                                    input_text: payload.script,
+                                    voice_id: resolvedVoiceId,
+                                    speed: 1.0,
+                                },
+                                background: { type: 'color', value: '#1a1a1a' },
+                            }],
+                        dimension: { width: 720, height: 1280 },
+                        ...(payload.title ? { title: payload.title } : {}),
+                    };
+                    const response = await this.axios.post('/v2/video/generate', v2Body, {
                         timeout: config.TIMEOUT_HEYGEN,
                     });
                     const id = response.data?.data?.video_id ||
@@ -122,7 +195,7 @@ class HeyGenClient {
             if (!jobId) {
                 throw new errors_1.AppError('Job ID is required', errors_1.ErrorCode.VALIDATION_ERROR, 400, true, { hasJobId: !!jobId });
             }
-            const response = await this.axios.get(`/v1/video_status.get?video_id=${jobId}`, {
+            const response = await this.axios.get(`/v2/video/${jobId}`, {
                 timeout: config.TIMEOUT_HEYGEN,
             });
             const data = response.data?.data || response.data;

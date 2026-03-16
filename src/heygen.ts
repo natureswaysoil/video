@@ -152,6 +152,10 @@ export class HeyGenClient {
       const jobId = await rateLimiters.execute('heygen', async () => {
         return withRetry(
           async () => {
+            // Resolve avatar and voice IDs before creating the request
+            const resolvedAvatarId = await this.resolveAvatarId(payload.avatar || 'default')
+            const resolvedVoiceId = await this.resolveVoiceId(payload.voice || 'default')
+            
             // HeyGen v2 API
             const v2Body: Record<string, any> = {
               video_inputs: [{

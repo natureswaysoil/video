@@ -25,9 +25,9 @@ async function postToPinterest(videoUrl, caption, accessToken, boardId) {
             captionLength: caption.length,
         });
         // Apply rate limiting and retry logic
-        await rateLimiters.execute('pinterest', async () => {
+        const pinId = await rateLimiters.execute('pinterest', async () => {
             return (0, errors_1.withRetry)(async () => {
-                await axios_1.default.post(`https://api.pinterest.com/v5/pins`, {
+                const res = await axios_1.default.post(`https://api.pinterest.com/v5/pins`, {
                     board_id: boardId,
                     media_source: { source_type: 'video_url', url: videoUrl },
                     title: caption.substring(0, 100), // Pinterest title max length
@@ -36,6 +36,7 @@ async function postToPinterest(videoUrl, caption, accessToken, boardId) {
                     headers: { Authorization: `Bearer ${accessToken}` },
                     timeout: config.TIMEOUT_SOCIAL_POST,
                 });
+                return String(res.data?.id ?? '');
             }, {
                 maxRetries: 3,
                 onRetry: (error, attempt) => {
@@ -50,6 +51,7 @@ async function postToPinterest(videoUrl, caption, accessToken, boardId) {
         metrics.incrementCounter('pinterest.success');
         metrics.recordHistogram('pinterest.duration', duration);
         logger.info('Successfully posted to Pinterest', 'Pinterest', { duration });
+        return pinId;
     }
     catch (error) {
         const duration = Date.now() - startTime;

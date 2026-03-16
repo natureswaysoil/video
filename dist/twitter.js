@@ -37,8 +37,9 @@ async function postToTwitter(videoUrl, caption, bearerToken) {
             canUpload,
             captionLength: caption.length,
         });
+        let postId = '';
         if (canUpload) {
-            await rateLimiters.execute('twitter', async () => {
+            postId = await rateLimiters.execute('twitter', async () => {
                 return (0, errors_1.withRetry)(async () => {
                     const client = new twitter_api_v2_1.TwitterApi({
                         appKey: process.env.TWITTER_API_KEY,
@@ -86,11 +87,12 @@ async function postToTwitter(videoUrl, caption, bearerToken) {
                     });
                     // Post tweet with media
                     logger.debug('Posting tweet', 'Twitter');
-                    await rwClient.v2.tweet({
+                    const tweetResult = await rwClient.v2.tweet({
                         text: caption,
                         media: { media_ids: [mediaId] },
                     });
                     logger.debug('Tweet posted successfully', 'Twitter');
+                    return tweetResult.data.id;
                 }, {
                     maxRetries: 3,
                     retryIf: (error) => {
@@ -116,12 +118,13 @@ async function postToTwitter(videoUrl, caption, bearerToken) {
             if (!bearerToken) {
                 throw new errors_1.AppError('Twitter bearer token missing and upload credentials not provided', errors_1.ErrorCode.MISSING_CONFIG, 500);
             }
-            await rateLimiters.execute('twitter', async () => {
+            postId = await rateLimiters.execute('twitter', async () => {
                 return (0, errors_1.withRetry)(async () => {
-                    await axios_1.default.post('https://api.twitter.com/2/tweets', { text: `${caption}\n${videoUrl}` }, {
+                    const res = await axios_1.default.post('https://api.twitter.com/2/tweets', { text: `${caption}\n${videoUrl}` }, {
                         headers: { Authorization: `Bearer ${bearerToken}` },
                         timeout: config.TIMEOUT_SOCIAL_POST,
                     });
+                    return String(res.data?.data?.id ?? '');
                 }, {
                     maxRetries: 3,
                     retryIf: (error) => {
@@ -144,6 +147,7 @@ async function postToTwitter(videoUrl, caption, bearerToken) {
         metrics.incrementCounter('twitter.success');
         metrics.recordHistogram('twitter.duration', duration);
         logger.info('Successfully posted to Twitter', 'Twitter', { duration });
+        return postId;
     }
     catch (error) {
         const duration = Date.now() - startTime;
