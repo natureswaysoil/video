@@ -318,6 +318,7 @@ async function main() {
                 }
               }
 
+              rowsThisCycle++ // count against ROWS_PER_RUN limit
               console.log('⏭️  Video job created; will poll on next cycle')
               continue
             } catch (e: any) {
