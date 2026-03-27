@@ -293,6 +293,7 @@ async function main() {
                                     console.error('⚠️  Failed to save HeyGen job state to sheet:', e?.message || e);
                                 }
                             }
+                            rowsThisCycle++; // count against ROWS_PER_RUN limit
                             console.log('⏭️  Video job created; will poll on next cycle');
                             continue;
                         }
