@@ -344,18 +344,18 @@ async function resolveSheetName(
   gid?: string | number
 ): Promise<string> {
   try {
-    if (!gid) return 'Sheet1'
+    if (!gid) return process.env.GS_SHEET_NAME || 'Product_Automation'
     
     const meta = await sheets.spreadsheets.get({ spreadsheetId })
     const targetId = Number(gid)
     const found = meta.data.sheets?.find((s: any) => s.properties?.sheetId === targetId)
-    return found?.properties?.title || 'Sheet1'
+    return found?.properties?.title || process.env.GS_SHEET_NAME || 'Product_Automation'
   } catch (error) {
     logger.warn('Failed to resolve sheet name, using default', 'Sheets', {
       spreadsheetId,
       gid,
     }, error)
-    return 'Sheet1'
+    return process.env.GS_SHEET_NAME || 'Product_Automation'
   }
 }
 
