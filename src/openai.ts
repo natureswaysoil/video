@@ -10,6 +10,24 @@ const logger = getLogger()
 const metrics = getMetrics()
 const rateLimiters = getRateLimiters()
 
+function looksLikeMetaNarration(text: string): boolean {
+  const bannedPatterns = [
+    /\bthis video\b/i,
+    /\bin this video\b/i,
+    /\bwe see\b/i,
+    /\bon screen\b/i,
+    /\bthe scene\b/i,
+    /\bscene opens\b/i,
+    /\bhere('?s| is) how\b/i,
+    /\bstep\s*1\b/i,
+    /\bfirst[, ]/i,
+    /\bnext[, ]/i,
+    /\bfinally[, ]/i,
+  ]
+
+  return bannedPatterns.some((pattern) => pattern.test(text))
+}
+
 export async function generateScript(product: Product, opts?: {
   model?: string
   systemPrompt?: string
@@ -28,11 +46,12 @@ export async function generateScript(product: Product, opts?: {
       )
     }
 
-    const model = opts?.model || config.OPENAI_MODEL
+    const model = opts?.model || config.OPENAI_MODEL || 'gpt-4o'
+
     const systemPrompt =
-  opts?.systemPrompt ||
-  config.OPENAI_SYSTEM_PROMPT ||
-  `You are a direct-response product video copywriter for Nature's Way Soil.
+      opts?.systemPrompt ||
+      config.OPENAI_SYSTEM_PROMPT ||
+      `You are a direct-response product video copywriter for Nature's Way Soil.
 
 Write ONLY the spoken voiceover for a short product video.
 
@@ -60,10 +79,10 @@ Requirements:
 
 Return plain text only.`
 
-const userTemplate =
-  opts?.userTemplate ||
-  config.OPENAI_USER_TEMPLATE ||
-  `Write the spoken voiceover for a short product marketing video about {title}.
+    const userTemplate =
+      opts?.userTemplate ||
+      config.OPENAI_USER_TEMPLATE ||
+      `Write the spoken voiceover for a short product marketing video about {title}.
 
 Product details:
 {details}
@@ -83,6 +102,7 @@ The voiceover should:
 5. close with urgency and confidence
 
 End with exactly: "Visit natureswaysoil.com for more info".`
+
     const title = String(product.title || product.name || product.id || '').trim()
     const details = String(product.details || '').trim()
     
@@ -103,7 +123,6 @@ End with exactly: "Visit natureswaysoil.com for more info".`
       productTitle: title,
     })
 
-    // Apply rate limiting and retry logic
     const text = await rateLimiters.execute('openai', async () => {
       return withRetry(
         async () => {
@@ -125,11 +144,22 @@ End with exactly: "Visit natureswaysoil.com for more info".`
           )
 
           const content = res.data?.choices?.[0]?.message?.content?.trim()
+
           if (!content) {
             throw new AppError(
               'OpenAI returned no content',
               ErrorCode.OPENAI_API_ERROR,
               500
+            )
+          }
+
+          if (looksLikeMetaNarration(content)) {
+            throw new AppError(
+              'OpenAI returned meta/instructional narration instead of spoken ad copy',
+              ErrorCode.OPENAI_API_ERROR,
+              500,
+              true,
+              { preview: content.substring(0, 200) }
             )
           }
 
@@ -278,7 +308,6 @@ Return as JSON with this structure:
       productTitle: articleData.productTitle,
     })
 
-    // Apply rate limiting and retry logic
     const parsed = await rateLimiters.execute('openai', async () => {
       return withRetry(
         async () => {
@@ -296,7 +325,7 @@ Return as JSON with this structure:
             },
             {
               headers: { Authorization: `Bearer ${apiKey}` },
-              timeout: config.TIMEOUT_OPENAI * 2, // Longer timeout for blog articles
+              timeout: config.TIMEOUT_OPENAI * 2,
             }
           )
 
@@ -333,7 +362,6 @@ Return as JSON with this structure:
       )
     })
 
-    // Generate ID and slug
     const timestamp = Date.now()
     const id = `article_${timestamp}`
     const slug = articleData.productTitle
