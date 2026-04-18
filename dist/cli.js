@@ -704,10 +704,7 @@ async function main() {
                     else if (process.env.ENABLE_BLOG_POSTING === 'true') {
                         console.log('⚠️ Blog posting enabled but GITHUB_TOKEN not set');
                     }
-                    if (false && process.env.FACEBOOK_PAGE_ACCESS_TOKEN) {
-                        console.log('[FACEBOOK DISABLED] Skipping until token is fixed');
-                    }
-                    else if (false) {
+                    if ((enabledPlatforms.size === 0 || enabledPlatforms.has('facebook')) && process.env.FACEBOOK_PAGE_ACCESS_TOKEN && process.env.FACEBOOK_PAGE_ID) {
                         (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'INFO', category: 'POSTING', message: 'Attempting Facebook post', rowNumber, product: product?.title || product?.name });
                         try {
                             const fbResult = await retryWithBackoff(async () => {
