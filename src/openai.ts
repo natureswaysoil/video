@@ -29,9 +29,60 @@ export async function generateScript(product: Product, opts?: {
     }
 
     const model = opts?.model || config.OPENAI_MODEL
-    const systemPrompt = opts?.systemPrompt || config.OPENAI_SYSTEM_PROMPT || "You are a concise 'how-to' script writer for ~30 second social videos about gardening products by Nature's Way Soil. Use clear steps and keep it friendly and practical."
-    const userTemplate = opts?.userTemplate || config.OPENAI_USER_TEMPLATE || "Write a how-to style voiceover script about {title}. Length: about 30 seconds. Give 3-5 quick, actionable steps the viewer can follow. Keep it approachable and helpful. End with exactly: 'Visit natureswaysoil.com for more info'. Product details to incorporate where helpful: {details}."
+    const systemPrompt =
+  opts?.systemPrompt ||
+  config.OPENAI_SYSTEM_PROMPT ||
+  `You are a direct-response product video copywriter for Nature's Way Soil.
 
+Write ONLY the spoken voiceover for a short product video.
+
+Do NOT describe the video.
+Do NOT describe scenes.
+Do NOT explain what the video will show.
+Do NOT write shot lists, stage directions, or production notes.
+Do NOT use phrases like:
+- "this video shows"
+- "in this video"
+- "we see"
+- "on screen"
+- "the scene"
+- "first, next, finally"
+
+Requirements:
+- about 30 seconds
+- natural spoken English
+- short punchy sentences
+- confident, clear, benefit-driven
+- start with a strong hook
+- highlight the problem
+- present the product as the solution
+- end with exactly: "Visit natureswaysoil.com for more info"
+
+Return plain text only.`
+
+const userTemplate =
+  opts?.userTemplate ||
+  config.OPENAI_USER_TEMPLATE ||
+  `Write the spoken voiceover for a short product marketing video about {title}.
+
+Product details:
+{details}
+
+Important:
+- write ONLY what the narrator should say
+- do NOT describe visuals
+- do NOT explain the video
+- do NOT turn this into a how-to lesson
+- do NOT give numbered steps
+
+The voiceover should:
+1. hook attention fast
+2. name the problem
+3. introduce the product
+4. explain the benefit clearly
+5. close with urgency and confidence
+
+End with exactly: "Visit natureswaysoil.com for more info".`
     const title = String(product.title || product.name || product.id || '').trim()
     const details = String(product.details || '').trim()
     
