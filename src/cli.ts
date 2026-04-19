@@ -123,8 +123,15 @@ async function main() {
     process.exit(1)
   }
 
-  const csvUrl = process.env.CSV_URL as string
-  if (!csvUrl) throw new Error('CSV_URL not set in .env')
+const csvUrl =
+  process.env.CSV_URL ||
+  process.env.GOOGLE_SHEET_CSV_URL;
+
+console.log("GOOGLE_SHEET_CSV_URL loaded:", !!process.env.GOOGLE_SHEET_CSV_URL);
+
+if (!csvUrl) {
+  throw new Error("CSV_URL / GOOGLE_SHEET_CSV_URL not set");
+}
 
   const seen = new Set<string>()
   const intervalMs = Number(process.env.POLL_INTERVAL_MS ?? '60000')
