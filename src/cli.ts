@@ -20,7 +20,7 @@ import {
 import { getAuditLogger } from './audit-logger'
 import { hasConfiguredGoogleCredentials } from './google-auth'
 import { validateConfig } from './config-validator'
-
+import { SecretManagerServiceClient } from '@google-cloud/secret-manager'
 const auditLogger = getAuditLogger()
 
 type VideoState = {
