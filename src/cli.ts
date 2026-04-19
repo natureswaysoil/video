@@ -48,6 +48,26 @@ function getVideoState(record: Record<string, any> | undefined): VideoState {
   }
 }
 
+async function writeRowFields(
+  csvUrl: string,
+  headers: string[],
+  rowNumber: number,
+  updates: Record<string, string>
+) {
+  const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
+  const sheetGid = extractGidFromCsv(csvUrl)
+
+  for (const [columnName, value] of Object.entries(updates)) {
+    await writeColumnValues({
+      spreadsheetId,
+      sheetGid,
+      headers,
+      columnName,
+      rows: [{ rowNumber, value }],
+    })
+  }
+}
+
 async function loadSecretToEnv(secretName: string): Promise<void> {
   if (process.env[secretName]) return
 
@@ -75,26 +95,6 @@ async function loadSecretToEnv(secretName: string): Promise<void> {
     }
   } catch (error: any) {
     console.warn(`Could not load secret ${secretName}:`, error?.message || error)
-  }
-}
-
-async function writeRowFields(
-  csvUrl: string,
-  headers: string[],
-  rowNumber: number,
-  updates: Record<string, string>
-) {
-  const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
-  const sheetGid = extractGidFromCsv(csvUrl)
-
-  for (const [columnName, value] of Object.entries(updates)) {
-    await writeColumnValues({
-      spreadsheetId,
-      sheetGid,
-      headers,
-      columnName,
-      rows: [{ rowNumber, value }],
-    })
   }
 }
 
@@ -239,7 +239,7 @@ async function main() {
             break
           }
 
-          console.log(`\n========== Processing Row ${rowNumber} ==========`) 
+          console.log(`\n========== Processing Row ${rowNumber} ==========`)
           console.log('Product:', product)
 
           const videoState = getVideoState(record)
@@ -295,19 +295,21 @@ async function main() {
             if (process.env.OPENAI_API_KEY) {
               try {
                 script = await generateScript(product)
-                console.log('🔥 SCRIPT BEFORE FILTER:')
+                console.log('🔥 FULL GENERATED SCRIPT:')
                 console.log(script)
 
+                const lower = script?.toLowerCase() || ''
                 if (
                   !script ||
                   script.length < 50 ||
-                  script.toLowerCase().includes('in this video') ||
-                  script.toLowerCase().includes('show') ||
-                  script.toLowerCase().includes('step') ||
-                  script.toLowerCase().includes('scene') ||
-                  script.toLowerCase().includes('camera')
+                  lower.includes('in this video') ||
+                  lower.includes('show') ||
+                  lower.includes('step') ||
+                  lower.includes('scene') ||
+                  lower.includes('camera') ||
+                  lower.includes('demonstrate')
                 ) {
-                  throw new Error('BAD SCRIPT — blocking HeyGen')
+                  throw new Error('Bad instruction-style script detected. Stopping before HeyGen.')
                 }
 
                 console.log('✅ Generated script with OpenAI:', script.substring(0, 100) + '...')
@@ -491,22 +493,7 @@ async function main() {
               console.log(`⏭️  Row ${rowNumber} already posted to Instagram (${existingId}) — skipping`)
               platformResults.instagram = { success: true, result: existingId }
               postedAtLeastOne = true
-              getAuditLogger().logEvent({
-                level: 'INFO',
-                category: 'POSTING',
-                message: 'Instagram already posted (idempotency check)',
-                rowNumber,
-                product: product?.title || product?.name,
-                details: { mediaId: existingId }
-              })
             } else {
-              getAuditLogger().logEvent({
-                level: 'INFO',
-                category: 'POSTING',
-                message: 'Attempting Instagram post',
-                rowNumber,
-                product: product?.title || product?.name
-              })
               try {
                 const mediaId = await postToInstagram(videoUrl!, caption, process.env.INSTAGRAM_ACCESS_TOKEN!, process.env.INSTAGRAM_IG_ID!)
                 console.log('✅ Posted to Instagram:', mediaId)
@@ -520,28 +507,12 @@ async function main() {
                     console.warn('⚠️ Failed to persist Instagram_Media_ID:', e?.message)
                   }
                 }
-                getAuditLogger().logEvent({
-                  level: 'SUCCESS',
-                  category: 'POSTING',
-                  message: 'Instagram post successful',
-                  rowNumber,
-                  product: product?.title || product?.name,
-                  details: { mediaId }
-                })
               } catch (err: any) {
                 console.error('❌ Instagram post failed:', err?.message || err)
                 platformResults.instagram = { success: false, error: err?.message || String(err) }
                 platformErrors.instagram = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err }
                 incrementFailedPost()
                 addError(`Instagram: ${product?.title || jobId} - ${err?.message || String(err)}`)
-                getAuditLogger().logEvent({
-                  level: 'ERROR',
-                  category: 'POSTING',
-                  message: 'Instagram post failed',
-                  rowNumber,
-                  product: product?.title || product?.name,
-                  details: { error: err?.message }
-                })
               }
             }
           }
@@ -555,22 +526,7 @@ async function main() {
               console.log(`⏭️  Row ${rowNumber} already posted to Twitter (${existingId}) — skipping`)
               platformResults.twitter = { success: true, result: existingId }
               postedAtLeastOne = true
-              getAuditLogger().logEvent({
-                level: 'INFO',
-                category: 'POSTING',
-                message: 'Twitter already posted (idempotency check)',
-                rowNumber,
-                product: product?.title || product?.name,
-                details: { tweetId: existingId }
-              })
             } else {
-              getAuditLogger().logEvent({
-                level: 'INFO',
-                category: 'POSTING',
-                message: 'Attempting Twitter post',
-                rowNumber,
-                product: product?.title || product?.name
-              })
               try {
                 const tweetId = await postToTwitter(videoUrl!, caption, process.env.TWITTER_BEARER_TOKEN ?? '')
                 console.log('✅ Posted to Twitter:', tweetId)
@@ -584,7 +540,128 @@ async function main() {
                     console.warn('⚠️ Failed to persist Twitter_Post_ID:', e?.message)
                   }
                 }
-                getAuditLogger().logEvent({
-                  level: 'SUCCESS',
-                  category: 'POSTING',
-                  message
+              } catch (err: any) {
+                console.error('❌ Twitter post failed:', err?.message || err)
+                platformResults.twitter = { success: false, error: err?.message || String(err) }
+                platformErrors.twitter = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err }
+                incrementFailedPost()
+                addError(`Twitter: ${product?.title || jobId} - ${err?.message || String(err)}`)
+              }
+            }
+          }
+
+          if (dryRun || !canPostNow) {
+            console.log('[DRY RUN] Would post to Pinterest:', { videoUrl, caption })
+            platformResults.pinterest = { success: true, result: 'DRY_RUN' }
+          } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')) && process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID) {
+            const existingId = pickFirstNonEmpty(record, ['Pinterest_Pin_ID'])
+            if (existingId) {
+              console.log(`⏭️  Row ${rowNumber} already posted to Pinterest (${existingId}) — skipping`)
+              platformResults.pinterest = { success: true, result: existingId }
+              postedAtLeastOne = true
+            } else {
+              try {
+                const pinId = await postToPinterest(videoUrl!, caption, process.env.PINTEREST_ACCESS_TOKEN!, process.env.PINTEREST_BOARD_ID!)
+                console.log('✅ Posted to Pinterest:', pinId)
+                platformResults.pinterest = { success: true, result: pinId }
+                postedAtLeastOne = true
+                incrementSuccessfulPost()
+                if (hasConfiguredGoogleCredentials() && pinId.length > 0) {
+                  try {
+                    await writeRowFields(csvUrl, headers, rowNumber, { Pinterest_Pin_ID: pinId })
+                  } catch (e: any) {
+                    console.warn('⚠️ Failed to persist Pinterest_Pin_ID:', e?.message)
+                  }
+                }
+              } catch (err: any) {
+                console.error('❌ Pinterest post failed:', err?.message || err)
+                platformResults.pinterest = { success: false, error: err?.message || String(err) }
+                platformErrors.pinterest = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err }
+                incrementFailedPost()
+                addError(`Pinterest: ${product?.title || jobId} - ${err?.message || String(err)}`)
+              }
+            }
+          }
+
+          if (dryRun || !canPostNow) {
+            console.log('[DRY RUN] Would upload to YouTube:', { videoUrl, caption })
+            platformResults.youtube = { success: true, result: 'DRY_RUN' }
+          } else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')) && process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN) {
+            const existingId = pickFirstNonEmpty(record, ['YouTube_Video_ID'])
+            if (existingId) {
+              console.log(`⏭️  Row ${rowNumber} already uploaded to YouTube (${existingId}) — skipping`)
+              platformResults.youtube = { success: true, result: existingId }
+              postedAtLeastOne = true
+            } else {
+              try {
+                const videoId = await postToYouTube(
+                  videoUrl!,
+                  caption,
+                  process.env.YT_CLIENT_ID!,
+                  process.env.YT_CLIENT_SECRET!,
+                  process.env.YT_REFRESH_TOKEN!,
+                  (process.env.YT_PRIVACY_STATUS as any) || 'unlisted'
+                )
+                console.log('✅ Posted to YouTube:', videoId)
+                platformResults.youtube = { success: true, result: videoId }
+                postedAtLeastOne = true
+                incrementSuccessfulPost()
+                if (hasConfiguredGoogleCredentials() && videoId.length > 0) {
+                  try {
+                    await writeRowFields(csvUrl, headers, rowNumber, { YouTube_Video_ID: videoId })
+                  } catch (e: any) {
+                    console.warn('⚠️ Failed to persist YouTube_Video_ID:', e?.message)
+                  }
+                }
+              } catch (err: any) {
+                console.error('❌ YouTube upload failed:', err?.message || err)
+                platformResults.youtube = { success: false, error: err?.message || String(err) }
+                platformErrors.youtube = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err }
+                incrementFailedPost()
+                addError(`YouTube: ${product?.title || jobId} - ${err?.message || String(err)}`)
+              }
+            }
+          }
+
+          if (dryRun) {
+            platformResults.blog = { success: true, result: 'DRY_RUN' }
+          } else if (process.env.ENABLE_BLOG_POSTING === 'true' && process.env.GITHUB_TOKEN) {
+            const { postBlogArticle } = await import('./blog')
+            try {
+              const blogResult = await postBlogArticle(
+                {
+                  productTitle: product?.title || product?.name || 'Product',
+                  productDescription: product?.details,
+                  videoUrl: videoUrl!,
+                  productUrl: product?.url
+                },
+                process.env.GITHUB_TOKEN!,
+                process.env.GITHUB_REPO,
+                process.env.GITHUB_BRANCH
+              )
+              console.log('✅ Blog article published:', {
+                articleId: blogResult.articleId,
+                commitSha: blogResult.commitSha?.substring(0, 7)
+              })
+              platformResults.blog = { success: true, result: blogResult.articleId }
+              postedAtLeastOne = true
+              incrementSuccessfulPost()
+            } catch (err: any) {
+              console.error('❌ Blog article posting failed:', err?.message || err)
+              platformResults.blog = { success: false, error: err?.message || String(err) }
+              platformErrors.blog = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err }
+              incrementFailedPost()
+              addError(`Blog: ${product?.title || jobId} - ${err?.message || String(err)}`)
+            }
+          }
+
+          if ((enabledPlatforms.size === 0 || enabledPlatforms.has('facebook')) && process.env.FACEBOOK_PAGE_ACCESS_TOKEN && process.env.FACEBOOK_PAGE_ID) {
+            try {
+              const axios = await import('axios')
+              const fbResult = await retryWithBackoff(async () => {
+                const res = await axios.default.post(
+                  `https://graph.facebook.com/v19.0/${process.env.FACEBOOK_PAGE_ID}/videos`,
+                  {
+                    file_url: videoUrl,
+                    description: caption,
+                    title: (product?.title || product?.name || "Nature's Way Soil").
