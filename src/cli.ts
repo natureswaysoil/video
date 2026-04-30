@@ -6,6 +6,7 @@ import { postToInstagram } from './instagram'
 import { postToTwitter } from './twitter'
 import { postToPinterest } from './pinterest'
 import { postToYouTube } from './youtube'
+import { getConfig } from './config-validator'
 import { createClientWithSecrets as createHeyGenClient } from './heygen'
 import { mapProductToHeyGenPayload } from './heygen-adapter'
 import { generateScript } from './openai'
@@ -162,10 +163,30 @@ async function postToEnabledPlatforms(params: {
     return
   }
 
-  if (shouldPost('instagram')) await postToInstagram({ videoUrl, caption })
-  if (shouldPost('twitter')) await postToTwitter({ videoUrl, text: caption || title })
-  if (shouldPost('pinterest')) await postToPinterest({ videoUrl, title, description: caption })
-  if (shouldPost('youtube')) await postToYouTube({ videoUrl, title, description: caption })
+  if (shouldPost('instagram')) {
+    const config = getConfig()
+    if (config.INSTAGRAM_ACCESS_TOKEN && config.INSTAGRAM_IG_ID) {
+      await postToInstagram(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, config.INSTAGRAM_IG_ID)
+    }
+  }
+  if (shouldPost('twitter')) {
+    const config = getConfig()
+    if (config.TWITTER_BEARER_TOKEN) {
+      await postToTwitter(videoUrl, caption || title, config.TWITTER_BEARER_TOKEN)
+    }
+  }
+  if (shouldPost('pinterest')) {
+    const config = getConfig()
+    if (config.PINTEREST_ACCESS_TOKEN && config.PINTEREST_BOARD_ID) {
+      await postToPinterest(videoUrl, caption, config.PINTEREST_ACCESS_TOKEN, config.PINTEREST_BOARD_ID)
+    }
+  }
+  if (shouldPost('youtube')) {
+    const config = getConfig()
+    if (config.YT_CLIENT_ID && config.YT_CLIENT_SECRET && config.YT_REFRESH_TOKEN) {
+      await postToYouTube(videoUrl, caption, config.YT_CLIENT_ID, config.YT_CLIENT_SECRET, config.YT_REFRESH_TOKEN)
+    }
+  }
 
   const skipped = allPlatforms.filter((platform) => !shouldPost(platform))
   if (skipped.length > 0) console.log('Skipped disabled platforms:', skipped.join(', '))

@@ -6,14 +6,6 @@
  * Exports:
  *  - mapProductToHeyGenPayload(row) => { payload, avatar, voice, lengthSeconds, reason }
  *  - writeBackMappingsToSheet(sheetId, gid, mappedRows) => Promise<boolean>
- *
- * Notes:
- *  - writeBackMappingsToSheet will use (in order):
- *      - raw JSON in env var GCP_SA_JSON
- *      - a Secret Manager resource name in env var GCP_SECRET_SA_JSON (e.g. projects/PROJECT_ID/secrets/NAME/versions/latest)
- *      - GS_SERVICE_ACCOUNT_EMAIL + GS_SERVICE_ACCOUNT_KEY pair
- *      - Otherwise falls back to Application Default Credentials (e.g. Cloud Run service account)
- *  - Writes only HEYGEN_* columns; will create columns if missing.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.mapProductToHeyGenPayload = mapProductToHeyGenPayload;
@@ -27,14 +19,33 @@ const DEFAULTS = {
     lengthSeconds: 30,
 };
 const CATEGORY_MAP = [
-    { pattern: /\b(kelp|seaweed|algae)\b/i, avatar: 'garden_expert_01', voice: 'en_us_warm_female_01', lengthSeconds: 30, reason: 'matched keyword: kelp' },
-    { pattern: /\b(bone ?meal|bonemeal|bone)\b/i, avatar: 'farm_expert_02', voice: 'en_us_deep_male_01', lengthSeconds: 35, reason: 'matched keyword: bone meal' },
-    { pattern: /\b(hay|pasture|forage)\b/i, avatar: 'pasture_specialist_01', voice: 'en_us_neutral_mx_01', lengthSeconds: 40, reason: 'matched keyword: hay/pasture' },
-    { pattern: /\b(humic|fulvic|humate|fulvate)\b/i, avatar: 'eco_gardener_01', voice: 'en_us_warm_female_02', lengthSeconds: 30, reason: 'matched keyword: humic/fulvic' },
-    { pattern: /\b(compost|tea|soil conditioner)\b/i, avatar: 'eco_gardener_01', voice: 'en_us_warm_female_02', lengthSeconds: 30, reason: 'matched keyword: compost/soil' },
+    { pattern: /\b(kelp|seaweed|algae)\b/i, avatar: 'garden_expert_01', voice: 'en_us_warm_female_01', lengthSeconds: 30, reason: 'matched keyword: kelp', visualHint: 'healthy green plants, liquid seaweed fertilizer, measuring cup, watering can, garden beds, natural sunlight' },
+    { pattern: /\b(bone ?meal|bonemeal|bone)\b/i, avatar: 'farm_expert_02', voice: 'en_us_deep_male_01', lengthSeconds: 35, reason: 'matched keyword: bone meal', visualHint: 'strong roots, blooming plants, calcium and phosphorus support, liquid bottle near garden soil' },
+    { pattern: /\b(hay|pasture|forage)\b/i, avatar: 'pasture_specialist_01', voice: 'en_us_neutral_mx_01', lengthSeconds: 40, reason: 'matched keyword: hay/pasture', visualHint: 'green pasture field, hay grass, sprayer application, farm fence line, healthy forage growth' },
+    { pattern: /\b(humic|fulvic|humate|fulvate)\b/i, avatar: 'eco_gardener_01', voice: 'en_us_warm_female_02', lengthSeconds: 30, reason: 'matched keyword: humic/fulvic', visualHint: 'dark rich soil, active roots, lawn and garden soil conditioner, close-up of root zone moisture' },
+    { pattern: /\b(compost|tea|soil conditioner)\b/i, avatar: 'eco_gardener_01', voice: 'en_us_warm_female_02', lengthSeconds: 30, reason: 'matched keyword: compost/soil', visualHint: 'living compost, worm castings, biochar, raised beds, vegetables, rich dark soil texture' },
 ];
+function first(row, keys) {
+    for (const key of keys) {
+        const value = row[key];
+        if (value !== undefined && value !== null && String(value).trim() !== '')
+            return String(value).trim();
+    }
+    return '';
+}
+function cleanForPrompt(value) {
+    return value.replace(/\s+/g, ' ').replace(/[<>]/g, '').trim().slice(0, 900);
+}
+function buildVisualPrompt(row, title, details, visualHint) {
+    const existingPrompt = first(row, [
+        'Visual_Prompt', 'visual_prompt', 'Video_Prompt', 'video_prompt', 'Scene_Prompt', 'scene_prompt',
+        'Image_Prompt', 'image_prompt', 'Creative_Brief', 'creative_brief'
+    ]);
+    if (existingPrompt)
+        return cleanForPrompt(existingPrompt);
+    return cleanForPrompt(`Create a premium vertical product marketing video for Nature's Way Soil. Show real garden and lawn visuals, not text describing the scene. Product: ${title}. Details: ${details}. Visual direction: ${visualHint}. Use close-up soil, roots, plants, product bottle, watering or spraying application, healthy before-and-after style transformation, warm natural light, clean Amazon-ready commercial look. Do not show a script, storyboard, captions as the main visual, or a person explaining what should be shown.`);
+}
 function mapProductToHeyGenPayload(row) {
-    // Choose fields to search: Title, Name, Description, Details, Short Description
     const textFields = [
         row.title, row.Title,
         row.name, row.Name,
@@ -46,18 +57,25 @@ function mapProductToHeyGenPayload(row) {
     let voice = process.env.HEYGEN_DEFAULT_VOICE || DEFAULTS.voice;
     let lengthSeconds = DEFAULTS.lengthSeconds;
     let reason = 'default';
+    let visualHint = 'organic garden product, healthy plants, rich soil, roots, lawn and garden care, product bottle, natural outdoor setting';
     for (const rule of CATEGORY_MAP) {
         if (rule.pattern.test(textFields)) {
             avatar = rule.avatar;
             voice = rule.voice;
             lengthSeconds = rule.lengthSeconds || lengthSeconds;
             reason = rule.reason;
+            visualHint = rule.visualHint;
             break;
         }
     }
-    // Build a simple HeyGen payload skeleton (script should be generated elsewhere)
-    // Use priority fields for script text if available
+    const title = first(row, ['Title', 'title', 'Product', 'product', 'Name', 'name']) || 'Nature\'s Way Soil product';
+    const details = first(row, ['Product Description', 'description', 'Description', 'Details', 'details', 'caption', 'Caption']);
     const script = (row['Product Description'] || row.description || row.Details || row.details || row.Title || row.title || '').toString();
+    const imageUrl = first(row, [
+        'Image_URL', 'image_url', 'Product_Image_URL', 'product_image_url', 'Main_Image_URL', 'main_image_url',
+        'Background_Image_URL', 'background_image_url', 'Hero_Image_URL', 'hero_image_url'
+    ]);
+    const visualPrompt = buildVisualPrompt(row, title, details, visualHint);
     const payload = {
         script,
         avatar,
@@ -66,6 +84,14 @@ function mapProductToHeyGenPayload(row) {
         music: DEFAULTS.music,
         subtitles: { enabled: true, style: 'short_lines' },
         webhook: process.env.HEYGEN_WEBHOOK_URL || undefined,
+        title,
+        visualPrompt,
+        imageUrl: imageUrl || undefined,
+        meta: {
+            productTitle: title,
+            visualHint,
+            sourceImageUrl: imageUrl || undefined,
+        },
     };
     return {
         payload,
@@ -75,33 +101,16 @@ function mapProductToHeyGenPayload(row) {
         reason,
     };
 }
-/**
- * Load service account JSON:
- * - If env GCP_SA_JSON contains raw JSON -> parse and return it
- * - Else if env GCP_SECRET_SA_JSON contains secret resource name -> fetch from Secret Manager
- */
 async function createSheetsAuthClient() {
     const scopes = ['https://www.googleapis.com/auth/spreadsheets'];
     return (0, google_auth_1.createGoogleAuthClient)(scopes);
 }
-/**
- * writeBackMappingsToSheet
- * - sheetId: the spreadsheet ID (from the sharing URL)
- * - gid: the sheet GID (the numeric gid)
- * - mappedRows: array of objects; order must match sheet rows (excluding header)
- * Behavior:
- *  - Adds columns HEYGEN_AVATAR, HEYGEN_VOICE, HEYGEN_LENGTH_SECONDS, HEYGEN_MAPPING_REASON, HEYGEN_MAPPED_AT if missing
- *  - Writes the mapped columns in a single rectangular update block
- *  - Safe: will not overwrite existing HEYGEN_* values unless force=true
- */
 async function writeBackMappingsToSheet(sheetId, gid, mappedRows, opts) {
     const authClient = await createSheetsAuthClient();
     if (typeof authClient.authorize === 'function') {
         await authClient.authorize();
     }
     const sheets = googleapis_1.google.sheets({ version: 'v4', auth: authClient });
-    // Fetch header row to determine column indexes
-    // Note: we use the sheet name by gid — find sheet title from gid
     const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
     const sheet = (meta.data.sheets || []).find((s) => String(s.properties?.sheetId) === String(gid));
     if (!sheet)
@@ -121,13 +130,11 @@ async function writeBackMappingsToSheet(sheetId, gid, mappedRows, opts) {
             requestBody: { values: [updatedHeaders] },
         });
     }
-    // Refresh headers
     const headerRes2 = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: `${sheetTitle}!1:1` });
     const finalHeaders = (headerRes2.data.values?.[0] || []);
     const startIndex = finalHeaders.indexOf(newCols[0]);
     if (startIndex === -1)
         throw new Error('Failed to find new columns after header update');
-    // Prepare block values to write starting at startIndex column, row 2 .. rowN+1
     const blockValues = mappedRows.map((r) => newCols.map((c) => r[c] || ''));
     const startColLetter = columnToLetter(startIndex + 1);
     const endColLetter = columnToLetter(startIndex + newCols.length);

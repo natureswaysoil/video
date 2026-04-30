@@ -180,7 +180,7 @@ export class HeyGenClient {
                   speed: 1.0,
                 },
                 background: payload.imageUrl
-  ? { type: 'image', value: payload.imageUrl }
+  ? { type: 'image', url: payload.imageUrl }
   : {
       type: 'ai',
       prompt: payload.visualPrompt || 'natural garden scene, healthy plants, soil, product application'

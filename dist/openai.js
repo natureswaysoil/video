@@ -14,6 +14,28 @@ const config_validator_1 = require("./config-validator");
 const logger = (0, logger_1.getLogger)();
 const metrics = (0, logger_2.getMetrics)();
 const rateLimiters = (0, rate_limiter_1.getRateLimiters)();
+function looksLikeMetaNarration(text) {
+    const bannedPatterns = [
+        /\bthis video\b/i,
+        /\bin this video\b/i,
+        /\bwe see\b/i,
+        /\bon screen\b/i,
+        /\bthe scene\b/i,
+        /\bscene opens\b/i,
+        /\bhere('?s| is) how\b/i,
+        /\bstep\s*1\b/i,
+        /\bfirst[, ]/i,
+        /\bnext[, ]/i,
+        /\bfinally[, ]/i,
+        /\bshot list\b/i,
+        /\bcamera\b/i,
+        /\bvisuals?\b/i,
+    ];
+    return bannedPatterns.some((pattern) => pattern.test(text));
+}
+function buildFallbackScript(title) {
+    return `Tired of guessing what your soil needs? ${title} helps feed the soil so your plants, lawn, or garden can perform better from the roots up. Use it as part of your regular care routine for stronger growth, better vigor, and healthier-looking results. Give your soil the support it has been missing. Visit natureswaysoil.com for more info`;
+}
 async function generateScript(product, opts) {
     const startTime = Date.now();
     try {
@@ -22,11 +44,65 @@ async function generateScript(product, opts) {
         if (!apiKey) {
             throw new errors_1.AppError('OPENAI_API_KEY not configured', errors_1.ErrorCode.MISSING_CONFIG, 500);
         }
-        const model = opts?.model || config.OPENAI_MODEL;
-        const systemPrompt = opts?.systemPrompt || config.OPENAI_SYSTEM_PROMPT || "You are a concise 'how-to' script writer for ~30 second social videos about gardening products by Nature's Way Soil. Use clear steps and keep it friendly and practical.";
-        const userTemplate = opts?.userTemplate || config.OPENAI_USER_TEMPLATE || "Write a how-to style voiceover script about {title}. Length: about 30 seconds. Give 3-5 quick, actionable steps the viewer can follow. Keep it approachable and helpful. End with exactly: 'Visit natureswaysoil.com for more info'. Product details to incorporate where helpful: {details}.";
+        const model = opts?.model || config.OPENAI_MODEL || 'gpt-4o';
+        const systemPrompt = opts?.systemPrompt ||
+            config.OPENAI_SYSTEM_PROMPT ||
+            `You are a direct-response product video copywriter for Nature's Way Soil.
+
+Write ONLY the spoken voiceover for a short vertical product ad.
+
+Conversion structure:
+1. First sentence must be a scroll-stopping hook under 9 words.
+2. Name the pain/problem fast.
+3. Introduce the product as the simple solution.
+4. Give 2-3 concrete benefits.
+5. Add one trust or usage cue.
+6. Close with exactly: "Visit natureswaysoil.com for more info"
+
+Rules:
+- 75 to 95 words total.
+- Natural spoken English.
+- Short punchy sentences.
+- Confident, benefit-driven, easy to understand.
+- Write like a farmer/soil educator, not a corporate ad.
+- Avoid exaggerated claims such as instant results, guaranteed results, cure, kill, pesticide, or disease claims.
+- Do not mention Amazon reviews, discounts, or medical/pesticide claims.
+
+Do NOT describe the video.
+Do NOT describe scenes.
+Do NOT explain what the video will show.
+Do NOT write shot lists, stage directions, labels, or production notes.
+Do NOT use phrases like "this video shows", "in this video", "we see", "on screen", "the scene", "first", "next", or "finally".
+
+Return plain text only.`;
+        const userTemplate = opts?.userTemplate ||
+            config.OPENAI_USER_TEMPLATE ||
+            `Write the spoken voiceover for a conversion-focused vertical product ad about {title}.
+
+Product details:
+{details}
+
+Audience:
+Home gardeners, lawn owners, landscapers, small farms, and people who want natural soil-focused products.
+
+The voiceover must follow this exact sales flow without numbering it:
+- 0-3 seconds: strong hook about the customer's problem or desired result
+- 3-8 seconds: name the problem clearly
+- 8-18 seconds: introduce the product and what it helps do
+- 18-25 seconds: reinforce the main benefit and ease of use
+- 25-30 seconds: confident call to action
+
+Important:
+- write ONLY what the narrator should say
+- do NOT describe visuals
+- do NOT explain the video
+- do NOT turn this into a how-to lesson
+- do NOT give numbered steps
+- do NOT overpromise
+
+End with exactly: "Visit natureswaysoil.com for more info".`;
         const title = String(product.title || product.name || product.id || '').trim();
-        const details = String(product.details || '').trim();
+        const details = String(product.details || product.description || product.Description || product.caption || '').trim();
         if (!title) {
             throw new errors_1.AppError('Product must have a title, name, or id', errors_1.ErrorCode.VALIDATION_ERROR, 400);
         }
@@ -37,7 +113,6 @@ async function generateScript(product, opts) {
             model,
             productTitle: title,
         });
-        // Apply rate limiting and retry logic
         const text = await rateLimiters.execute('openai', async () => {
             return (0, errors_1.withRetry)(async () => {
                 const res = await axios_1.default.post('https://api.openai.com/v1/chat/completions', {
@@ -46,8 +121,8 @@ async function generateScript(product, opts) {
                         { role: 'system', content: systemPrompt },
                         { role: 'user', content: filled },
                     ],
-                    temperature: 0.7,
-                    max_tokens: 300,
+                    temperature: 0.62,
+                    max_tokens: 260,
                 }, {
                     headers: { Authorization: `Bearer ${apiKey}` },
                     timeout: config.TIMEOUT_OPENAI,
@@ -55,6 +130,12 @@ async function generateScript(product, opts) {
                 const content = res.data?.choices?.[0]?.message?.content?.trim();
                 if (!content) {
                     throw new errors_1.AppError('OpenAI returned no content', errors_1.ErrorCode.OPENAI_API_ERROR, 500);
+                }
+                if (looksLikeMetaNarration(content)) {
+                    throw new errors_1.AppError('OpenAI returned meta/instructional narration instead of spoken ad copy', errors_1.ErrorCode.OPENAI_API_ERROR, 500, true, { preview: content.substring(0, 200) });
+                }
+                if (!content.endsWith('Visit natureswaysoil.com for more info')) {
+                    return `${content.replace(/[.\s]*$/, '')}. Visit natureswaysoil.com for more info`;
                 }
                 return content;
             }, {
@@ -81,6 +162,11 @@ async function generateScript(product, opts) {
         metrics.incrementCounter('openai.error');
         metrics.recordHistogram('openai.error_duration', duration);
         logger.error('Failed to generate script', 'OpenAI', { duration }, error);
+        if (String(process.env.OPENAI_ALLOW_FALLBACK_SCRIPT || 'true').toLowerCase() === 'true') {
+            const title = String(product.title || product.name || product.id || 'Nature\'s Way Soil').trim();
+            logger.warn('Using fallback conversion script', 'OpenAI', { productTitle: title });
+            return buildFallbackScript(title);
+        }
         if (error instanceof errors_1.AppError) {
             throw error;
         }
@@ -92,9 +178,6 @@ async function generateScript(product, opts) {
         throw new errors_1.AppError(`OpenAI script generation failed: ${error.message || String(error)}`, errors_1.ErrorCode.OPENAI_API_ERROR, 500, true, { productTitle: product.title || product.name }, error instanceof Error ? error : undefined);
     }
 }
-/**
- * Generate a comprehensive blog article about a product using OpenAI
- */
 async function generateBlogArticle(articleData, opts) {
     const startTime = Date.now();
     try {
@@ -145,7 +228,6 @@ Return as JSON with this structure:
             model,
             productTitle: articleData.productTitle,
         });
-        // Apply rate limiting and retry logic
         const parsed = await rateLimiters.execute('openai', async () => {
             return (0, errors_1.withRetry)(async () => {
                 const res = await axios_1.default.post('https://api.openai.com/v1/chat/completions', {
@@ -159,7 +241,7 @@ Return as JSON with this structure:
                     max_tokens: maxTokens,
                 }, {
                     headers: { Authorization: `Bearer ${apiKey}` },
-                    timeout: config.TIMEOUT_OPENAI * 2, // Longer timeout for blog articles
+                    timeout: config.TIMEOUT_OPENAI * 2,
                 });
                 const text = res.data?.choices?.[0]?.message?.content?.trim();
                 if (!text) {
@@ -181,7 +263,6 @@ Return as JSON with this structure:
                 },
             });
         });
-        // Generate ID and slug
         const timestamp = Date.now();
         const id = `article_${timestamp}`;
         const slug = articleData.productTitle

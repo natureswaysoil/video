@@ -14,6 +14,10 @@ const config_validator_1 = require("./config-validator");
 const logger = (0, logger_1.getLogger)();
 const metrics = (0, logger_2.getMetrics)();
 const rateLimiters = (0, rate_limiter_1.getRateLimiters)();
+function isPlaceholderApiKey(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return !normalized || normalized.includes('your-') || normalized.includes('paste_') || normalized.includes('replace_') || normalized === 'changeme';
+}
 // Optional: load secrets from Google Secret Manager (only if running on GCP)
 async function getSecretFromGcp(name) {
     try {
@@ -35,8 +39,8 @@ class HeyGenClient {
     constructor(cfg = {}) {
         this.apiKey = cfg.apiKey || process.env.HEYGEN_API_KEY || '';
         this.apiEndpoint = cfg.apiEndpoint || process.env.HEYGEN_API_ENDPOINT || 'https://api.heygen.com';
-        if (!this.apiKey) {
-            throw new errors_1.AppError('HeyGen API key is required', errors_1.ErrorCode.MISSING_CONFIG, 500);
+        if (isPlaceholderApiKey(this.apiKey)) {
+            throw new errors_1.AppError('HeyGen API key is missing or still set to a placeholder. Update HEYGEN_API_KEY in .env, Codespace secrets, or Google Secret Manager.', errors_1.ErrorCode.MISSING_CONFIG, 500, true, { hasHeyGenApiKey: !!this.apiKey, keyLooksLikePlaceholder: true });
         }
         this.axios = axios_1.default.create({
             baseURL: this.apiEndpoint,
@@ -134,7 +138,12 @@ class HeyGenClient {
                                     voice_id: resolvedVoiceId,
                                     speed: 1.0,
                                 },
-                                background: { type: 'color', value: '#1a1a1a' },
+                                background: payload.imageUrl
+                                    ? { type: 'image', url: payload.imageUrl }
+                                    : {
+                                        type: 'ai',
+                                        prompt: payload.visualPrompt || 'natural garden scene, healthy plants, soil, product application'
+                                    },
                             }],
                         dimension: { width: 720, height: 1280 },
                         ...(payload.title ? { title: payload.title } : {}),

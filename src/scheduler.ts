@@ -4,7 +4,7 @@ import { exec } from 'child_process'
 function runPipeline() {
   console.log('🚀 Running video pipeline...')
 
-  exec('npm run run:once', (error, stdout, stderr) => {
+  exec('npm run run:once', (error: any, stdout: string, stderr: string) => {
     if (error) {
       console.error('❌ Pipeline error:', error.message)
       return
@@ -19,7 +19,7 @@ function runPipeline() {
 function generateRows() {
   console.log('🧠 Generating new content rows...')
 
-  exec('npm run generate:rows', (error, stdout, stderr) => {
+  exec('npm run generate:rows', (error: any, stdout: string, stderr: string) => {
     if (error) {
       console.error('❌ Row generation error:', error.message)
       return

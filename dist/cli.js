@@ -1,52 +1,27 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 require("dotenv/config");
+const secret_manager_1 = require("./secret-manager");
+const secret_manager_2 = require("@google-cloud/secret-manager");
 const core_1 = require("./core");
 const instagram_1 = require("./instagram");
 const twitter_1 = require("./twitter");
 const pinterest_1 = require("./pinterest");
 const youtube_1 = require("./youtube");
+const config_validator_1 = require("./config-validator");
 const heygen_1 = require("./heygen");
 const heygen_adapter_1 = require("./heygen-adapter");
 const openai_1 = require("./openai");
 const sheets_1 = require("./sheets");
 const health_server_1 = require("./health-server");
 const audit_logger_1 = require("./audit-logger");
-const google_auth_1 = require("./google-auth");
-const config_validator_1 = require("./config-validator");
+const config_validator_2 = require("./config-validator");
+// 🔐 NEW: Load ALL secrets at startup (once)
+async function bootstrapSecrets() {
+    console.log('🔐 Loading secrets from Google Secret Manager...');
+    await (0, secret_manager_1.loadSecretsToEnv)();
+    console.log('🔐 Secret load complete');
+}
 const auditLogger = (0, audit_logger_1.getAuditLogger)();
 function pickFirstNonEmpty(record, keys) {
     if (!record)
@@ -66,6 +41,55 @@ function getVideoState(record) {
         videoStatus: pickFirstNonEmpty(record, ['Video_Status', 'HEYGEN_VIDEO_STATUS', 'video_status']),
     };
 }
+function extractSpreadsheetIdFromCsv(csvUrl) {
+    const match = csvUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    if (match?.[1])
+        return match[1];
+    const idParam = csvUrl.match(/[?&]id=([a-zA-Z0-9-_]+)/);
+    if (idParam?.[1])
+        return idParam[1];
+    throw new Error('Could not extract spreadsheet ID from CSV URL');
+}
+function extractGidFromCsv(csvUrl) {
+    const match = csvUrl.match(/[?&]gid=([^&]+)/);
+    return match?.[1];
+}
+function getValueFromRecord(record, keysCsv) {
+    const keys = keysCsv.split(',').map((key) => key.trim()).filter(Boolean);
+    return pickFirstNonEmpty(record, keys);
+}
+function isRowDeferred(record) {
+    const raw = pickFirstNonEmpty(record, ['Post_Next_Attempt_At']);
+    if (!raw)
+        return false;
+    const when = Date.parse(raw);
+    return Number.isFinite(when) && when > Date.now();
+}
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function loadSecretToEnv(secretName) {
+    if (process.env[secretName])
+        return;
+    const projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT;
+    if (!projectId) {
+        console.warn(`No GCP project ID found; skipping Secret Manager lookup for ${secretName}`);
+        return;
+    }
+    try {
+        const client = new secret_manager_2.SecretManagerServiceClient();
+        const name = `projects/${projectId}/secrets/${secretName}/versions/latest`;
+        const [version] = await client.accessSecretVersion({ name });
+        const value = version.payload?.data?.toString();
+        if (value) {
+            process.env[secretName] = value;
+            console.log(`Loaded secret: ${secretName}`);
+        }
+    }
+    catch (error) {
+        console.warn(`Could not load secret ${secretName}:`, error?.message || error);
+    }
+}
 async function writeRowFields(csvUrl, headers, rowNumber, updates) {
     const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
     const sheetGid = extractGidFromCsv(csvUrl);
@@ -79,1104 +103,211 @@ async function writeRowFields(csvUrl, headers, rowNumber, updates) {
         });
     }
 }
-// Retry helper with exponential backoff
-async function retryWithBackoff(fn, options = {}) {
-    const { maxRetries = 3, initialDelayMs = 1000, maxDelayMs = 16000, operation = 'Operation', shouldRetry = () => true, } = options;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            return await fn();
-        }
-        catch (error) {
-            const isLastAttempt = attempt === maxRetries;
-            const delay = Math.min(initialDelayMs * Math.pow(2, attempt - 1), maxDelayMs);
-            if (!shouldRetry(error)) {
-                console.error(`❌ ${operation} failed (non-retryable):`, { error: error?.message || String(error) });
-                return null;
-            }
-            console.error(`❌ ${operation} attempt ${attempt}/${maxRetries} failed:`, {
-                error: error?.message || String(error),
-                willRetry: !isLastAttempt,
-                nextRetryIn: isLastAttempt ? null : `${delay}ms`
-            });
-            if (isLastAttempt) {
-                return null;
-            }
-            await sleep(delay);
+async function resolveVideoUrlAsync(params) {
+    const directUrl = pickFirstNonEmpty(params.record, [
+        'Video_URL',
+        'Video URL',
+        'video_url',
+        'VideoURL',
+        'WAVESPEED_VIDEO_URL',
+        'WaveSpeed Video URL',
+    ]);
+    return directUrl;
+}
+async function postToEnabledPlatforms(params) {
+    const { videoUrl, product, enabledPlatforms, dryRun } = params;
+    const caption = String(product.caption || product.Caption || product.details || product.description || product.title || product.name || '').trim();
+    const title = String(product.title || product.name || 'Nature\'s Way Soil').trim();
+    const allPlatforms = ['instagram', 'twitter', 'pinterest', 'youtube'];
+    const shouldPost = (platform) => enabledPlatforms.size === 0 || enabledPlatforms.has(platform);
+    if (dryRun) {
+        console.log('DRY_RUN_LOG_ONLY=true — skipping platform posting', { title, videoUrl });
+        return;
+    }
+    if (shouldPost('instagram')) {
+        const config = (0, config_validator_1.getConfig)();
+        if (config.INSTAGRAM_ACCESS_TOKEN && config.INSTAGRAM_IG_ID) {
+            await (0, instagram_1.postToInstagram)(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, config.INSTAGRAM_IG_ID);
         }
     }
-    return null;
+    if (shouldPost('twitter')) {
+        const config = (0, config_validator_1.getConfig)();
+        if (config.TWITTER_BEARER_TOKEN) {
+            await (0, twitter_1.postToTwitter)(videoUrl, caption || title, config.TWITTER_BEARER_TOKEN);
+        }
+    }
+    if (shouldPost('pinterest')) {
+        const config = (0, config_validator_1.getConfig)();
+        if (config.PINTEREST_ACCESS_TOKEN && config.PINTEREST_BOARD_ID) {
+            await (0, pinterest_1.postToPinterest)(videoUrl, caption, config.PINTEREST_ACCESS_TOKEN, config.PINTEREST_BOARD_ID);
+        }
+    }
+    if (shouldPost('youtube')) {
+        const config = (0, config_validator_1.getConfig)();
+        if (config.YT_CLIENT_ID && config.YT_CLIENT_SECRET && config.YT_REFRESH_TOKEN) {
+            await (0, youtube_1.postToYouTube)(videoUrl, caption, config.YT_CLIENT_ID, config.YT_CLIENT_SECRET, config.YT_REFRESH_TOKEN);
+        }
+    }
+    const skipped = allPlatforms.filter((platform) => !shouldPost(platform));
+    if (skipped.length > 0)
+        console.log('Skipped disabled platforms:', skipped.join(', '));
+}
+async function createOrPollVideo(params) {
+    const { product, record, headers, rowNumber, csvUrl, alwaysGenerate } = params;
+    const videoState = getVideoState(record);
+    if (videoState.videoUrl && !alwaysGenerate) {
+        console.log('✅ Using existing video:', videoState.videoUrl);
+        return videoState.videoUrl;
+    }
+    const heygenClient = await (0, heygen_1.createClientWithSecrets)();
+    if (!alwaysGenerate && videoState.videoId && (videoState.videoStatus || '').toLowerCase() === 'processing') {
+        console.log(`⏳ Polling existing HeyGen job for row ${rowNumber}: ${videoState.videoId}`);
+        const videoUrl = await heygenClient.pollJobForVideoUrl(videoState.videoId, {
+            timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 120000),
+            intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
+        });
+        await writeRowFields(csvUrl, headers, rowNumber, {
+            Video_URL: videoUrl,
+            Video_Status: 'completed',
+            Video_Completed_At: new Date().toISOString(),
+        });
+        return videoUrl;
+    }
+    const mapping = (0, heygen_adapter_1.mapProductToHeyGenPayload)(record);
+    const generatedScript = await (0, openai_1.generateScript)(product);
+    const payload = {
+        ...mapping.payload,
+        script: generatedScript,
+    };
+    const videoId = await heygenClient.createVideoJob(payload);
+    await writeRowFields(csvUrl, headers, rowNumber, {
+        Video_ID: videoId,
+        Video_Status: 'processing',
+        HEYGEN_AVATAR: mapping.avatar,
+        HEYGEN_VOICE: mapping.voice,
+        HEYGEN_LENGTH_SECONDS: String(mapping.lengthSeconds),
+        HEYGEN_MAPPING_REASON: mapping.reason,
+        HEYGEN_MAPPED_AT: new Date().toISOString(),
+    });
+    const videoUrl = await heygenClient.pollJobForVideoUrl(videoId, {
+        timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 120000),
+        intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
+    });
+    await writeRowFields(csvUrl, headers, rowNumber, {
+        Video_URL: videoUrl,
+        Video_Status: 'completed',
+        Video_Completed_At: new Date().toISOString(),
+    });
+    return videoUrl;
 }
 async function main() {
+    // 🔐 ensure secrets are loaded before anything else
+    await bootstrapSecrets();
     try {
         console.log('Validating configuration before starting polling...');
-        await (0, config_validator_1.validateConfig)();
+        await (0, config_validator_2.validateConfig)();
         console.log('Configuration validated');
     }
     catch (error) {
         console.error('❌ Configuration validation failed:', error);
         process.exit(1);
     }
-    const csvUrl = process.env.CSV_URL;
+    // Backward compatibility: still attempt specific loads if missing
+    await loadSecretToEnv('GOOGLE_SHEET_CSV_URL');
+    await loadSecretToEnv('CSV_URL');
+    const csvUrl = process.env.CSV_URL || process.env.GOOGLE_SHEET_CSV_URL;
+    console.log('GOOGLE_SHEET_CSV_URL loaded:', !!process.env.GOOGLE_SHEET_CSV_URL);
     if (!csvUrl)
-        throw new Error('CSV_URL not set in .env');
+        throw new Error('CSV_URL / GOOGLE_SHEET_CSV_URL not set');
     const seen = new Set();
     const intervalMs = Number(process.env.POLL_INTERVAL_MS ?? '60000');
     const runOnce = String(process.env.RUN_ONCE || '').toLowerCase() === 'true';
     const rowsPerRun = Number(process.env.ROWS_PER_RUN ?? '1');
     const dryRun = String(process.env.DRY_RUN_LOG_ONLY || '').toLowerCase() === 'true';
     const enabledPlatformsEnv = (process.env.ENABLE_PLATFORMS || '').toLowerCase();
-    const enabledPlatforms = new Set(enabledPlatformsEnv.split(',').map(s => s.trim()).filter(Boolean));
-    const enforcePostingWindows = String(process.env.ENFORCE_POSTING_WINDOWS || 'false').toLowerCase() === 'true';
+    const enabledPlatforms = new Set(enabledPlatformsEnv.split(',').map((s) => s.trim()).filter(Boolean));
     const loopResetPosted = String(process.env.LOOP_RESET_POSTED || 'false').toLowerCase() === 'true';
-    if (!process.env.VERCEL) {
+    const alwaysGenerate = String(process.env.ALWAYS_GENERATE_NEW_VIDEO || 'false').toLowerCase() === 'true';
+    if (!process.env.VERCEL)
         (0, health_server_1.startHealthServer)();
-    }
-    (0, audit_logger_1.getAuditLogger)().logEvent({
+    auditLogger.logEvent({
         level: 'INFO',
         category: 'SYSTEM',
         message: 'Video posting system started',
-        details: {
-            runOnce,
-            dryRun,
-            enforcePostingWindows,
-            enabledPlatforms: enabledPlatformsEnv || 'all',
-            pollIntervalMs: intervalMs
-        }
+        details: { runOnce, dryRun, enabledPlatforms: enabledPlatformsEnv || 'all', pollIntervalMs: intervalMs },
     });
-    if (dryRun) {
-        (0, audit_logger_1.getAuditLogger)().logEvent({
-            level: 'WARN',
-            category: 'SYSTEM',
-            message: 'DRY RUN MODE ENABLED - No actual posts will be sent',
-        });
-    }
-    if (enforcePostingWindows) {
-        (0, audit_logger_1.getAuditLogger)().logEvent({
-            level: 'WARN',
-            category: 'SYSTEM',
-            message: 'Posting windows enforced - will only post at 9AM/5PM ET',
-        });
-    }
     const cycle = async () => {
-        try {
-            (0, health_server_1.updateStatus)({ status: 'processing', rowsProcessed: 0 });
-            const result = await (0, core_1.processCsvUrl)(csvUrl);
-            if (!result.skipped && result.rows.length > 0) {
-                (0, health_server_1.updateStatus)({ status: 'processing-rows', rowsProcessed: 0 });
-                let rowsThisCycle = 0;
-                for (const { product, jobId, rowNumber, headers, record } of result.rows) {
-                    if (!jobId || seen.has(jobId))
-                        continue;
-                    if (isRowDeferred(record)) {
-                        const nextAt = pickFirstNonEmpty(record, ['Post_Next_Attempt_At']);
-                        console.log(`⏳ Row ${rowNumber} deferred until ${nextAt} — skipping this cycle`);
-                        (0, audit_logger_1.getAuditLogger)().logEvent({
-                            level: 'SKIP',
-                            category: 'POSTING',
-                            message: 'Row deferred — skipping until Post_Next_Attempt_At',
-                            rowNumber,
-                            product: product?.title || product?.name,
-                            details: { nextAt }
-                        });
-                        continue;
-                    }
-                    if (rowsThisCycle >= rowsPerRun) {
-                        console.log(`⏸️  ROWS_PER_RUN limit (${rowsPerRun}) reached — remaining rows deferred to next cycle`);
-                        break;
-                    }
-                    console.log(`\n========== Processing Row ${rowNumber} ==========`);
-                    console.log('Product:', product);
-                    const videoState = getVideoState(record);
-                    let videoUrl = videoState.videoUrl || await resolveVideoUrlAsync({ jobId, record });
-                    const asin = getValueFromRecord(record, process.env.CSV_COL_ASIN || 'ASIN,Parent_ASIN,SKU,Product_ID') || jobId;
-                    const alwaysGenerate = String(process.env.ALWAYS_GENERATE_NEW_VIDEO || 'false').toLowerCase() === 'true';
-                    if (videoState.videoUrl && !alwaysGenerate) {
-                        console.log('✅ Using existing video:', videoUrl);
-                    }
-                    else if (!alwaysGenerate &&
-                        videoState.videoId &&
-                        (videoState.videoStatus || '').toLowerCase() === 'processing') {
-                        console.log(`⏳ Existing HeyGen job found for row ${rowNumber}: ${videoState.videoId}`);
-                        try {
-                            const heygenClient = await (0, heygen_1.createClientWithSecrets)();
-                            videoUrl = await heygenClient.pollJobForVideoUrl(videoState.videoId, {
-                                timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 120000),
-                                intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000)
-                            });
-                            if (videoUrl) {
-                                console.log('✅ Existing HeyGen video ready:', videoUrl);
-                                if ((0, google_auth_1.hasConfiguredGoogleCredentials)()) {
-                                    try {
-                                        await writeRowFields(csvUrl, headers, rowNumber, {
-                                            Video_URL: videoUrl,
-                                            Video_Status: 'Completed',
-                                            Video_Completed_At: new Date().toISOString(),
-                                        });
-                                        console.log('✅ Wrote completed video URL/state to sheet');
-                                    }
-                                    catch (e) {
-                                        console.error('⚠️  Failed to write completed video URL/state to sheet:', e?.message || e);
-                                    }
-                                }
-                            }
-                        }
-                        catch (e) {
-                            console.error('⚠️ Existing HeyGen job not ready yet:', e?.message || e);
-                        }
-                        if (!videoUrl) {
-                            console.log('⏭️  Leaving row in Processing state for next cycle');
-                            continue;
-                        }
-                    }
-                    else if (!videoUrl || alwaysGenerate || !(await urlLooksReachable(videoUrl))) {
-                        console.log('No existing completed video found. Creating new video with HeyGen...');
-                        let script;
-                        if (process.env.OPENAI_API_KEY) {
-                            try {
-                                script = await (0, openai_1.generateScript)(product);
-                                console.log('✅ Generated script with OpenAI:', script.substring(0, 100) + '...');
-                            }
-                            catch (e) {
-                                console.error('❌ OpenAI script generation failed:', e?.message || e);
-                            }
-                        }
-                        else {
-                            console.log('⚠️  OPENAI_API_KEY not set, using product description as script');
-                            script = (product?.details ?? product?.title ?? product?.name ?? '').toString();
-                        }
-                        if (!script) {
-                            console.error('❌ No script available for video generation');
-                            console.warn('⏭️  Skipping row - cannot generate video without script');
-                            continue;
-                        }
-                        const hasHeyGenCreds = process.env.HEYGEN_API_KEY || process.env.GCP_SECRET_HEYGEN_API_KEY;
-                        if (!hasHeyGenCreds) {
-                            console.error('❌ HeyGen credentials not configured. Set HEYGEN_API_KEY or GCP_SECRET_HEYGEN_API_KEY');
-                            console.warn('⏭️  Skipping row - cannot generate video without HeyGen credentials');
-                            continue;
-                        }
-                        try {
-                            console.log('🎬 Creating video with HeyGen...');
-                            const heygenClient = await (0, heygen_1.createClientWithSecrets)();
-                            const mapping = (0, heygen_adapter_1.mapProductToHeyGenPayload)(record);
-                            const payload = {
-                                ...mapping.payload,
-                                script,
-                                title: `${product?.title || product?.name || 'Product Video'} (${asin})`,
-                                meta: { asin, jobId }
-                            };
-                            console.log('📝 HeyGen mapping:', {
-                                avatar: mapping.avatar,
-                                voice: mapping.voice,
-                                lengthSeconds: mapping.lengthSeconds,
-                                reason: mapping.reason
-                            });
-                            const heygenJobId = await heygenClient.createVideoJob(payload);
-                            console.log('✅ Created HeyGen video job:', heygenJobId);
-                            if ((0, google_auth_1.hasConfiguredGoogleCredentials)()) {
-                                try {
-                                    await writeRowFields(csvUrl, headers, rowNumber, {
-                                        Video_ID: heygenJobId,
-                                        Video_Status: 'Processing',
-                                        Script_Status: 'Generated',
-                                        Script_Generated_Date: new Date().toISOString(),
-                                        Video_Requested_At: new Date().toISOString(),
-                                        HEYGEN_AVATAR: mapping.avatar,
-                                        HEYGEN_VOICE: mapping.voice,
-                                        HEYGEN_LENGTH_SECONDS: String(mapping.lengthSeconds),
-                                        HEYGEN_MAPPING_REASON: mapping.reason,
-                                        HEYGEN_MAPPED_AT: new Date().toISOString(),
-                                    });
-                                    console.log('✅ Saved HeyGen job state to sheet');
-                                }
-                                catch (e) {
-                                    console.error('⚠️  Failed to save HeyGen job state to sheet:', e?.message || e);
-                                }
-                            }
-                            rowsThisCycle++; // count against ROWS_PER_RUN limit
-                            console.log('⏭️  Video job created; will poll on next cycle');
-                            continue;
-                        }
-                        catch (e) {
-                            console.error('❌ HeyGen video generation failed:', e?.message || e);
-                            console.warn('⏭️  Skipping row - video generation failed');
-                            (0, health_server_1.addError)(`HeyGen: ${product?.title || jobId} - ${e?.message || String(e)}`);
-                            if ((0, google_auth_1.hasConfiguredGoogleCredentials)()) {
-                                try {
-                                    await writeRowFields(csvUrl, headers, rowNumber, {
-                                        Video_Status: 'Failed',
-                                        Error_Message: String(e?.message || e).slice(0, 500),
-                                    });
-                                }
-                                catch { }
-                            }
-                            rowsThisCycle++; // count against ROWS_PER_RUN limit
-                            continue;
-                        }
-                    }
-                    else {
-                        console.log('✅ Using existing video:', videoUrl);
-                    }
-                    if (!videoUrl) {
-                        console.warn(`❌ No video URL available for row ${rowNumber}; skipping`);
-                        continue;
-                    }
-                    console.log('🔍 Validating video URL accessibility...');
-                    const isReachable = alwaysGenerate || await urlLooksReachable(videoUrl);
-                    if (!isReachable) {
-                        console.error(`❌ Video URL not reachable for row ${rowNumber}:`, {
-                            url: videoUrl,
-                            product: product?.title || product?.name,
-                            jobId
-                        });
-                        console.warn('⏭️  Skipping posting to platforms - video not accessible');
-                        continue;
-                    }
-                    console.log('✅ Video URL validated successfully');
-                    console.log('🔑 CLOUDINARY_API_KEY present:', !!process.env.CLOUDINARY_API_KEY);
-                    if (process.env.CLOUDINARY_API_KEY) {
-                        try {
-                            const { uploadVideoToCloudinary } = await Promise.resolve().then(() => __importStar(require('./cloudinary-upload')));
-                            const cloudUrl = await uploadVideoToCloudinary(videoUrl);
-                            videoUrl = cloudUrl;
-                        }
-                        catch (err) {
-                            console.warn('⚠️  Cloudinary upload failed, falling back to original URL:', err.message);
-                        }
-                    }
-                    const caption = (product?.details ?? product?.title ?? product?.name ?? '').toString();
-                    const canPostNow = !enforcePostingWindows || isWithinPostingWindow();
-                    if (!canPostNow) {
-                        console.log('🕘 Outside posting window (9AM/5PM ET). Will not post, but video URL is ready:', videoUrl);
-                        (0, audit_logger_1.getAuditLogger)().logEvent({
-                            level: 'SKIP',
-                            category: 'POSTING',
-                            message: 'Outside posting window',
-                            rowNumber,
-                            product: product?.title || product?.name,
-                            details: { enforcePostingWindows, videoUrl }
-                        });
-                    }
-                    let postedAtLeastOne = false;
-                    const platformResults = {};
-                    const platformErrors = {};
-                    const platformStatus = checkPlatformAvailability(enabledPlatforms);
-                    if (!platformStatus.anyEnabled && !dryRun) {
-                        (0, audit_logger_1.getAuditLogger)().logEvent({
-                            level: 'ERROR',
-                            category: 'PLATFORM',
-                            message: 'No platforms enabled with valid credentials',
-                            rowNumber,
-                            product: product?.title || product?.name,
-                            details: {
-                                ...platformStatus.credentials,
-                                enabledPlatforms: Array.from(enabledPlatforms)
-                            }
-                        });
-                    }
-                    else if (!dryRun && canPostNow) {
-                        (0, audit_logger_1.getAuditLogger)().logEvent({
-                            level: 'INFO',
-                            category: 'PLATFORM',
-                            message: 'Platforms ready for posting',
-                            rowNumber,
-                            details: platformStatus.enabled
-                        });
-                    }
-                    // Write pre-posting state to sheet (best effort)
-                    if (!dryRun && canPostNow && (0, google_auth_1.hasConfiguredGoogleCredentials)()) {
-                        const attempts = getPostAttempts(record) + 1;
-                        try {
-                            await writeRowFields(csvUrl, headers, rowNumber, {
-                                Post_Status: 'Attempting',
-                                Post_Attempts: String(attempts),
-                                Post_Last_Attempt_At: new Date().toISOString(),
-                            });
-                        }
-                        catch (e) {
-                            console.warn('⚠️ Failed to write pre-posting state to sheet:', e?.message);
-                        }
-                    }
-                    // ── Instagram ───────────────────────────────────────────────────
-                    if (dryRun || !canPostNow) {
-                        console.log('[DRY RUN] Would post to Instagram:', { videoUrl, caption });
-                        platformResults.instagram = { success: true, result: 'DRY_RUN' };
-                    }
-                    else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')) && process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID) {
-                        const existingId = pickFirstNonEmpty(record, ['Instagram_Media_ID']);
-                        if (existingId) {
-                            console.log(`⏭️  Row ${rowNumber} already posted to Instagram (${existingId}) — skipping`);
-                            platformResults.instagram = { success: true, result: existingId };
-                            postedAtLeastOne = true;
-                            (0, audit_logger_1.getAuditLogger)().logEvent({
-                                level: 'INFO',
-                                category: 'POSTING',
-                                message: 'Instagram already posted (idempotency check)',
-                                rowNumber,
-                                product: product?.title || product?.name,
-                                details: { mediaId: existingId }
-                            });
-                        }
-                        else {
-                            (0, audit_logger_1.getAuditLogger)().logEvent({
-                                level: 'INFO',
-                                category: 'POSTING',
-                                message: 'Attempting Instagram post',
-                                rowNumber,
-                                product: product?.title || product?.name
-                            });
-                            try {
-                                const mediaId = await (0, instagram_1.postToInstagram)(videoUrl, caption, process.env.INSTAGRAM_ACCESS_TOKEN, process.env.INSTAGRAM_IG_ID);
-                                console.log('✅ Posted to Instagram:', mediaId);
-                                platformResults.instagram = { success: true, result: mediaId };
-                                postedAtLeastOne = true;
-                                (0, health_server_1.incrementSuccessfulPost)();
-                                if ((0, google_auth_1.hasConfiguredGoogleCredentials)()) {
-                                    try {
-                                        await writeRowFields(csvUrl, headers, rowNumber, { Instagram_Media_ID: mediaId });
-                                    }
-                                    catch (e) {
-                                        console.warn('⚠️ Failed to persist Instagram_Media_ID:', e?.message);
-                                    }
-                                }
-                                (0, audit_logger_1.getAuditLogger)().logEvent({
-                                    level: 'SUCCESS',
-                                    category: 'POSTING',
-                                    message: 'Instagram post successful',
-                                    rowNumber,
-                                    product: product?.title || product?.name,
-                                    details: { mediaId }
-                                });
-                            }
-                            catch (err) {
-                                console.error('❌ Instagram post failed:', err?.message || err);
-                                platformResults.instagram = { success: false, error: err?.message || String(err) };
-                                platformErrors.instagram = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err };
-                                (0, health_server_1.incrementFailedPost)();
-                                (0, health_server_1.addError)(`Instagram: ${product?.title || jobId} - ${err?.message || String(err)}`);
-                                (0, audit_logger_1.getAuditLogger)().logEvent({
-                                    level: 'ERROR',
-                                    category: 'POSTING',
-                                    message: 'Instagram post failed',
-                                    rowNumber,
-                                    product: product?.title || product?.name,
-                                    details: { error: err?.message }
-                                });
-                            }
-                        }
-                    }
-                    // ── Twitter ─────────────────────────────────────────────────────
-                    if (dryRun || !canPostNow) {
-                        console.log('[DRY RUN] Would post to Twitter:', { videoUrl, caption });
-                        platformResults.twitter = { success: true, result: 'DRY_RUN' };
-                    }
-                    else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')) && (process.env.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds())) {
-                        const existingId = pickFirstNonEmpty(record, ['Twitter_Post_ID']);
-                        if (existingId) {
-                            console.log(`⏭️  Row ${rowNumber} already posted to Twitter (${existingId}) — skipping`);
-                            platformResults.twitter = { success: true, result: existingId };
-                            postedAtLeastOne = true;
-                            (0, audit_logger_1.getAuditLogger)().logEvent({
-                                level: 'INFO',
-                                category: 'POSTING',
-                                message: 'Twitter already posted (idempotency check)',
-                                rowNumber,
-                                product: product?.title || product?.name,
-                                details: { tweetId: existingId }
-                            });
-                        }
-                        else {
-                            (0, audit_logger_1.getAuditLogger)().logEvent({
-                                level: 'INFO',
-                                category: 'POSTING',
-                                message: 'Attempting Twitter post',
-                                rowNumber,
-                                product: product?.title || product?.name
-                            });
-                            try {
-                                const tweetId = await (0, twitter_1.postToTwitter)(videoUrl, caption, process.env.TWITTER_BEARER_TOKEN ?? '');
-                                console.log('✅ Posted to Twitter:', tweetId);
-                                platformResults.twitter = { success: true, result: tweetId };
-                                postedAtLeastOne = true;
-                                (0, health_server_1.incrementSuccessfulPost)();
-                                if ((0, google_auth_1.hasConfiguredGoogleCredentials)() && tweetId.length > 0) {
-                                    try {
-                                        await writeRowFields(csvUrl, headers, rowNumber, { Twitter_Post_ID: tweetId });
-                                    }
-                                    catch (e) {
-                                        console.warn('⚠️ Failed to persist Twitter_Post_ID:', e?.message);
-                                    }
-                                }
-                                (0, audit_logger_1.getAuditLogger)().logEvent({
-                                    level: 'SUCCESS',
-                                    category: 'POSTING',
-                                    message: 'Twitter post successful',
-                                    rowNumber,
-                                    product: product?.title || product?.name,
-                                    details: { tweetId }
-                                });
-                            }
-                            catch (err) {
-                                console.error('❌ Twitter post failed:', err?.message || err);
-                                platformResults.twitter = { success: false, error: err?.message || String(err) };
-                                platformErrors.twitter = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err };
-                                (0, health_server_1.incrementFailedPost)();
-                                (0, health_server_1.addError)(`Twitter: ${product?.title || jobId} - ${err?.message || String(err)}`);
-                                (0, audit_logger_1.getAuditLogger)().logEvent({
-                                    level: 'ERROR',
-                                    category: 'POSTING',
-                                    message: 'Twitter post failed',
-                                    rowNumber,
-                                    product: product?.title || product?.name,
-                                    details: { error: err?.message }
-                                });
-                            }
-                        }
-                    }
-                    // ── Pinterest ────────────────────────────────────────────────────
-                    if (dryRun || !canPostNow) {
-                        console.log('[DRY RUN] Would post to Pinterest:', { videoUrl, caption });
-                        platformResults.pinterest = { success: true, result: 'DRY_RUN' };
-                    }
-                    else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')) && process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID) {
-                        const existingId = pickFirstNonEmpty(record, ['Pinterest_Pin_ID']);
-                        if (existingId) {
-                            console.log(`⏭️  Row ${rowNumber} already posted to Pinterest (${existingId}) — skipping`);
-                            platformResults.pinterest = { success: true, result: existingId };
-                            postedAtLeastOne = true;
-                            (0, audit_logger_1.getAuditLogger)().logEvent({
-                                level: 'INFO',
-                                category: 'POSTING',
-                                message: 'Pinterest already posted (idempotency check)',
-                                rowNumber,
-                                product: product?.title || product?.name,
-                                details: { pinId: existingId }
-                            });
-                        }
-                        else {
-                            (0, audit_logger_1.getAuditLogger)().logEvent({
-                                level: 'INFO',
-                                category: 'POSTING',
-                                message: 'Attempting Pinterest post',
-                                rowNumber,
-                                product: product?.title || product?.name
-                            });
-                            try {
-                                const pinId = await (0, pinterest_1.postToPinterest)(videoUrl, caption, process.env.PINTEREST_ACCESS_TOKEN, process.env.PINTEREST_BOARD_ID);
-                                console.log('✅ Posted to Pinterest:', pinId);
-                                platformResults.pinterest = { success: true, result: pinId };
-                                postedAtLeastOne = true;
-                                (0, health_server_1.incrementSuccessfulPost)();
-                                if ((0, google_auth_1.hasConfiguredGoogleCredentials)() && pinId.length > 0) {
-                                    try {
-                                        await writeRowFields(csvUrl, headers, rowNumber, { Pinterest_Pin_ID: pinId });
-                                    }
-                                    catch (e) {
-                                        console.warn('⚠️ Failed to persist Pinterest_Pin_ID:', e?.message);
-                                    }
-                                }
-                                (0, audit_logger_1.getAuditLogger)().logEvent({
-                                    level: 'SUCCESS',
-                                    category: 'POSTING',
-                                    message: 'Pinterest post successful',
-                                    rowNumber,
-                                    product: product?.title || product?.name,
-                                    details: { pinId }
-                                });
-                            }
-                            catch (err) {
-                                console.error('❌ Pinterest post failed:', err?.message || err);
-                                platformResults.pinterest = { success: false, error: err?.message || String(err) };
-                                platformErrors.pinterest = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err };
-                                (0, health_server_1.incrementFailedPost)();
-                                (0, health_server_1.addError)(`Pinterest: ${product?.title || jobId} - ${err?.message || String(err)}`);
-                                (0, audit_logger_1.getAuditLogger)().logEvent({
-                                    level: 'ERROR',
-                                    category: 'POSTING',
-                                    message: 'Pinterest post failed',
-                                    rowNumber,
-                                    product: product?.title || product?.name,
-                                    details: { error: err?.message }
-                                });
-                            }
-                        }
-                    }
-                    // ── YouTube ──────────────────────────────────────────────────────
-                    if (dryRun || !canPostNow) {
-                        console.log('[DRY RUN] Would upload to YouTube:', { videoUrl, caption });
-                        platformResults.youtube = { success: true, result: 'DRY_RUN' };
-                    }
-                    else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')) && process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN) {
-                        const existingId = pickFirstNonEmpty(record, ['YouTube_Video_ID']);
-                        if (existingId) {
-                            console.log(`⏭️  Row ${rowNumber} already uploaded to YouTube (${existingId}) — skipping`);
-                            platformResults.youtube = { success: true, result: existingId };
-                            postedAtLeastOne = true;
-                            (0, audit_logger_1.getAuditLogger)().logEvent({
-                                level: 'INFO',
-                                category: 'POSTING',
-                                message: 'YouTube already uploaded (idempotency check)',
-                                rowNumber,
-                                product: product?.title || product?.name,
-                                details: { videoId: existingId }
-                            });
-                        }
-                        else {
-                            (0, audit_logger_1.getAuditLogger)().logEvent({
-                                level: 'INFO',
-                                category: 'POSTING',
-                                message: 'Attempting YouTube upload',
-                                rowNumber,
-                                product: product?.title || product?.name
-                            });
-                            try {
-                                const videoId = await (0, youtube_1.postToYouTube)(videoUrl, caption, process.env.YT_CLIENT_ID, process.env.YT_CLIENT_SECRET, process.env.YT_REFRESH_TOKEN, process.env.YT_PRIVACY_STATUS || 'unlisted');
-                                console.log('✅ Posted to YouTube:', videoId);
-                                platformResults.youtube = { success: true, result: videoId };
-                                postedAtLeastOne = true;
-                                (0, health_server_1.incrementSuccessfulPost)();
-                                if ((0, google_auth_1.hasConfiguredGoogleCredentials)() && videoId.length > 0) {
-                                    try {
-                                        await writeRowFields(csvUrl, headers, rowNumber, { YouTube_Video_ID: videoId });
-                                    }
-                                    catch (e) {
-                                        console.warn('⚠️ Failed to persist YouTube_Video_ID:', e?.message);
-                                    }
-                                }
-                                (0, audit_logger_1.getAuditLogger)().logEvent({
-                                    level: 'SUCCESS',
-                                    category: 'POSTING',
-                                    message: 'YouTube upload successful',
-                                    rowNumber,
-                                    product: product?.title || product?.name,
-                                    details: { videoId }
-                                });
-                            }
-                            catch (err) {
-                                console.error('❌ YouTube upload failed:', err?.message || err);
-                                platformResults.youtube = { success: false, error: err?.message || String(err) };
-                                platformErrors.youtube = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err };
-                                (0, health_server_1.incrementFailedPost)();
-                                (0, health_server_1.addError)(`YouTube: ${product?.title || jobId} - ${err?.message || String(err)}`);
-                                (0, audit_logger_1.getAuditLogger)().logEvent({
-                                    level: 'ERROR',
-                                    category: 'POSTING',
-                                    message: 'YouTube upload failed',
-                                    rowNumber,
-                                    product: product?.title || product?.name,
-                                    details: { error: err?.message }
-                                });
-                            }
-                        }
-                    }
-                    if (dryRun) {
-                        console.log('[DRY RUN] Would create blog article:', {
-                            productTitle: product?.title || product?.name,
-                            videoUrl
-                        });
-                        platformResults.blog = { success: true, result: 'DRY_RUN' };
-                    }
-                    else if (process.env.ENABLE_BLOG_POSTING === 'true' && process.env.GITHUB_TOKEN) {
-                        const { postBlogArticle } = await Promise.resolve().then(() => __importStar(require('./blog')));
-                        try {
-                            const blogResult = await postBlogArticle({
-                                productTitle: product?.title || product?.name || 'Product',
-                                productDescription: product?.details,
-                                videoUrl: videoUrl,
-                                productUrl: product?.url
-                            }, process.env.GITHUB_TOKEN, process.env.GITHUB_REPO, process.env.GITHUB_BRANCH);
-                            console.log('✅ Blog article published:', {
-                                articleId: blogResult.articleId,
-                                commitSha: blogResult.commitSha?.substring(0, 7)
-                            });
-                            platformResults.blog = { success: true, result: blogResult.articleId };
-                            postedAtLeastOne = true;
-                            (0, health_server_1.incrementSuccessfulPost)();
-                        }
-                        catch (err) {
-                            console.error('❌ Blog article posting failed:', err?.message || err);
-                            platformResults.blog = { success: false, error: err?.message || String(err) };
-                            platformErrors.blog = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err };
-                            (0, health_server_1.incrementFailedPost)();
-                            (0, health_server_1.addError)(`Blog: ${product?.title || jobId} - ${err?.message || String(err)}`);
-                        }
-                    }
-                    else if (process.env.ENABLE_BLOG_POSTING === 'true') {
-                        console.log('⚠️ Blog posting enabled but GITHUB_TOKEN not set');
-                    }
-                    if ((enabledPlatforms.size === 0 || enabledPlatforms.has('facebook')) && process.env.FACEBOOK_PAGE_ACCESS_TOKEN && process.env.FACEBOOK_PAGE_ID) {
-                        (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'INFO', category: 'POSTING', message: 'Attempting Facebook post', rowNumber, product: product?.title || product?.name });
-                        try {
-                            const fbResult = await retryWithBackoff(async () => {
-                                const axios = await Promise.resolve().then(() => __importStar(require('axios')));
-                                const res = await axios.default.post(`https://graph.facebook.com/v19.0/${process.env.FACEBOOK_PAGE_ID}/videos`, {
-                                    file_url: videoUrl,
-                                    description: caption,
-                                    title: (product?.title || product?.name || 'Nature\'s Way Soil').substring(0, 100),
-                                    published: true,
-                                    access_token: process.env.FACEBOOK_PAGE_ACCESS_TOKEN,
-                                });
-                                console.log('📘 Facebook video URL:', videoUrl);
-                                return res.data;
-                            }, { maxRetries: 2, operation: 'Facebook post', initialDelayMs: 3000 });
-                            if (fbResult?.id) {
-                                console.log('✅ Posted to Facebook:', fbResult.id);
-                                platformResults.facebook = { success: true, result: fbResult.id };
-                                postedAtLeastOne = true;
-                                (0, health_server_1.incrementSuccessfulPost)();
-                                (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'SUCCESS', category: 'POSTING', message: 'Facebook post successful', rowNumber, product: product?.title || product?.name });
-                            }
-                        }
-                        catch (err) {
-                            const fbError = err?.response?.data || err?.message || err;
-                            console.error('❌ Facebook post failed (skipping, continuing):', JSON.stringify(fbError));
-                            platformResults.facebook = { success: false, error: err?.message || String(err) };
-                        }
-                    }
-                    if (dryRun || !canPostNow) {
-                        console.log('[DRY RUN] Would post to LinkedIn:', { videoUrl, caption });
-                        platformResults.linkedin = { success: true, result: 'DRY_RUN' };
-                    }
-                    else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('linkedin')) && process.env.LINKEDIN_ACCESS_TOKEN && process.env.LINKEDIN_PERSON_ID) {
-                        (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'INFO', category: 'POSTING', message: 'Attempting LinkedIn post', rowNumber, product: product?.title || product?.name });
-                        try {
-                            const axios = await Promise.resolve().then(() => __importStar(require('axios')));
-                            const liResult = await axios.default.post('https://api.linkedin.com/v2/ugcPosts', {
-                                author: `urn:li:person:${process.env.LINKEDIN_PERSON_ID}`,
-                                lifecycleState: 'PUBLISHED',
-                                specificContent: {
-                                    'com.linkedin.ugc.ShareContent': {
-                                        shareCommentary: { text: caption },
-                                        shareMediaCategory: 'VIDEO',
-                                        media: [{
-                                                status: 'READY',
-                                                description: { text: caption.substring(0, 200) },
-                                                media: videoUrl,
-                                                title: { text: product?.title || product?.name || 'Nature\'s Way Soil' },
-                                            }],
-                                    },
-                                },
-                                visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
-                            }, {
-                                headers: {
-                                    Authorization: `Bearer ${process.env.LINKEDIN_ACCESS_TOKEN}`,
-                                    'Content-Type': 'application/json',
-                                    'X-Restli-Protocol-Version': '2.0.0'
-                                }
-                            });
-                            if (liResult?.data?.id) {
-                                console.log('✅ Posted to LinkedIn:', liResult.data.id);
-                                platformResults.linkedin = { success: true, result: liResult.data.id };
-                                postedAtLeastOne = true;
-                                (0, health_server_1.incrementSuccessfulPost)();
-                                (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'SUCCESS', category: 'POSTING', message: 'LinkedIn post successful', rowNumber, product: product?.title || product?.name });
-                            }
-                        }
-                        catch (err) {
-                            console.error('❌ LinkedIn post failed:', err?.response?.data || err?.message || err);
-                            platformResults.linkedin = { success: false, error: err?.message || String(err) };
-                            platformErrors.linkedin = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err };
-                            (0, health_server_1.incrementFailedPost)();
-                            (0, health_server_1.addError)(`LinkedIn: ${product?.title || jobId} - ${err?.message || err}`);
-                            (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'ERROR', category: 'POSTING', message: 'LinkedIn post failed', rowNumber, product: product?.title || product?.name, details: { error: err?.message } });
-                        }
-                    }
-                    if (dryRun || !canPostNow) {
-                        console.log('[DRY RUN] Would post to Google Business Profile:', { videoUrl, caption });
-                        platformResults.googleBusiness = { success: true, result: 'DRY_RUN' };
-                    }
-                    else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('googlebusiness')) && process.env.GOOGLE_BUSINESS_ACCESS_TOKEN && process.env.GOOGLE_BUSINESS_ACCOUNT_ID && process.env.GOOGLE_BUSINESS_LOCATION_ID) {
-                        (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'INFO', category: 'POSTING', message: 'Attempting Google Business post', rowNumber, product: product?.title || product?.name });
-                        try {
-                            const { postToGoogleBusiness } = await Promise.resolve().then(() => __importStar(require('./google-business')));
-                            const gbResult = await postToGoogleBusiness(caption, videoUrl, 'https://natureswaysoil.com');
-                            console.log('✅ Posted to Google Business Profile:', gbResult?.name);
-                            platformResults.googleBusiness = { success: true, result: gbResult?.name };
-                            postedAtLeastOne = true;
-                            (0, health_server_1.incrementSuccessfulPost)();
-                            (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'SUCCESS', category: 'POSTING', message: 'Google Business post successful', rowNumber, product: product?.title || product?.name });
-                        }
-                        catch (err) {
-                            console.error('❌ Google Business post failed:', err?.response?.data || err?.message || err);
-                            platformResults.googleBusiness = { success: false, error: err?.message || String(err) };
-                            platformErrors.googleBusiness = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err };
-                            (0, health_server_1.incrementFailedPost)();
-                            (0, health_server_1.addError)(`Google Business: ${product?.title || jobId} - ${err?.message || err}`);
-                            (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'ERROR', category: 'POSTING', message: 'Google Business post failed', rowNumber, product: product?.title || product?.name, details: { error: err?.message } });
-                        }
-                    }
-                    if (dryRun || !canPostNow) {
-                        console.log('[DRY RUN] Would post to TikTok:', { videoUrl, caption });
-                        platformResults.tiktok = { success: true, result: 'DRY_RUN' };
-                    }
-                    else if ((enabledPlatforms.size === 0 || enabledPlatforms.has('tiktok')) && process.env.TIKTOK_ACCESS_TOKEN) {
-                        (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'INFO', category: 'POSTING', message: 'Attempting TikTok post', rowNumber, product: product?.title || product?.name });
-                        try {
-                            const axios = await Promise.resolve().then(() => __importStar(require('axios')));
-                            const initRes = await axios.default.post('https://open.tiktokapis.com/v2/post/publish/video/init/', {
-                                post_info: {
-                                    title: caption.substring(0, 150),
-                                    privacy_level: process.env.TIKTOK_PRIVACY_LEVEL || 'PUBLIC_TO_EVERYONE',
-                                    disable_duet: false,
-                                    disable_comment: false,
-                                    disable_stitch: false,
-                                },
-                                source_info: {
-                                    source: 'PULL_FROM_URL',
-                                    video_url: videoUrl,
-                                },
-                            }, { headers: { Authorization: `Bearer ${process.env.TIKTOK_ACCESS_TOKEN}`, 'Content-Type': 'application/json; charset=UTF-8' } });
-                            if (initRes.data?.data?.publish_id) {
-                                console.log('✅ Posted to TikTok, publish_id:', initRes.data.data.publish_id);
-                                platformResults.tiktok = { success: true, result: initRes.data.data.publish_id };
-                                postedAtLeastOne = true;
-                                (0, health_server_1.incrementSuccessfulPost)();
-                                (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'SUCCESS', category: 'POSTING', message: 'TikTok post successful', rowNumber, product: product?.title || product?.name });
-                            }
-                        }
-                        catch (err) {
-                            console.error('❌ TikTok post failed:', err?.response?.data || err?.message || err);
-                            platformResults.tiktok = { success: false, error: err?.message || String(err) };
-                            platformErrors.tiktok = { message: err?.message || String(err), retryable: isRetryableError(err), raw: err };
-                            (0, health_server_1.incrementFailedPost)();
-                            (0, health_server_1.addError)(`TikTok: ${product?.title || jobId} - ${err?.message || err}`);
-                            (0, audit_logger_1.getAuditLogger)().logEvent({ level: 'ERROR', category: 'POSTING', message: 'TikTok post failed', rowNumber, product: product?.title || product?.name, details: { error: err?.message } });
-                        }
-                    }
-                    console.log('\n📊 Platform Posting Summary:', {
-                        product: product?.title || product?.name,
-                        videoUrl,
-                        captionLength: caption.length,
-                        results: platformResults,
-                        successCount: Object.values(platformResults).filter(r => r.success).length,
-                        totalAttempted: Object.keys(platformResults).length
-                    });
-                    if (!dryRun && canPostNow && (0, google_auth_1.hasConfiguredGoogleCredentials)()) {
-                        if (postedAtLeastOne) {
-                            // Write Post_Status=Posted (best effort)
-                            try {
-                                await writeRowFields(csvUrl, headers, rowNumber, { Post_Status: 'Posted' });
-                            }
-                            catch (e) {
-                                console.warn('⚠️ Failed to write Post_Status=Posted:', e?.message);
-                            }
-                        }
-                        else if (Object.keys(platformErrors).length > 0) {
-                            const allErrors = Object.entries(platformErrors)
-                                .map(([p, e]) => `${p}: ${e.message}`)
-                                .join('; ')
-                                .slice(0, 500);
-                            const anyRetryable = Object.values(platformErrors).some(e => e.retryable);
-                            const representativeError = Object.values(platformErrors).find(e => e.retryable)?.raw ||
-                                Object.values(platformErrors)[0]?.raw;
-                            const stateUpdate = { Post_Last_Error: allErrors };
-                            if (anyRetryable) {
-                                stateUpdate.Post_Status = 'Deferred';
-                                stateUpdate.Post_Next_Attempt_At = computeNextAttemptAt(representativeError);
-                                console.log(`⏳ Row ${rowNumber} deferred — will retry at ${stateUpdate.Post_Next_Attempt_At}`);
-                                (0, audit_logger_1.getAuditLogger)().logEvent({
-                                    level: 'WARN',
-                                    category: 'POSTING',
-                                    message: 'Row deferred after transient errors',
-                                    rowNumber,
-                                    product: product?.title || product?.name,
-                                    details: { nextAt: stateUpdate.Post_Next_Attempt_At, errors: allErrors }
-                                });
-                            }
-                            else {
-                                stateUpdate.Post_Status = 'Failed';
-                                (0, audit_logger_1.getAuditLogger)().logEvent({
-                                    level: 'ERROR',
-                                    category: 'POSTING',
-                                    message: 'Row marked Failed after non-retryable errors',
-                                    rowNumber,
-                                    product: product?.title || product?.name,
-                                    details: { errors: allErrors }
-                                });
-                            }
-                            try {
-                                await writeRowFields(csvUrl, headers, rowNumber, stateUpdate);
-                            }
-                            catch (e) {
-                                console.warn('⚠️ Failed to write post-posting error state:', e?.message);
-                            }
-                        }
-                    }
-                    if (!dryRun && postedAtLeastOne) {
-                        try {
-                            if ((0, google_auth_1.hasConfiguredGoogleCredentials)()) {
-                                const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
-                                const sheetGid = extractGidFromCsv(csvUrl);
-                                await (0, sheets_1.markRowPosted)({
-                                    spreadsheetId,
-                                    sheetGid,
-                                    rowNumber,
-                                    headers,
-                                    postedColumn: process.env.CSV_COL_POSTED || 'Posted',
-                                    timestampColumn: process.env.CSV_COL_POSTED_AT || 'Posted_At',
-                                });
-                            }
-                        }
-                        catch (err) {
-                            console.error('Failed to mark row posted:', err);
-                        }
-                        seen.add(jobId);
-                        rowsThisCycle++;
-                    }
-                    (0, health_server_1.updateStatus)({
-                        status: 'processing',
-                        rowsProcessed: seen.size
-                    });
-                }
-                (0, health_server_1.updateStatus)({
-                    status: 'idle',
-                    rowsProcessed: seen.size
+        (0, health_server_1.updateStatus)({ status: 'processing', rowsProcessed: 0 });
+        const result = await (0, core_1.processCsvUrl)(csvUrl);
+        if (result.skipped || result.rows.length === 0) {
+            (0, health_server_1.updateStatus)({ status: 'idle', rowsProcessed: 0 });
+            return;
+        }
+        let rowsThisCycle = 0;
+        for (const { product, jobId, rowNumber, headers, record } of result.rows) {
+            if (!jobId || seen.has(jobId))
+                continue;
+            if (isRowDeferred(record))
+                continue;
+            if (rowsThisCycle >= rowsPerRun)
+                break;
+            console.log(`\n========== Processing Row ${rowNumber} ==========`);
+            console.log('Product:', product);
+            try {
+                const videoUrl = await createOrPollVideo({ product, record, headers, rowNumber, csvUrl, alwaysGenerate });
+                await postToEnabledPlatforms({ videoUrl, product, enabledPlatforms, dryRun });
+                const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
+                const sheetGid = extractGidFromCsv(csvUrl);
+                await (0, sheets_1.markRowPosted)({ spreadsheetId, sheetGid, rowNumber, headers });
+                seen.add(jobId);
+                rowsThisCycle++;
+                (0, health_server_1.incrementSuccessfulPost)();
+                (0, health_server_1.updateStatus)({ status: 'processed-row', rowsProcessed: rowsThisCycle });
+            }
+            catch (error) {
+                (0, health_server_1.incrementFailedPost)();
+                (0, health_server_1.addError)(error?.message || String(error));
+                auditLogger.logEvent({
+                    level: 'ERROR',
+                    category: 'POSTING',
+                    message: 'Failed to process row',
+                    rowNumber,
+                    product: product?.title || product?.name,
+                    details: { error: error?.message || String(error) },
+                });
+                await writeRowFields(csvUrl, headers, rowNumber, {
+                    Video_Status: 'failed',
+                    Last_Error: error?.message || String(error),
+                    Last_Error_At: new Date().toISOString(),
                 });
             }
-            else {
-                const spreadsheetIdMatch = csvUrl.match(/spreadsheets\/d\/([^/]+)/);
-                const gidMatch = csvUrl.match(/[?&]gid=(\d+)/);
-                const spreadsheetId = spreadsheetIdMatch?.[1];
-                const sheetGid = gidMatch?.[1];
-                if (spreadsheetId && result.skipped === false) {
-                    if (loopResetPosted) {
-                        console.log('🔁 All rows already posted — resetting Posted column to loop from row 1 (LOOP_RESET_POSTED=true)');
-                        try {
-                            const axios = require('axios');
-                            const csvResp = await axios.get(csvUrl, { responseType: 'text', timeout: 15000 });
-                            const lines = csvResp.data.trim().split('\n');
-                            const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
-                            const totalDataRows = lines.length - 1;
-                            await (0, sheets_1.resetPostedColumn)({ spreadsheetId, sheetGid, totalRows: totalDataRows, headers });
-                            seen.clear();
-                            console.log(`✅ Reset ${totalDataRows} rows — will post from row 1 on next cycle`);
-                        }
-                        catch (resetErr) {
-                            console.error('❌ Failed to reset Posted column:', resetErr?.message);
-                        }
-                    }
-                    else {
-                        console.log('✅ All rows already posted — remaining idle (set LOOP_RESET_POSTED=true to loop from row 1)');
-                        (0, audit_logger_1.getAuditLogger)().logEvent({
-                            level: 'INFO',
-                            category: 'SYSTEM',
-                            message: 'All rows already posted — idle (LOOP_RESET_POSTED not enabled)',
-                        });
-                    }
-                }
-                else {
-                    console.log('⚠️  No valid products found in sheet. Check CSV_URL and column mappings.');
-                }
-                (0, health_server_1.updateStatus)({ status: 'idle-no-products' });
-            }
         }
-        catch (e) {
-            console.error('Polling error:', e);
-            (0, health_server_1.addError)(`Cycle error: ${e?.message || String(e)}`);
-            (0, audit_logger_1.getAuditLogger)().logEvent({
-                level: 'ERROR',
-                category: 'SYSTEM',
-                message: 'Cycle error',
-                details: { error: e?.message || String(e) }
+        if (loopResetPosted && rowsThisCycle === 0) {
+            const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
+            const sheetGid = extractGidFromCsv(csvUrl);
+            await (0, sheets_1.resetPostedColumn)({
+                spreadsheetId,
+                sheetGid,
+                totalRows: result.rows.length,
+                headers: result.rows[0]?.headers || [],
             });
-            (0, health_server_1.updateStatus)({ status: 'error' });
+            seen.clear();
         }
-        (0, audit_logger_1.getAuditLogger)().printSummary();
-        if (!runOnce) {
-            (0, audit_logger_1.getAuditLogger)().clear();
-        }
+        (0, health_server_1.updateStatus)({ status: 'idle', rowsProcessed: rowsThisCycle });
     };
-    if (runOnce) {
-        let exitCode = 0;
-        try {
-            await cycle();
-        }
-        catch (error) {
-            console.error('Error during cycle:', error);
-            exitCode = 1;
-        }
-        finally {
-            await (0, health_server_1.stopHealthServer)();
-            process.exit(exitCode);
-        }
-    }
-    while (true) {
+    do {
         await cycle();
-        await sleep(intervalMs);
-    }
+        if (!runOnce)
+            await sleep(intervalMs);
+    } while (!runOnce);
 }
-main().catch(e => console.error(e));
-function hasTwitterUploadCreds() {
-    return Boolean(process.env.TWITTER_API_KEY &&
-        process.env.TWITTER_API_SECRET &&
-        process.env.TWITTER_ACCESS_TOKEN &&
-        process.env.TWITTER_ACCESS_SECRET);
-}
-function checkPlatformAvailability(enabledPlatforms) {
-    const hasInstagramCreds = Boolean(process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID);
-    const hasTwitterCreds = Boolean(process.env.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds());
-    const hasPinterestCreds = Boolean(process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID);
-    const hasYouTubeCreds = Boolean(process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN);
-    const hasFacebookCreds = Boolean(process.env.FACEBOOK_PAGE_ACCESS_TOKEN && process.env.FACEBOOK_PAGE_ID);
-    const hasLinkedInCreds = Boolean(process.env.LINKEDIN_ACCESS_TOKEN && process.env.LINKEDIN_PERSON_ID);
-    const hasTikTokCreds = Boolean(process.env.TIKTOK_ACCESS_TOKEN);
-    const instagramEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('instagram')) && hasInstagramCreds;
-    const twitterEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('twitter')) && hasTwitterCreds;
-    const pinterestEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('pinterest')) && hasPinterestCreds;
-    const youtubeEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('youtube')) && hasYouTubeCreds;
-    const facebookEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('facebook')) && hasFacebookCreds;
-    const linkedinEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('linkedin')) && hasLinkedInCreds;
-    const tiktokEnabled = (enabledPlatforms.size === 0 || enabledPlatforms.has('tiktok')) && hasTikTokCreds;
-    return {
-        credentials: {
-            hasInstagramCreds,
-            hasTwitterCreds,
-            hasPinterestCreds,
-            hasYouTubeCreds,
-            hasFacebookCreds,
-            hasLinkedInCreds,
-            hasTikTokCreds,
-        },
-        enabled: {
-            instagram: instagramEnabled,
-            twitter: twitterEnabled,
-            pinterest: pinterestEnabled,
-            youtube: youtubeEnabled,
-            facebook: facebookEnabled,
-            linkedin: linkedinEnabled,
-            tiktok: tiktokEnabled,
-        },
-        anyEnabled: instagramEnabled || twitterEnabled || pinterestEnabled || youtubeEnabled || facebookEnabled || linkedinEnabled || tiktokEnabled
-    };
-}
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-// ─── per-row posting state helpers ───────────────────────────────────────────
-function getPostAttempts(record) {
-    const v = pickFirstNonEmpty(record, ['Post_Attempts']);
-    const n = parseInt(v, 10);
-    return isNaN(n) ? 0 : n;
-}
-function isRowDeferred(record) {
-    const nextAt = pickFirstNonEmpty(record, ['Post_Next_Attempt_At']);
-    if (!nextAt)
-        return false;
-    try {
-        return new Date(nextAt) > new Date();
-    }
-    catch {
-        return false;
-    }
-}
-function isRetryableError(err) {
-    const status = err?.response?.status ?? err?.statusCode ?? err?.data?.status;
-    if (status === 429)
-        return true;
-    if (typeof status === 'number' && status >= 500 && status < 600)
-        return true;
-    const msg = (err?.message || String(err)).toLowerCase();
-    return (msg.includes('network') ||
-        msg.includes('timeout') ||
-        msg.includes('econnrefused') ||
-        msg.includes('enotfound'));
-}
-function computeNextAttemptAt(err) {
-    const status = err?.response?.status ?? err?.statusCode ?? err?.data?.status;
-    const delayMs = status === 429 ? 15 * 60 * 1000 : 5 * 60 * 1000;
-    return new Date(Date.now() + delayMs).toISOString();
-}
-function extractSpreadsheetIdFromCsv(csvUrl) {
-    const m = csvUrl.match(/\/spreadsheets\/d\/([^/]+)/);
-    if (!m)
-        throw new Error('Unable to parse spreadsheetId from CSV_URL');
-    return m[1];
-}
-function extractGidFromCsv(csvUrl) {
-    const m = csvUrl.match(/[?&]gid=(\d+)/);
-    return m ? Number(m[1]) : undefined;
-}
-async function resolveVideoUrlAsync(params) {
-    const { jobId, record } = params;
-    const directCol = (process.env.CSV_COL_VIDEO_URL || 'video_url,Video URL,VideoURL,Video_URL').split(',').map((s) => s.trim());
-    if (record) {
-        for (const key of directCol) {
-            const v = record[key];
-            if (v && /^https?:\/\//i.test(v))
-                return v;
-        }
-    }
-    const template = process.env.VIDEO_URL_TEMPLATE || process.env.WAVE_VIDEO_URL_TEMPLATE || 'https://heygen.ai/jobs/{jobId}/video.mp4';
-    return template
-        .replaceAll('{jobId}', jobId)
-        .replaceAll('{asin}', jobId);
-}
-async function urlLooksReachable(url) {
-    const axios = await Promise.resolve().then(() => __importStar(require('axios')));
-    try {
-        const res = await axios.default.head(url, { validateStatus: () => true });
-        if (res.status >= 400)
-            return false;
-        if (res.status === 405 || res.status === 403) {
-        }
-        else if (res.status >= 200 && res.status < 400) {
-            const ct = (res.headers['content-type'] || '').toLowerCase();
-            if (ct.includes('text/html')) {
-                console.warn('⚠️  Video URL returned HTML — URL has expired:', url);
-                return false;
-            }
-            return true;
-        }
-    }
-    catch { }
-    try {
-        const res = await axios.default.get(url, {
-            headers: { Range: 'bytes=0-0' },
-            validateStatus: () => true,
-            responseType: 'stream',
-        });
-        if (res.status >= 200 && res.status < 400) {
-            const ct = (res.headers['content-type'] || '').toLowerCase();
-            if (ct.includes('text/html')) {
-                console.warn('⚠️  Video URL returned HTML on GET — URL has expired:', url);
-                return false;
-            }
-            return true;
-        }
-        return false;
-    }
-    catch {
-        return false;
-    }
-}
-function isWithinPostingWindow() {
-    try {
-        const nowUtc = new Date();
-        const offset = Number(process.env.EASTERN_UTC_OFFSET_HOURS || '-4');
-        const nowEt = new Date(nowUtc.getTime() + offset * 3600 * 1000);
-        const hour = nowEt.getUTCHours();
-        const minute = nowEt.getUTCMinutes();
-        const windows = [
-            { h: (9 - offset + 24) % 24, m: 0 },
-            { h: (17 - offset + 24) % 24, m: 0 },
-        ];
-        for (const w of windows) {
-            if (hour === w.h && Math.abs(minute - w.m) <= 5)
-                return true;
-        }
-        return false;
-    }
-    catch {
-        return true;
-    }
-}
-function getValueFromRecord(record, columnsCsv) {
-    if (!record)
-        return undefined;
-    for (const key of columnsCsv.split(',').map(s => s.trim())) {
-        const v = record[key];
-        if (v && String(v).trim().length > 0)
-            return v;
-    }
-    return undefined;
-}
+process.on('SIGINT', async () => {
+    (0, health_server_1.stopHealthServer)();
+    process.exit(0);
+});
+main().catch((error) => {
+    console.error('Fatal error:', error);
+    (0, health_server_1.addError)(error?.message || String(error));
+    (0, health_server_1.stopHealthServer)();
+    process.exit(1);
+});
