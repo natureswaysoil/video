@@ -9,6 +9,11 @@ const logger = getLogger()
 const metrics = getMetrics()
 const rateLimiters = getRateLimiters()
 
+function isPlaceholderApiKey(value: string | undefined): boolean {
+  const normalized = String(value || '').trim().toLowerCase()
+  return !normalized || normalized.includes('your-') || normalized.includes('paste_') || normalized.includes('replace_') || normalized === 'changeme'
+}
+
 // Optional: load secrets from Google Secret Manager (only if running on GCP)
 async function getSecretFromGcp(name: string): Promise<string | null> {
   try {
@@ -69,11 +74,13 @@ export class HeyGenClient {
     this.apiKey = cfg.apiKey || process.env.HEYGEN_API_KEY || ''
     this.apiEndpoint = cfg.apiEndpoint || process.env.HEYGEN_API_ENDPOINT || 'https://api.heygen.com'
 
-    if (!this.apiKey) {
+    if (isPlaceholderApiKey(this.apiKey)) {
       throw new AppError(
-        'HeyGen API key is required',
+        'HeyGen API key is missing or still set to a placeholder. Update HEYGEN_API_KEY in .env, Codespace secrets, or Google Secret Manager.',
         ErrorCode.MISSING_CONFIG,
-        500
+        500,
+        true,
+        { hasHeyGenApiKey: !!this.apiKey, keyLooksLikePlaceholder: true }
       )
     }
 
