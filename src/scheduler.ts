@@ -16,6 +16,28 @@ function runPipeline() {
   })
 }
 
+function generateRows() {
+  console.log('🧠 Generating new content rows...')
+
+  exec('npm run generate:rows', (error, stdout, stderr) => {
+    if (error) {
+      console.error('❌ Row generation error:', error.message)
+      return
+    }
+    if (stderr) {
+      console.error('⚠️ Row generation stderr:', stderr)
+    }
+    console.log('✅ Rows generated:', stdout)
+  })
+}
+
+// 🧠 NEW: Generate fresh rows every morning at 7:00 AM
+cron.schedule('0 7 * * *', () => {
+  console.log('🌅 Morning row generation triggered')
+  generateRows()
+})
+
+// Existing posting schedule
 const schedule = [
   '15 8 * * *',   // YouTube AM
   '30 11 * * *',  // Instagram AM
