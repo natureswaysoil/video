@@ -26,6 +26,7 @@ export const DEFAULT_SECRET_NAMES = [
   'TWITTER_ACCESS_TOKEN_SECRET',
   'PINTEREST_ACCESS_TOKEN',
   'PINTEREST_BOARD_ID',
+  'PEXELS_API_KEY',
 ]
 
 function getProjectId(): string | undefined {
