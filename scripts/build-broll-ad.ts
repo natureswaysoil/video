@@ -1,6 +1,6 @@
 import 'dotenv/config'
 import fetch from 'node-fetch'
-import fs from 'fs'
+import { createWriteStream, existsSync, mkdirSync } from 'fs'
 import path from 'path'
 import { getDailySeeds } from '../src/content-seed-bank'
 import { loadSecretsToEnv } from '../src/secret-manager'
@@ -24,11 +24,14 @@ async function fetchPexelsVideos(query: string, apiKey: string) {
 async function downloadVideo(url: string, filePath: string) {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`Failed to download video ${res.status}: ${url}`)
-  const fileStream = fs.createWriteStream(filePath)
-  await new Promise((resolve, reject) => {
+  if (!res.body) throw new Error(`No response body while downloading: ${url}`)
+
+  const fileStream = createWriteStream(filePath)
+  await new Promise<void>((resolve, reject) => {
     res.body.pipe(fileStream)
     res.body.on('error', reject)
     fileStream.on('finish', resolve)
+    fileStream.on('error', reject)
   })
 }
 
@@ -51,7 +54,7 @@ async function main() {
     .slice(0, 4)
 
   const outputDir = path.join(process.cwd(), 'output')
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir)
+  if (!existsSync(outputDir)) mkdirSync(outputDir)
 
   let index = 0
   for (const q of queries) {
