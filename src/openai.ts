@@ -23,9 +23,16 @@ function looksLikeMetaNarration(text: string): boolean {
     /\bfirst[, ]/i,
     /\bnext[, ]/i,
     /\bfinally[, ]/i,
+    /\bshot list\b/i,
+    /\bcamera\b/i,
+    /\bvisuals?\b/i,
   ]
 
   return bannedPatterns.some((pattern) => pattern.test(text))
+}
+
+function buildFallbackScript(title: string): string {
+  return `Tired of guessing what your soil needs? ${title} helps feed the soil so your plants, lawn, or garden can perform better from the roots up. Use it as part of your regular care routine for stronger growth, better vigor, and healthier-looking results. Give your soil the support it has been missing. Visit natureswaysoil.com for more info`
 }
 
 export async function generateScript(product: Product, opts?: {
@@ -53,39 +60,50 @@ export async function generateScript(product: Product, opts?: {
       config.OPENAI_SYSTEM_PROMPT ||
       `You are a direct-response product video copywriter for Nature's Way Soil.
 
-Write ONLY the spoken voiceover for a short product video.
+Write ONLY the spoken voiceover for a short vertical product ad.
+
+Conversion structure:
+1. First sentence must be a scroll-stopping hook under 9 words.
+2. Name the pain/problem fast.
+3. Introduce the product as the simple solution.
+4. Give 2-3 concrete benefits.
+5. Add one trust or usage cue.
+6. Close with exactly: "Visit natureswaysoil.com for more info"
+
+Rules:
+- 75 to 95 words total.
+- Natural spoken English.
+- Short punchy sentences.
+- Confident, benefit-driven, easy to understand.
+- Write like a farmer/soil educator, not a corporate ad.
+- Avoid exaggerated claims such as instant results, guaranteed results, cure, kill, pesticide, or disease claims.
+- Do not mention Amazon reviews, discounts, or medical/pesticide claims.
 
 Do NOT describe the video.
 Do NOT describe scenes.
 Do NOT explain what the video will show.
-Do NOT write shot lists, stage directions, or production notes.
-Do NOT use phrases like:
-- "this video shows"
-- "in this video"
-- "we see"
-- "on screen"
-- "the scene"
-- "first, next, finally"
-
-Requirements:
-- about 30 seconds
-- natural spoken English
-- short punchy sentences
-- confident, clear, benefit-driven
-- start with a strong hook
-- highlight the problem
-- present the product as the solution
-- end with exactly: "Visit natureswaysoil.com for more info"
+Do NOT write shot lists, stage directions, labels, or production notes.
+Do NOT use phrases like "this video shows", "in this video", "we see", "on screen", "the scene", "first", "next", or "finally".
 
 Return plain text only.`
 
     const userTemplate =
       opts?.userTemplate ||
       config.OPENAI_USER_TEMPLATE ||
-      `Write the spoken voiceover for a short product marketing video about {title}.
+      `Write the spoken voiceover for a conversion-focused vertical product ad about {title}.
 
 Product details:
 {details}
+
+Audience:
+Home gardeners, lawn owners, landscapers, small farms, and people who want natural soil-focused products.
+
+The voiceover must follow this exact sales flow without numbering it:
+- 0-3 seconds: strong hook about the customer's problem or desired result
+- 3-8 seconds: name the problem clearly
+- 8-18 seconds: introduce the product and what it helps do
+- 18-25 seconds: reinforce the main benefit and ease of use
+- 25-30 seconds: confident call to action
 
 Important:
 - write ONLY what the narrator should say
@@ -93,18 +111,12 @@ Important:
 - do NOT explain the video
 - do NOT turn this into a how-to lesson
 - do NOT give numbered steps
-
-The voiceover should:
-1. hook attention fast
-2. name the problem
-3. introduce the product
-4. explain the benefit clearly
-5. close with urgency and confidence
+- do NOT overpromise
 
 End with exactly: "Visit natureswaysoil.com for more info".`
 
     const title = String(product.title || product.name || product.id || '').trim()
-    const details = String(product.details || '').trim()
+    const details = String(product.details || product.description || product.Description || product.caption || '').trim()
     
     if (!title) {
       throw new AppError(
@@ -134,8 +146,8 @@ End with exactly: "Visit natureswaysoil.com for more info".`
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: filled },
               ],
-              temperature: 0.7,
-              max_tokens: 300,
+              temperature: 0.62,
+              max_tokens: 260,
             },
             {
               headers: { Authorization: `Bearer ${apiKey}` },
@@ -161,6 +173,10 @@ End with exactly: "Visit natureswaysoil.com for more info".`
               true,
               { preview: content.substring(0, 200) }
             )
+          }
+
+          if (!content.endsWith('Visit natureswaysoil.com for more info')) {
+            return `${content.replace(/[.\s]*$/, '')}. Visit natureswaysoil.com for more info`
           }
 
           return content
@@ -193,6 +209,12 @@ End with exactly: "Visit natureswaysoil.com for more info".`
     metrics.recordHistogram('openai.error_duration', duration)
 
     logger.error('Failed to generate script', 'OpenAI', { duration }, error)
+
+    if (String(process.env.OPENAI_ALLOW_FALLBACK_SCRIPT || 'true').toLowerCase() === 'true') {
+      const title = String(product.title || product.name || product.id || 'Nature\'s Way Soil').trim()
+      logger.warn('Using fallback conversion script', 'OpenAI', { productTitle: title })
+      return buildFallbackScript(title)
+    }
 
     if (error instanceof AppError) {
       throw error
@@ -234,9 +256,6 @@ export interface GeneratedBlogArticle {
   metaDescription: string
 }
 
-/**
- * Generate a comprehensive blog article about a product using OpenAI
- */
 export async function generateBlogArticle(
   articleData: BlogArticleData,
   opts?: {
