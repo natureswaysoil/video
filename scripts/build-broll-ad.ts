@@ -1,9 +1,12 @@
 import 'dotenv/config'
 import fetch from 'node-fetch'
-import fs from 'fs/promises'
 import path from 'path'
 import { getDailySeeds } from '../src/content-seed-bank'
 import { loadSecretsToEnv } from '../src/secret-manager'
+
+// This repo's TypeScript config has incomplete fs typings, so use runtime require.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const fs: any = require('fs')
 
 async function fetchPexelsVideos(query: string, apiKey: string) {
   const res = await fetch(`https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=5`, {
@@ -25,8 +28,9 @@ async function downloadVideo(url: string, filePath: string) {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`Failed to download video ${res.status}: ${url}`)
 
-  const buffer = Buffer.from(await res.arrayBuffer())
-  await fs.writeFile(filePath, buffer)
+  const arrayBuffer = await res.arrayBuffer()
+  const buffer = Buffer.from(arrayBuffer)
+  fs.writeFileSync(filePath, buffer)
 }
 
 async function main() {
@@ -48,7 +52,7 @@ async function main() {
     .slice(0, 4)
 
   const outputDir = path.join(process.cwd(), 'output')
-  await fs.mkdir(outputDir, { recursive: true })
+  fs.mkdirSync(outputDir, { recursive: true })
 
   let index = 0
   for (const q of queries) {
