@@ -5,6 +5,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "ts-node src/cli.ts",
+    "one:video": "ts-node scripts/one-good-video.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json",
     "run:once": "ts-node scripts/run-once.ts",
