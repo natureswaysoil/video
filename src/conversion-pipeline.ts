@@ -3,9 +3,18 @@ export type ProductLike = Record<string, any>
 export type ConversionAssetPack = {
   websiteUrl: string
   utmUrl: string
+  youtubeUrl: string
+  instagramUrl: string
+  facebookUrl: string
   socialCaption: string
+  youtubeCaption: string
+  instagramCaption: string
+  facebookCaption: string
   shortCaption: string
   adAngles: string[]
+  facebookGroupPost: string
+  emailSubject: string
+  emailBody: string
   amazonRepurposeNotes: string[]
   aPlusModules: Array<{ module: string; headline: string; visual: string; copy: string }>
   retargetingAudience: string
@@ -36,13 +45,13 @@ function buildWebsiteUrl(product: ProductLike): string {
   return `${base}/products/${slug}`
 }
 
-function addUtm(url: string, source: string, medium: string, campaign: string): string {
+function addUtm(url: string, source: string, medium: string, campaign: string, content = 'short-form-video'): string {
   const sep = url.includes('?') ? '&' : '?'
   const params = new URLSearchParams({
     utm_source: source,
     utm_medium: medium,
     utm_campaign: campaign,
-    utm_content: 'short-form-video',
+    utm_content: content,
   })
   return `${url}${sep}${params.toString()}`
 }
@@ -63,7 +72,11 @@ export function buildConversionAssetPack(product: ProductLike, videoUrl: string)
   const category = categoryFromText(`${title} ${details}`)
   const websiteUrl = buildWebsiteUrl(product)
   const campaign = `${category}-${slugify(title).slice(0, 48)}`
-  const utmUrl = addUtm(websiteUrl, 'social', 'organic_video', campaign)
+
+  const youtubeUrl = addUtm(websiteUrl, 'youtube', 'organic_shorts', campaign, 'youtube-shorts')
+  const instagramUrl = addUtm(websiteUrl, 'instagram', 'organic_reels', campaign, 'instagram-reels')
+  const facebookUrl = addUtm(websiteUrl, 'facebook', 'organic_reels_groups', campaign, 'facebook-reels-groups')
+  const utmUrl = youtubeUrl
 
   const categoryHook: Record<string, string> = {
     'dog-lawn': 'Yellow dog spots do not have to ruin your lawn.',
@@ -76,7 +89,13 @@ export function buildConversionAssetPack(product: ProductLike, videoUrl: string)
 
   const hook = categoryHook[category] || categoryHook['general-soil']
 
-  const socialCaption = `${hook}\n\n${title} is built for soil-first results — helping support stronger roots, healthier growth, and better-looking lawns, gardens, and plants without overcomplicating your routine.\n\nWatch the full product video and order direct here:\n${utmUrl}`
+  const socialCaption = `${hook}\n\n${title} is built for soil-first results — helping support stronger roots, healthier growth, and better-looking lawns, gardens, and plants without overcomplicating your routine.\n\nOrder direct from Nature's Way Soil here:\n${utmUrl}`
+
+  const youtubeCaption = `${hook}\n\n${title} helps support better growth from the soil up.\n\nOrder direct from Nature's Way Soil:\n${youtubeUrl}\n\n#gardening #lawncare #soilhealth #organicgardening #natureswaysoil`
+
+  const instagramCaption = `${hook}\n\nSoil-first care for better-looking plants, lawns, and gardens.\n\nTap the link in bio or visit:\n${instagramUrl}\n\n#gardeningtips #lawncaretips #soilhealth #organicgardening #smallbusiness`
+
+  const facebookCaption = `${hook}\n\n${title} was made for people who want practical, soil-focused lawn and garden care. Order direct and support a small soil-focused business here:\n${facebookUrl}`
 
   const shortCaption = `${hook} See ${title} here: ${utmUrl}`
 
@@ -86,6 +105,11 @@ export function buildConversionAssetPack(product: ProductLike, videoUrl: string)
     `Built for gardeners, lawns, and small farms that want cleaner soil-focused inputs.`,
     `Order direct from Nature's Way Soil and support a small family business.`,
   ]
+
+  const facebookGroupPost = `Question for gardeners and lawn owners: have you noticed that the real problem usually starts in the soil?\n\n${title} is one of our soil-first products made to help support stronger roots and healthier-looking growth.\n\nI made a short video showing the product and the problem it helps with. You can see it and order direct here:\n${facebookUrl}`
+
+  const emailSubject = `${hook.replace(/\.$/, '')}`
+  const emailBody = `Hi,\n\n${hook}\n\nWe made ${title} for customers who want a simple soil-first way to support healthier-looking growth. Instead of chasing surface symptoms, this product is built around the idea that stronger plants and better lawns start below ground.\n\nWatch the short video and order direct here:\n${websiteUrl}\n\nNaturally Stronger Soil Starts Here,\nNature's Way Soil`
 
   const amazonRepurposeNotes = [
     'Use the same video as Amazon listing video only after removing website-only pricing or direct-site exclusive language.',
@@ -125,12 +149,21 @@ export function buildConversionAssetPack(product: ProductLike, videoUrl: string)
   return {
     websiteUrl,
     utmUrl,
+    youtubeUrl,
+    instagramUrl,
+    facebookUrl,
     socialCaption,
+    youtubeCaption,
+    instagramCaption,
+    facebookCaption,
     shortCaption,
     adAngles,
+    facebookGroupPost,
+    emailSubject,
+    emailBody,
     amazonRepurposeNotes,
     aPlusModules,
-    retargetingAudience: `Retarget visitors who watched or clicked ${category} videos but did not purchase within 14 days. Send them to ${websiteUrl} with a direct-order offer or bundle.`,
+    retargetingAudience: `Retarget visitors from YouTube, Instagram, and Facebook who watched or clicked ${category} videos but did not purchase within 14 days. Send them to ${websiteUrl} with a direct-order bundle, refill, or first-order offer.`,
   }
 }
 
@@ -138,8 +171,17 @@ export function buildSheetUpdatesForConversionPack(pack: ConversionAssetPack): R
   return {
     Website_URL: pack.websiteUrl,
     UTM_URL: pack.utmUrl,
+    YouTube_URL: pack.youtubeUrl,
+    Instagram_URL: pack.instagramUrl,
+    Facebook_URL: pack.facebookUrl,
     Social_Caption: pack.socialCaption,
+    YouTube_Caption: pack.youtubeCaption,
+    Instagram_Caption: pack.instagramCaption,
+    Facebook_Caption: pack.facebookCaption,
+    Facebook_Group_Post: pack.facebookGroupPost,
     Short_Caption: pack.shortCaption,
+    Email_Subject: pack.emailSubject,
+    Email_Body: pack.emailBody,
     Ad_Angles: pack.adAngles.join('\n'),
     Amazon_Repurpose_Notes: pack.amazonRepurposeNotes.join('\n'),
     APlus_Module_Plan: pack.aPlusModules.map((m) => `${m.module}: ${m.headline} — ${m.copy}`).join('\n'),
