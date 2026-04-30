@@ -1,0 +1,66 @@
+name: Nature's Way Soil Video Automation
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub Actions uses UTC time.
+    # 7:00 AM Eastern = 11:00 UTC during daylight time, 12:00 UTC during standard time.
+    # This row generator is set for 11:00 UTC. Adjust seasonally if needed.
+    - cron: '0 11 * * *'
+
+    # Posting windows, approximated in UTC for Eastern daylight time.
+    - cron: '15 12 * * *'  # 8:15 AM ET
+    - cron: '30 15 * * *'  # 11:30 AM ET
+    - cron: '0 17 * * *'   # 1:00 PM ET
+    - cron: '15 22 * * *'  # 6:15 PM ET
+    - cron: '30 23 * * *'  # 7:30 PM ET
+
+jobs:
+  video-automation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate daily rows at morning window
+        if: github.event.schedule == '0 11 * * *' || github.event_name == 'workflow_dispatch'
+        run: npm run generate:rows
+        env:
+          CSV_URL: ${{ secrets.CSV_URL }}
+          GOOGLE_SHEET_CSV_URL: ${{ secrets.GOOGLE_SHEET_CSV_URL }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GS_SHEET_NAME: ${{ secrets.GS_SHEET_NAME }}
+
+      - name: Run video pipeline once
+        run: npm run run:once
+        env:
+          RUN_ONCE: 'true'
+          ROWS_PER_RUN: '1'
+          ALWAYS_GENERATE_NEW_VIDEO: 'true'
+          ENABLE_PLATFORMS: 'youtube,instagram,facebook'
+          CSV_URL: ${{ secrets.CSV_URL }}
+          GOOGLE_SHEET_CSV_URL: ${{ secrets.GOOGLE_SHEET_CSV_URL }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GS_SHEET_NAME: ${{ secrets.GS_SHEET_NAME }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          HEYGEN_API_KEY: ${{ secrets.HEYGEN_API_KEY }}
+          HEYGEN_DEFAULT_AVATAR: ${{ secrets.HEYGEN_DEFAULT_AVATAR }}
+          HEYGEN_DEFAULT_VOICE: ${{ secrets.HEYGEN_DEFAULT_VOICE }}
+          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          INSTAGRAM_ACCOUNT_ID: ${{ secrets.INSTAGRAM_ACCOUNT_ID }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          FACEBOOK_ACCESS_TOKEN: ${{ secrets.FACEBOOK_ACCESS_TOKEN }}
+          FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
