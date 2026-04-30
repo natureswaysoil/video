@@ -4,8 +4,9 @@ set -euo pipefail
 PRODUCT_IMAGE="${1:-}"
 OUTPUT_DIR="output"
 NORMALIZED_DIR="$OUTPUT_DIR/normalized"
-HOOK_TEXT="${HOOK_TEXT:-NATURE'S WAY SOIL}"
+HOOK_TEXT="${HOOK_TEXT:-NATURES WAY SOIL}"
 CTA_TEXT="${CTA_TEXT:-Order Direct at natureswaysoil.com}"
+FONT_FILE="/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 if ! command -v ffmpeg >/dev/null 2>&1; then
   echo "Error: ffmpeg is not installed."
@@ -24,7 +25,6 @@ for i in 0 1 2 3; do
 
 done
 
-# Normalize each clip individually so concat does not fail on mixed sizes, SAR, or frame rates.
 for i in 0 1 2 3; do
   echo "Normalizing clip_${i}.mp4..."
   ffmpeg -y \
@@ -52,12 +52,14 @@ ffmpeg -y \
   -r 30 \
   "$OUTPUT_DIR/combined.mp4"
 
+TEXT_FILTER="drawbox=x=0:y=0:w=iw:h=190:color=black@0.45:t=fill,drawtext=text=${HOOK_TEXT}:fontcolor=white:fontsize=58:fontfile=${FONT_FILE}:x=(w-text_w)/2:y=60,drawbox=x=0:y=1650:w=iw:h=270:color=black@0.55:t=fill,drawtext=text=${CTA_TEXT}:fontcolor=white:fontsize=44:fontfile=${FONT_FILE}:x=(w-text_w)/2:y=1740,format=yuv420p"
+
 if [ -n "$PRODUCT_IMAGE" ] && [ -f "$PRODUCT_IMAGE" ]; then
   echo "Overlaying product image: $PRODUCT_IMAGE"
   ffmpeg -y \
     -i "$OUTPUT_DIR/combined.mp4" \
     -i "$PRODUCT_IMAGE" \
-    -filter_complex "[1:v]scale=420:-1[prod];[0:v][prod]overlay=W-w-40:H-h-80:format=auto,drawbox=x=0:y=0:w=iw:h=190:color=black@0.45:t=fill,drawtext=text='$HOOK_TEXT':fontcolor=white:fontsize=58:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:x=(w-text_w)/2:y=60,drawbox=x=0:y=1650:w=iw:h=270:color=black@0.55:t=fill,drawtext=text='$CTA_TEXT':fontcolor=white:fontsize=44:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:x=(w-text_w)/2:y=1740,format=yuv420p" \
+    -filter_complex "[1:v]scale=420:-1[prod];[0:v][prod]overlay=W-w-40:H-h-80:format=auto,${TEXT_FILTER}" \
     -c:v libx264 \
     -pix_fmt yuv420p \
     -r 30 \
@@ -72,7 +74,7 @@ else
 
   ffmpeg -y \
     -i "$OUTPUT_DIR/combined.mp4" \
-    -vf "drawbox=x=0:y=0:w=iw:h=190:color=black@0.45:t=fill,drawtext=text='$HOOK_TEXT':fontcolor=white:fontsize=58:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:x=(w-text_w)/2:y=60,drawbox=x=0:y=1650:w=iw:h=270:color=black@0.55:t=fill,drawtext=text='$CTA_TEXT':fontcolor=white:fontsize=44:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:x=(w-text_w)/2:y=1740,format=yuv420p" \
+    -vf "$TEXT_FILTER" \
     -c:v libx264 \
     -pix_fmt yuv420p \
     -r 30 \
