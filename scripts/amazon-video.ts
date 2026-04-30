@@ -1,11 +1,11 @@
 import 'dotenv/config'
 import fetch from 'node-fetch'
 import path from 'path'
-import { execFileSync } from 'child_process'
 import { loadSecretsToEnv } from '../src/secret-manager'
 import { processCsvUrl } from '../src/core'
 
 const fs: any = require('fs')
+const { execFileSync }: any = require('child_process')
 
 const DEFAULT_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1dtUYrSy18_D2updwCpVa5wXfgf0hzAXaiQTQqMQnrSc/export?format=csv&gid=916620075'
 
