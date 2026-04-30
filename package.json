@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "schedule": "ts-node src/scheduler.ts",
     "generate:rows": "ts-node scripts/generate-rows.ts",
+    "build:broll": "ts-node scripts/build-broll-ad.ts",
     "run:once": "ts-node scripts/run-once.ts",
     "validate": "ts-node scripts/validate-system.ts",
     "test:csv": "ts-node scripts/test-csv-processing.ts",
