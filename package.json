@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json",
     "schedule": "ts-node src/scheduler.ts",
+    "generate:rows": "ts-node scripts/generate-rows.ts",
     "run:once": "ts-node scripts/run-once.ts",
     "validate": "ts-node scripts/validate-system.ts",
     "test:csv": "ts-node scripts/test-csv-processing.ts",
