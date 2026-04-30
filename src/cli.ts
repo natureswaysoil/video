@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { loadSecretsToEnv } from './secret-manager'
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager'
 import { processCsvUrl } from './core'
 import { postToInstagram } from './instagram'
@@ -19,6 +20,13 @@ import {
 } from './health-server'
 import { getAuditLogger } from './audit-logger'
 import { validateConfig } from './config-validator'
+
+// 🔐 NEW: Load ALL secrets at startup (once)
+async function bootstrapSecrets() {
+  console.log('🔐 Loading secrets from Google Secret Manager...')
+  await loadSecretsToEnv()
+  console.log('🔐 Secret load complete')
+}
 
 const auditLogger = getAuditLogger()
 
@@ -228,6 +236,9 @@ async function createOrPollVideo(params: {
 }
 
 async function main(): Promise<void> {
+  // 🔐 ensure secrets are loaded before anything else
+  await bootstrapSecrets()
+
   try {
     console.log('Validating configuration before starting polling...')
     await validateConfig()
@@ -237,6 +248,7 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
+  // Backward compatibility: still attempt specific loads if missing
   await loadSecretToEnv('GOOGLE_SHEET_CSV_URL')
   await loadSecretToEnv('CSV_URL')
 
