@@ -18,13 +18,13 @@ function pick(record: Record<string, any> | undefined, keys: string[]): string {
   return ''
 }
 
-function safeText(value: string): string {
+function safeText(value: string, max = 48): string {
   return String(value || '')
     .replace(/:/g, '\\:')
     .replace(/'/g, "\\'")
     .replace(/\n/g, ' ')
     .trim()
-    .slice(0, 70)
+    .slice(0, max)
 }
 
 function slugify(value: string): string {
@@ -33,6 +33,48 @@ function slugify(value: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 60) || 'video'
+}
+
+function productDefaults(title: string) {
+  const lower = title.toLowerCase()
+  if (lower.includes('bone')) {
+    return {
+      hook: 'Stronger Roots Start Here',
+      benefit1: 'Phosphorus + Calcium Support',
+      benefit2: 'For Roots, Blooms & Fruit',
+      benefit3: 'Easy Liquid Feeding',
+      cta: 'Nature’s Way Soil Liquid Bone Meal',
+      queries: ['blooming garden flowers close up', 'gardener watering plants', 'healthy vegetable garden sunlight', 'plant roots soil close up'],
+    }
+  }
+  if (lower.includes('dog') || lower.includes('urine')) {
+    return {
+      hook: 'Yellow Lawn Spots?',
+      benefit1: 'Works At Soil Level',
+      benefit2: 'Enzymes + Humic Support',
+      benefit3: 'Pet-Safe Lawn Care',
+      cta: 'Nature’s Way Soil Lawn Revitalizer',
+      queries: ['green lawn dog backyard', 'watering lawn close up', 'healthy grass sunlight', 'family dog grass yard'],
+    }
+  }
+  if (lower.includes('humic') || lower.includes('fulvic')) {
+    return {
+      hook: 'Feed The Soil First',
+      benefit1: 'Humic + Fulvic Acids',
+      benefit2: 'With Organic Kelp',
+      benefit3: 'Lawn & Garden Support',
+      cta: 'Nature’s Way Soil Humic + Fulvic',
+      queries: ['rich dark garden soil close up', 'gardener watering plants', 'green lawn sunlight', 'healthy garden vegetables'],
+    }
+  }
+  return {
+    hook: 'Stronger Growth Starts Below',
+    benefit1: 'Soil-Focused Plant Care',
+    benefit2: 'Easy Liquid Application',
+    benefit3: 'For Lawns & Gardens',
+    cta: 'Nature’s Way Soil',
+    queries: ['healthy garden plants sunlight', 'gardener watering plants close up', 'rich soil garden close up', 'green lawn plants'],
+  }
 }
 
 async function findPexelsClip(query: string): Promise<string> {
@@ -81,23 +123,24 @@ async function main(): Promise<void> {
 
   const record = row.record
   const title = pick(record, ['Title', 'title', 'Product_Name', 'Product', 'name']) || row.product.title || row.product.name || 'Nature’s Way Soil'
-  const hook = pick(record, ['Amazon_Hook', 'Hook', 'Video_Hook']) || 'Stronger growth starts with better soil'
-  const benefit1 = pick(record, ['Benefit_1', 'Benefits', 'Benefit']) || 'Supports Strong Roots'
-  const benefit2 = pick(record, ['Benefit_2']) || 'Feeds Soil & Plants'
-  const benefit3 = pick(record, ['Benefit_3']) || 'Easy Liquid Application'
-  const cta = pick(record, ['CTA', 'Call_To_Action']) || 'Nature’s Way Soil'
+  const defaults = productDefaults(title)
+  const hook = pick(record, ['Amazon_Hook', 'Hook', 'Video_Hook']) || defaults.hook
+  const benefit1 = pick(record, ['Benefit_1']) || defaults.benefit1
+  const benefit2 = pick(record, ['Benefit_2']) || defaults.benefit2
+  const benefit3 = pick(record, ['Benefit_3']) || defaults.benefit3
+  const cta = pick(record, ['CTA', 'Call_To_Action']) || defaults.cta
 
   const queries = [
-    pick(record, ['Broll_Query_1', 'Broll_Query', 'Pexels_Query']) || `${title} garden soil plants`,
-    pick(record, ['Broll_Query_2']) || 'gardener watering plants close up',
-    pick(record, ['Broll_Query_3']) || 'healthy garden plants sunlight',
-    pick(record, ['Broll_Query_4']) || 'rich soil roots garden close up',
+    pick(record, ['Broll_Query_1', 'Broll_Query', 'Pexels_Query']) || defaults.queries[0],
+    pick(record, ['Broll_Query_2']) || defaults.queries[1],
+    pick(record, ['Broll_Query_3']) || defaults.queries[2],
+    pick(record, ['Broll_Query_4']) || defaults.queries[3],
   ]
 
   const outDir = path.join(process.cwd(), 'output', slugify(title))
   fs.mkdirSync(outDir, { recursive: true })
 
-  console.log(`Building Amazon-style video for row ${row.rowNumber}: ${title}`)
+  console.log(`Building upgraded Amazon-style video for row ${row.rowNumber}: ${title}`)
 
   const clipPaths: string[] = []
   for (let i = 0; i < queries.length; i++) {
@@ -113,13 +156,15 @@ async function main(): Promise<void> {
   const processedClips: string[] = []
 
   for (let i = 0; i < clipPaths.length; i++) {
-    const processed = path.join(outDir, `processed-${i + 1}.mp4`)
+    const processed = path.join(outDir, `premium-${i + 1}.mp4`)
     const text = safeText(textLines[i] || cta)
+    const duration = i === 0 ? '4' : '3.5'
+    const fontSize = i === 0 ? '54' : '46'
     runFfmpeg([
       '-y',
       '-i', clipPaths[i],
-      '-t', '5',
-      '-vf', `scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,drawbox=y=500:color=black@0.45:width=iw:height=120:t=fill,drawtext=text='${text}':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=535`,
+      '-t', duration,
+      '-vf', `scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,eq=contrast=1.05:saturation=1.12,drawbox=x=0:y=0:color=black@0.18:width=iw:height=ih:t=fill,drawbox=x=70:y=500:color=black@0.55:width=1140:height=105:t=fill,drawtext=text='${text}':fontcolor=white:fontsize=${fontSize}:x=(w-text_w)/2:y=532`,
       '-an',
       '-r', '30',
       '-pix_fmt', 'yuv420p',
@@ -128,30 +173,26 @@ async function main(): Promise<void> {
     processedClips.push(processed)
   }
 
-  const listFile = path.join(outDir, 'clips.txt')
+  const listFile = path.join(outDir, 'premium-clips.txt')
   fs.writeFileSync(listFile, processedClips.map((clip) => `file '${clip.replace(/'/g, "'\\''")}'`).join('\n'))
 
-  const combined = path.join(outDir, `${slugify(title)}-amazon-video.mp4`)
+  const final = path.join(outDir, `${slugify(title)}-amazon-video-premium.mp4`)
   runFfmpeg([
     '-y',
     '-f', 'concat',
     '-safe', '0',
     '-i', listFile,
-    '-c', 'copy',
-    combined,
-  ])
-
-  const final = path.join(outDir, `${slugify(title)}-amazon-video-final.mp4`)
-  runFfmpeg([
-    '-y',
-    '-i', combined,
-    '-vf', `drawbox=y=610:color=black@0.55:width=iw:height=90:t=fill,drawtext=text='${safeText(cta)}':fontcolor=white:fontsize=36:x=(w-text_w)/2:y=638`,
-    '-c:a', 'copy',
+    '-vf', `drawbox=x=0:y=620:color=black@0.62:width=iw:height=80:t=fill,drawtext=text='${safeText(cta, 55)}':fontcolor=white:fontsize=34:x=(w-text_w)/2:y=645`,
+    '-r', '30',
+    '-pix_fmt', 'yuv420p',
     final,
   ])
 
-  console.log('DONE - Amazon-style video created:')
+  fs.copyFileSync(final, path.join(process.cwd(), 'amazon-video-premium.mp4'))
+
+  console.log('DONE - upgraded Amazon-style video created:')
   console.log(final)
+  console.log('Copied to: amazon-video-premium.mp4')
 }
 
 main().catch((error) => {
