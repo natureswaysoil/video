@@ -3,21 +3,27 @@ import fetch from 'node-fetch'
 import fs from 'fs'
 import path from 'path'
 import { getDailySeeds } from '../src/content-seed-bank'
+import { loadSecretsToEnv } from '../src/secret-manager'
 
-const PEXELS_API_KEY = process.env.PEXELS_API_KEY
-
-async function fetchPexelsVideos(query: string) {
+async function fetchPexelsVideos(query: string, apiKey: string) {
   const res = await fetch(`https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=5`, {
     headers: {
-      Authorization: PEXELS_API_KEY || ''
+      Authorization: apiKey
     }
   })
+
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Pexels search failed ${res.status}: ${body}`)
+  }
+
   const data = await res.json()
   return data.videos || []
 }
 
 async function downloadVideo(url: string, filePath: string) {
   const res = await fetch(url)
+  if (!res.ok) throw new Error(`Failed to download video ${res.status}: ${url}`)
   const fileStream = fs.createWriteStream(filePath)
   await new Promise((resolve, reject) => {
     res.body.pipe(fileStream)
@@ -27,32 +33,45 @@ async function downloadVideo(url: string, filePath: string) {
 }
 
 async function main() {
-  if (!PEXELS_API_KEY) {
-    throw new Error('PEXELS_API_KEY not set')
+  await loadSecretsToEnv(['PEXELS_API_KEY'])
+
+  const pexelsApiKey = process.env.PEXELS_API_KEY
+  if (!pexelsApiKey) {
+    throw new Error('PEXELS_API_KEY not set in Google Secret Manager or local env')
   }
 
   const seed = getDailySeeds(1)[0]
 
   console.log('Building b-roll ad for:', seed.title)
 
-  const queries = seed.visualPrompt.split(',').slice(0, 4)
+  const queries = seed.visualPrompt
+    .split(',')
+    .map(q => q.trim())
+    .filter(Boolean)
+    .slice(0, 4)
 
   const outputDir = path.join(process.cwd(), 'output')
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir)
 
   let index = 0
   for (const q of queries) {
-    const videos = await fetchPexelsVideos(q)
+    const videos = await fetchPexelsVideos(q, pexelsApiKey)
     if (videos.length > 0) {
       const videoFile = videos[0].video_files.find((v: any) => v.quality === 'sd') || videos[0].video_files[0]
       const filePath = path.join(outputDir, `clip_${index}.mp4`)
       console.log('Downloading clip:', q)
       await downloadVideo(videoFile.link, filePath)
       index++
+    } else {
+      console.log('No Pexels clips found for:', q)
     }
   }
 
-  console.log('Downloaded clips. Next step: combine clips with ffmpeg.')
+  console.log(`Downloaded ${index} clips to ${outputDir}`)
+  console.log('Next step: combine clips with ffmpeg.')
 }
 
-main().catch(console.error)
+main().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})
