@@ -36,6 +36,8 @@ export type HeyGenVideoPayload = {
   avatar?: string
   voice?: string
   lengthSeconds?: number
+  imageUrl?: string
+  visualPrompt?: string
   music?: {
     style?: string
     volume?: number
