@@ -170,7 +170,12 @@ export class HeyGenClient {
                   voice_id: resolvedVoiceId,
                   speed: 1.0,
                 },
-                background: { type: 'color', value: '#1a1a1a' },
+                background: payload.imageUrl
+  ? { type: 'image', value: payload.imageUrl }
+  : {
+      type: 'ai',
+      prompt: payload.visualPrompt || 'natural garden scene, healthy plants, soil, product application'
+    },
               }],
               dimension: { width: 720, height: 1280 },
               ...(payload.title ? { title: payload.title } : {}),
