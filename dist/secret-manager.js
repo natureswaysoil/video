@@ -29,6 +29,7 @@ exports.DEFAULT_SECRET_NAMES = [
     'TWITTER_ACCESS_TOKEN_SECRET',
     'PINTEREST_ACCESS_TOKEN',
     'PINTEREST_BOARD_ID',
+    'PEXELS_API_KEY',
 ];
 function getProjectId() {
     return process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT;
