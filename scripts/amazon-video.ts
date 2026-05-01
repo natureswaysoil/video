@@ -37,26 +37,70 @@ function slugify(value: string): string {
 
 function productDefaults(title: string) {
   const lower = title.toLowerCase()
+  if (lower.includes('hay') || lower.includes('pasture')) {
+    return {
+      hook: 'Feed 5 Acres for Under $20',
+      benefit1: '1:50 Dilution — Boom Sprayer',
+      benefit2: 'Livestock Safe When Dry',
+      benefit3: 'Color Change in 7-10 Days',
+      cta: 'Shop NaturesWaySoil.com',
+      landingUrl: 'natureswaysoil.com/product/NWS_021',
+      queries: ['green pasture field aerial', 'boom sprayer tractor field', 'cattle grazing green pasture', 'lush green grass lawn', 'farm fertilizer spraying'],
+    }
+  }
+  if (lower.includes('dog') || lower.includes('urine')) {
+    return {
+      hook: 'Yellow Lawn Spots? Fixed.',
+      benefit1: 'Works At Soil Level',
+      benefit2: 'Enzymes + Humic Support',
+      benefit3: 'Pet-Safe Lawn Care',
+      cta: 'Shop NaturesWaySoil.com',
+      landingUrl: 'natureswaysoil.com/product/NWS_014',
+      queries: ['green lawn dog backyard', 'watering lawn close up', 'healthy grass sunlight', 'family dog grass yard', 'repairing lawn grass'],
+    }
+  }
+  if (lower.includes('fruit') || lower.includes('tree')) {
+    return {
+      hook: 'Your Trees Are Starving.',
+      benefit1: 'N-P-K + Humic Trace Minerals',
+      benefit2: 'Apply at Bud Break + Fruit Set',
+      benefit3: 'Covers Up to 20 Trees / App',
+      cta: 'Shop NaturesWaySoil.com',
+      landingUrl: 'natureswaysoil.com/product/NWS_021',
+      queries: ['apple fruit tree orchard harvest', 'fruit tree bud break spring blossoms', 'watering fruit tree base roots', 'lush fruit tree green canopy orchard', 'picking ripe peach apple orchard'],
+    }
+  }
+  if (lower.includes('kelp') || lower.includes('seaweed')) {
+    return {
+      hook: 'Icelandic Kelp. Unlocked.',
+      benefit1: 'Enzymatic Hydrolysis Process',
+      benefit2: '60+ Bioavailable Trace Minerals',
+      benefit3: '2.5 gal = 100+ gal Finished',
+      cta: 'Shop NaturesWaySoil.com',
+      landingUrl: 'natureswaysoil.com/product/NWS_006',
+      queries: ['ocean kelp seaweed harvest', 'foliar spray tomato plant garden', 'drip irrigation garden vegetable', 'lush green crop field', 'concentrated liquid fertilizer pour'],
+    }
+  }
+  if (lower.includes('humic') || lower.includes('fulvic')) {
+    return {
+      hook: 'Feed the Soil. Feed the Plant.',
+      benefit1: 'Boosts Cation Exchange Capacity',
+      benefit2: 'Fulvic Acid Drives Cell Uptake',
+      benefit3: 'Drench, Foliar, or Fertigation',
+      cta: 'Shop NaturesWaySoil.com',
+      landingUrl: 'natureswaysoil.com/product/NWS_011',
+      queries: ['plant roots close up soil', 'dark liquid pouring concentrate', 'corn field green healthy crop', 'drip irrigation fertigation farm', 'soil microbes biology garden'],
+    }
+  }
   if (lower.includes('bone')) {
     return {
       hook: 'Stronger Roots Start Here',
       benefit1: 'Phosphorus + Calcium Support',
       benefit2: 'For Roots, Blooms & Fruit',
       benefit3: 'Easy Liquid Feeding',
-      cta: 'Shop Nature’s Way Soil',
-      landingUrl: 'natureswaysoil.com',
+      cta: 'Shop NaturesWaySoil.com',
+      landingUrl: 'natureswaysoil.com/shop',
       queries: ['blooming garden flowers close up', 'gardener watering plants', 'healthy vegetable garden sunlight', 'plant roots soil close up', 'gardener pouring liquid fertilizer'],
-    }
-  }
-  if (lower.includes('dog') || lower.includes('urine')) {
-    return {
-      hook: 'Yellow Lawn Spots?',
-      benefit1: 'Works At Soil Level',
-      benefit2: 'Enzymes + Humic Support',
-      benefit3: 'Pet-Safe Lawn Care',
-      cta: 'Shop Nature’s Way Soil',
-      landingUrl: 'natureswaysoil.com',
-      queries: ['green lawn dog backyard', 'watering lawn close up', 'healthy grass sunlight', 'family dog grass yard', 'repairing lawn grass'],
     }
   }
   return {
@@ -64,8 +108,8 @@ function productDefaults(title: string) {
     benefit1: 'Soil-Focused Plant Care',
     benefit2: 'Easy Liquid Application',
     benefit3: 'For Lawns & Gardens',
-    cta: 'Shop Nature’s Way Soil',
-    landingUrl: 'natureswaysoil.com',
+    cta: 'Shop NaturesWaySoil.com',
+    landingUrl: 'natureswaysoil.com/shop',
     queries: ['healthy garden plants sunlight', 'gardener watering plants close up', 'rich soil garden close up', 'green lawn plants', 'pouring liquid fertilizer plants'],
   }
 }
@@ -73,16 +117,13 @@ function productDefaults(title: string) {
 async function findPexelsClip(query: string): Promise<string> {
   const apiKey = process.env.PEXELS_API_KEY
   if (!apiKey) throw new Error('PEXELS_API_KEY is required for amazon:video')
-
   const response = await fetch(`https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&orientation=landscape&per_page=8`, {
     headers: { Authorization: apiKey },
   })
-
   if (!response.ok) {
     const body = await response.text()
     throw new Error(`Pexels search failed ${response.status}: ${body}`)
   }
-
   const data: any = await response.json()
   const videos = data.videos || []
   const files = videos.flatMap((video: any) => video.video_files || [])
@@ -113,11 +154,15 @@ async function main(): Promise<void> {
 
   const csvUrl = process.env.CSV_URL || process.env.GOOGLE_SHEET_CSV_URL || DEFAULT_SHEET_CSV_URL
   const result = await processCsvUrl(csvUrl)
-  const row = result.rows[0]
+
+  const targetAsin = process.env.ASIN
+  const row = targetAsin
+    ? (result.rows.find((r: any) => [r.record?.ASIN, r.record?.Parent_ASIN, r.record?.asin].includes(targetAsin)) ?? result.rows[0])
+    : result.rows[0]
   if (!row) throw new Error('No ready/unposted product rows found')
 
   const record = row.record
-  const title = pick(record, ['Title', 'title', 'Product_Name', 'Product', 'name']) || row.product.title || row.product.name || 'Nature’s Way Soil'
+  const title = pick(record, ['Title', 'title', 'Product_Name', 'Product', 'name']) || row.product?.title || row.product?.name || "Nature's Way Soil"
   const defaults = productDefaults(title)
   const hook = pick(record, ['Amazon_Hook', 'Hook', 'Video_Hook']) || defaults.hook
   const benefit1 = pick(record, ['Benefit_1']) || defaults.benefit1
@@ -139,6 +184,7 @@ async function main(): Promise<void> {
   fs.mkdirSync(outDir, { recursive: true })
 
   console.log(`Building Amazon-style video for row ${row.rowNumber}: ${title}`)
+  console.log(`Landing URL: ${landingUrl}`)
   if (!fileExists(productImage)) console.warn('No product image found. Add Product_Image_Path in the sheet for bottle overlay.')
 
   const clipPaths: string[] = []
@@ -172,37 +218,28 @@ async function main(): Promise<void> {
 
   const endCard = path.join(outDir, 'end-card.mp4')
   runFfmpeg([
-    '-y',
-    '-f', 'lavfi',
+    '-y', '-f', 'lavfi',
     '-i', 'color=c=0x1f3d2b:s=1280x720:d=5',
-    '-vf', `drawtext=text='${safeText(cta, 55)}':fontcolor=white:fontsize=52:x=(w-text_w)/2:y=250,drawtext=text='${safeText(landingUrl, 60)}':fontcolor=white:fontsize=38:x=(w-text_w)/2:y=340,drawtext=text='Use as directed':fontcolor=white@0.82:fontsize=26:x=(w-text_w)/2:y=430`,
-    '-r', '30',
-    '-pix_fmt', 'yuv420p',
-    endCard,
+    '-vf', `drawtext=text='${safeText(cta, 55)}':fontcolor=white:fontsize=52:x=(w-text_w)/2:y=250,drawtext=text='${safeText(landingUrl, 60)}':fontcolor=0x90ee90:fontsize=40:x=(w-text_w)/2:y=340,drawtext=text='Shop Now':fontcolor=white@0.82:fontsize=28:x=(w-text_w)/2:y=430`,
+    '-r', '30', '-pix_fmt', 'yuv420p', endCard,
   ])
   processedClips.push(endCard)
 
   const listFile = path.join(outDir, 'clips-with-endcard.txt')
-  fs.writeFileSync(listFile, processedClips.map((clip) => `file '${clip.replace(/'/g, "'\\''")}'`).join('\n'))
+  fs.writeFileSync(listFile, processedClips.map((clip: string) => `file '${clip.replace(/'/g, "'\\''")}'`).join('\n'))
 
   const silent = path.join(outDir, `${slugify(title)}-amazon-video-silent.mp4`)
   runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', silent])
 
   const final = path.join(outDir, `${slugify(title)}-amazon-video-with-audio.mp4`)
   runFfmpeg([
-    '-y',
-    '-i', silent,
-    '-f', 'lavfi',
-    '-i', 'sine=frequency=220:sample_rate=44100:duration=30',
-    '-shortest',
-    '-filter:a', 'volume=0.08',
-    '-c:v', 'copy',
-    '-c:a', 'aac',
-    final,
+    '-y', '-i', silent,
+    '-f', 'lavfi', '-i', 'sine=frequency=220:sample_rate=44100:duration=30',
+    '-shortest', '-filter:a', 'volume=0.08',
+    '-c:v', 'copy', '-c:a', 'aac', final,
   ])
 
   fs.copyFileSync(final, path.join(process.cwd(), 'amazon-video-premium.mp4'))
-
   console.log('DONE - Amazon-style video with audio/end card created:')
   console.log(final)
   console.log('Copied to: amazon-video-premium.mp4')
