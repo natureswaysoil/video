@@ -29,8 +29,13 @@ export const DEFAULT_SECRET_NAMES = [
   'PEXELS_API_KEY',
 ]
 
-function getProjectId(): string | undefined {
-  return process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT
+function getProjectId(): string {
+  return (
+    process.env.GOOGLE_CLOUD_PROJECT ||
+    process.env.GCLOUD_PROJECT ||
+    process.env.GCP_PROJECT ||
+    'natureswaysoil-video'
+  )
 }
 
 export async function loadSecretToEnv(secretName: string): Promise<boolean> {
@@ -38,11 +43,6 @@ export async function loadSecretToEnv(secretName: string): Promise<boolean> {
   if (loaded.has(secretName)) return !!process.env[secretName]
 
   const projectId = getProjectId()
-  if (!projectId) {
-    console.warn(`No Google Cloud project ID found; skipping Secret Manager lookup for ${secretName}`)
-    loaded.add(secretName)
-    return false
-  }
 
   try {
     const name = `projects/${projectId}/secrets/${secretName}/versions/latest`

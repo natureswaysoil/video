@@ -21,9 +21,9 @@ jobs:
       ROWS_PER_RUN: '1'
       ALWAYS_GENERATE_NEW_VIDEO: 'true'
       ENABLE_PLATFORMS: 'youtube,instagram,facebook'
-      GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
-      GCLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
-      GCP_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+      GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT || 'natureswaysoil-video' }}
+      GCLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT || 'natureswaysoil-video' }}
+      GCP_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT || 'natureswaysoil-video' }}
       GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/gcp-service-account.json
 
     steps:
