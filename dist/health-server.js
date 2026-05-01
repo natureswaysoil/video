@@ -48,6 +48,24 @@ const twitter_1 = require("./twitter");
 const youtube_1 = require("./youtube");
 const instagram_1 = require("./instagram");
 const pinterest_1 = require("./pinterest");
+const webhook_auth_1 = require("./webhook-auth");
+/** Allowed URL schemes and hostname patterns for incoming webhook video URLs (SSRF protection) */
+const ALLOWED_VIDEO_URL_RE = /^https:\/\//i;
+function isAllowedVideoUrl(url) {
+    if (!ALLOWED_VIDEO_URL_RE.test(url))
+        return false;
+    try {
+        const parsed = new URL(url);
+        // Block private/link-local ranges
+        const blocked = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|::1|fd[0-9a-f]{2}:)/i;
+        if (blocked.test(parsed.hostname))
+            return false;
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
 const PORT = parseInt(process.env.PORT || '8080', 10);
 let server = null;
 let serverStarted = false;
@@ -60,9 +78,12 @@ let lastRunStatus = {
     errors: []
 };
 async function handleRequest(req, res) {
-    // CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
+    const isWebhook = req.url?.startsWith('/webhooks/');
+    // CORS only for non-webhook browser-accessible endpoints
+    if (!isWebhook) {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+    }
     if (req.url === '/health' && req.method === 'GET') {
         res.statusCode = 200;
         res.end(JSON.stringify({
@@ -102,6 +123,17 @@ async function handleRequest(req, res) {
             for await (const chunk of req)
                 chunks.push(chunk);
             const raw = Buffer.concat(chunks).toString('utf8');
+            // Verify webhook signature if WEBHOOK_SECRET is configured
+            const webhookSecret = process.env.WEBHOOK_SECRET;
+            if (!webhookSecret) {
+                res.statusCode = 500;
+                return res.end(JSON.stringify({ ok: false, error: 'Webhook authentication is not configured' }));
+            }
+            const signature = (req.headers['x-signature'] || req.headers['x-pictory-signature'] || '');
+            if (!signature || !(0, webhook_auth_1.verifyWebhookSignatureWithPrefix)(raw, signature, webhookSecret)) {
+                res.statusCode = 401;
+                return res.end(JSON.stringify({ ok: false, error: 'Invalid webhook signature' }));
+            }
             let body = null;
             try {
                 body = raw ? JSON.parse(raw) : {};
@@ -114,7 +146,12 @@ async function handleRequest(req, res) {
             // Try to extract job id and video URL
             const data = body?.data || body || {};
             const jobId = data.job_id || data.renderJobId || data.id || body?.job_id;
-            const videoUrl = data.videoUrl || data.url || data.video_url || body?.videoUrl;
+            const rawVideoUrl = data.videoUrl || data.url || data.video_url || body?.videoUrl;
+            // Validate video URL to prevent SSRF
+            const videoUrl = rawVideoUrl && isAllowedVideoUrl(rawVideoUrl) ? rawVideoUrl : undefined;
+            if (rawVideoUrl && !videoUrl) {
+                console.warn('⚠️ Webhook video URL rejected (not an allowed HTTPS URL):', rawVideoUrl);
+            }
             if (!jobId) {
                 console.log('⚠️ Pictory webhook missing job_id');
                 res.statusCode = 200;
@@ -197,8 +234,9 @@ async function handleRequest(req, res) {
             res.end(JSON.stringify({ ok: true }));
         }
         catch (e) {
+            console.error('❌ Webhook handler error:', e?.message || e);
             res.statusCode = 500;
-            res.end(JSON.stringify({ ok: false, error: e?.message || String(e) }));
+            res.end(JSON.stringify({ ok: false, error: 'Internal server error' }));
         }
     }
     else {
@@ -212,8 +250,9 @@ function startHealthServer() {
     }
     const newServer = http_1.default.createServer((req, res) => {
         handleRequest(req, res).catch((err) => {
+            console.error('❌ Unhandled request error:', err?.message || err);
             res.statusCode = 500;
-            res.end(JSON.stringify({ ok: false, error: err?.message || String(err) }));
+            res.end(JSON.stringify({ ok: false, error: 'Internal server error' }));
         });
     });
     server = newServer;

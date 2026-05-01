@@ -22,10 +22,11 @@ export function verifyWebhookSignature(
     const digest = hmac.update(payload).digest('hex')
     
     // Constant-time comparison to prevent timing attacks
-    return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(digest)
-    )
+    const sigBuf = Buffer.from(signature)
+    const digestBuf = Buffer.from(digest)
+    // timingSafeEqual requires equal-length buffers; length mismatch means invalid
+    if (sigBuf.length !== digestBuf.length) return false
+    return crypto.timingSafeEqual(sigBuf, digestBuf)
   } catch (error) {
     console.error('[WebhookAuth] Signature verification error:', error)
     return false

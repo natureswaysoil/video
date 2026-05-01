@@ -56,7 +56,7 @@ async function postToTwitter(videoUrl, caption, bearerToken) {
                     // Check video size before downloading
                     try {
                         const headResponse = await axios_1.default.head(videoUrl);
-                        const contentLength = parseInt(headResponse.headers['content-length'] || '0', 10);
+                        const contentLength = parseInt(String(headResponse.headers['content-length'] || '0'), 10);
                         const sizeMB = contentLength / (1024 * 1024);
                         if (sizeMB > MAX_VIDEO_SIZE_MB) {
                             throw new errors_1.AppError(`Video too large for Twitter: ${sizeMB.toFixed(2)}MB (max ${MAX_VIDEO_SIZE_MB}MB)`, errors_1.ErrorCode.VALIDATION_ERROR, 400, true, { videoSizeMB: sizeMB, maxSizeMB: MAX_VIDEO_SIZE_MB });

@@ -22,7 +22,12 @@ function verifyWebhookSignature(payload, signature, secret, algorithm = 'sha256'
         const hmac = crypto_1.default.createHmac(algorithm, secret);
         const digest = hmac.update(payload).digest('hex');
         // Constant-time comparison to prevent timing attacks
-        return crypto_1.default.timingSafeEqual(Buffer.from(signature), Buffer.from(digest));
+        const sigBuf = Buffer.from(signature);
+        const digestBuf = Buffer.from(digest);
+        // timingSafeEqual requires equal-length buffers; length mismatch means invalid
+        if (sigBuf.length !== digestBuf.length)
+            return false;
+        return crypto_1.default.timingSafeEqual(sigBuf, digestBuf);
     }
     catch (error) {
         console.error('[WebhookAuth] Signature verification error:', error);

@@ -74,7 +74,7 @@ export async function postToTwitter(
             // Check video size before downloading
             try {
               const headResponse = await axios.head(videoUrl)
-              const contentLength = parseInt(headResponse.headers['content-length'] || '0', 10)
+              const contentLength = parseInt(String(headResponse.headers['content-length'] || '0'), 10)
               const sizeMB = contentLength / (1024 * 1024)
 
               if (sizeMB > MAX_VIDEO_SIZE_MB) {

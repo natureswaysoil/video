@@ -122,35 +122,58 @@ async function postToEnabledPlatforms(params) {
     const shouldPost = (platform) => enabledPlatforms.size === 0 || enabledPlatforms.has(platform);
     if (dryRun) {
         console.log('DRY_RUN_LOG_ONLY=true — skipping platform posting', { title, videoUrl });
-        return;
+        return { anySucceeded: false };
     }
+    const config = (0, config_validator_1.getConfig)();
+    let anySucceeded = false;
     if (shouldPost('instagram')) {
-        const config = (0, config_validator_1.getConfig)();
         if (config.INSTAGRAM_ACCESS_TOKEN && config.INSTAGRAM_IG_ID) {
-            await (0, instagram_1.postToInstagram)(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, config.INSTAGRAM_IG_ID);
+            try {
+                await (0, instagram_1.postToInstagram)(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, config.INSTAGRAM_IG_ID);
+                anySucceeded = true;
+            }
+            catch (e) {
+                console.error('❌ Instagram post failed:', e?.message || e);
+            }
         }
     }
     if (shouldPost('twitter')) {
-        const config = (0, config_validator_1.getConfig)();
         if (config.TWITTER_BEARER_TOKEN) {
-            await (0, twitter_1.postToTwitter)(videoUrl, caption || title, config.TWITTER_BEARER_TOKEN);
+            try {
+                await (0, twitter_1.postToTwitter)(videoUrl, caption || title, config.TWITTER_BEARER_TOKEN);
+                anySucceeded = true;
+            }
+            catch (e) {
+                console.error('❌ Twitter post failed:', e?.message || e);
+            }
         }
     }
     if (shouldPost('pinterest')) {
-        const config = (0, config_validator_1.getConfig)();
         if (config.PINTEREST_ACCESS_TOKEN && config.PINTEREST_BOARD_ID) {
-            await (0, pinterest_1.postToPinterest)(videoUrl, caption, config.PINTEREST_ACCESS_TOKEN, config.PINTEREST_BOARD_ID);
+            try {
+                await (0, pinterest_1.postToPinterest)(videoUrl, caption, config.PINTEREST_ACCESS_TOKEN, config.PINTEREST_BOARD_ID);
+                anySucceeded = true;
+            }
+            catch (e) {
+                console.error('❌ Pinterest post failed:', e?.message || e);
+            }
         }
     }
     if (shouldPost('youtube')) {
-        const config = (0, config_validator_1.getConfig)();
         if (config.YT_CLIENT_ID && config.YT_CLIENT_SECRET && config.YT_REFRESH_TOKEN) {
-            await (0, youtube_1.postToYouTube)(videoUrl, caption, config.YT_CLIENT_ID, config.YT_CLIENT_SECRET, config.YT_REFRESH_TOKEN);
+            try {
+                await (0, youtube_1.postToYouTube)(videoUrl, caption, config.YT_CLIENT_ID, config.YT_CLIENT_SECRET, config.YT_REFRESH_TOKEN);
+                anySucceeded = true;
+            }
+            catch (e) {
+                console.error('❌ YouTube post failed:', e?.message || e);
+            }
         }
     }
     const skipped = allPlatforms.filter((platform) => !shouldPost(platform));
     if (skipped.length > 0)
         console.log('Skipped disabled platforms:', skipped.join(', '));
+    return { anySucceeded };
 }
 async function createOrPollVideo(params) {
     const { product, record, headers, rowNumber, csvUrl, alwaysGenerate } = params;
@@ -163,7 +186,7 @@ async function createOrPollVideo(params) {
     if (!alwaysGenerate && videoState.videoId && (videoState.videoStatus || '').toLowerCase() === 'processing') {
         console.log(`⏳ Polling existing HeyGen job for row ${rowNumber}: ${videoState.videoId}`);
         const videoUrl = await heygenClient.pollJobForVideoUrl(videoState.videoId, {
-            timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 120000),
+            timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
             intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
         });
         await writeRowFields(csvUrl, headers, rowNumber, {
@@ -190,7 +213,7 @@ async function createOrPollVideo(params) {
         HEYGEN_MAPPED_AT: new Date().toISOString(),
     });
     const videoUrl = await heygenClient.pollJobForVideoUrl(videoId, {
-        timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 120000),
+        timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
         intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
     });
     await writeRowFields(csvUrl, headers, rowNumber, {
@@ -252,19 +275,29 @@ async function main() {
             if (rowsThisCycle >= rowsPerRun)
                 break;
             console.log(`\n========== Processing Row ${rowNumber} ==========`);
-            console.log('Product:', product);
+            console.log('Product:', product?.title || product?.name || jobId);
             try {
                 const videoUrl = await createOrPollVideo({ product, record, headers, rowNumber, csvUrl, alwaysGenerate });
-                await postToEnabledPlatforms({ videoUrl, product, enabledPlatforms, dryRun });
-                const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
-                const sheetGid = extractGidFromCsv(csvUrl);
-                await (0, sheets_1.markRowPosted)({ spreadsheetId, sheetGid, rowNumber, headers });
+                const { anySucceeded } = await postToEnabledPlatforms({ videoUrl, product, enabledPlatforms, dryRun });
+                if (!anySucceeded && !dryRun) {
+                    throw new Error('No enabled platform post succeeded for this row');
+                }
+                if (anySucceeded || dryRun) {
+                    const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
+                    const sheetGid = extractGidFromCsv(csvUrl);
+                    await (0, sheets_1.markRowPosted)({ spreadsheetId, sheetGid, rowNumber, headers });
+                }
+                else {
+                    console.warn(`⚠️ Row ${rowNumber}: no platforms succeeded, skipping writeback`);
+                }
                 seen.add(jobId);
                 rowsThisCycle++;
                 (0, health_server_1.incrementSuccessfulPost)();
                 (0, health_server_1.updateStatus)({ status: 'processed-row', rowsProcessed: rowsThisCycle });
             }
             catch (error) {
+                // Add to seen so the same row is not retried every cycle on persistent errors
+                seen.add(jobId);
                 (0, health_server_1.incrementFailedPost)();
                 (0, health_server_1.addError)(error?.message || String(error));
                 auditLogger.logEvent({

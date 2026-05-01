@@ -4,6 +4,23 @@ import { postToTwitter } from './twitter'
 import { postToYouTube } from './youtube'
 import { postToInstagram } from './instagram'
 import { postToPinterest } from './pinterest'
+import { verifyWebhookSignatureWithPrefix } from './webhook-auth'
+
+/** Allowed URL schemes and hostname patterns for incoming webhook video URLs (SSRF protection) */
+const ALLOWED_VIDEO_URL_RE = /^https:\/\//i
+
+function isAllowedVideoUrl(url: string): boolean {
+  if (!ALLOWED_VIDEO_URL_RE.test(url)) return false
+  try {
+    const parsed = new URL(url)
+    // Block private/link-local ranges
+    const blocked = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|::1|fd[0-9a-f]{2}:)/i
+    if (blocked.test(parsed.hostname)) return false
+    return true
+  } catch {
+    return false
+  }
+}
 
 const PORT = parseInt(process.env.PORT || '8080', 10)
 
@@ -20,9 +37,14 @@ let lastRunStatus = {
 }
 
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Content-Type', 'application/json')
+
+  const isWebhook = req.url?.startsWith('/webhooks/')
+
+  // CORS only for non-webhook browser-accessible endpoints
+  if (!isWebhook) {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+  }
 
   if (req.url === '/health' && req.method === 'GET') {
     res.statusCode = 200
@@ -59,6 +81,19 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       const chunks: Buffer[] = []
       for await (const chunk of req) chunks.push(chunk as Buffer)
       const raw = Buffer.concat(chunks).toString('utf8')
+
+      // Verify webhook signature if WEBHOOK_SECRET is configured
+      const webhookSecret = process.env.WEBHOOK_SECRET
+      if (!webhookSecret) {
+        res.statusCode = 500
+        return res.end(JSON.stringify({ ok: false, error: 'Webhook authentication is not configured' }))
+      }
+      const signature = (req.headers['x-signature'] || req.headers['x-pictory-signature'] || '') as string
+      if (!signature || !verifyWebhookSignatureWithPrefix(raw, signature, webhookSecret)) {
+        res.statusCode = 401
+        return res.end(JSON.stringify({ ok: false, error: 'Invalid webhook signature' }))
+      }
+
       let body: any = null
       try { body = raw ? JSON.parse(raw) : {} } catch { body = { raw } }
       console.log('📨 Pictory webhook received:', body)
@@ -67,7 +102,13 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       // Try to extract job id and video URL
       const data = body?.data || body || {}
       const jobId: string | undefined = data.job_id || data.renderJobId || data.id || body?.job_id
-      const videoUrl: string | undefined = data.videoUrl || data.url || data.video_url || body?.videoUrl
+      const rawVideoUrl: string | undefined = data.videoUrl || data.url || data.video_url || body?.videoUrl
+
+      // Validate video URL to prevent SSRF
+      const videoUrl: string | undefined = rawVideoUrl && isAllowedVideoUrl(rawVideoUrl) ? rawVideoUrl : undefined
+      if (rawVideoUrl && !videoUrl) {
+        console.warn('⚠️ Webhook video URL rejected (not an allowed HTTPS URL):', rawVideoUrl)
+      }
       if (!jobId) {
         console.log('⚠️ Pictory webhook missing job_id')
         res.statusCode = 200
@@ -154,8 +195,9 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       res.statusCode = 200
       res.end(JSON.stringify({ ok: true }))
     } catch (e: any) {
+      console.error('❌ Webhook handler error:', e?.message || e)
       res.statusCode = 500
-      res.end(JSON.stringify({ ok: false, error: e?.message || String(e) }))
+      res.end(JSON.stringify({ ok: false, error: 'Internal server error' }))
     }
   } else {
     res.statusCode = 404
@@ -169,8 +211,9 @@ export function startHealthServer(): http.Server {
   }
   const newServer = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
     handleRequest(req, res).catch((err) => {
+      console.error('❌ Unhandled request error:', err?.message || err)
       res.statusCode = 500
-      res.end(JSON.stringify({ ok: false, error: err?.message || String(err) }))
+      res.end(JSON.stringify({ ok: false, error: 'Internal server error' }))
     })
   })
   server = newServer

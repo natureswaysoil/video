@@ -27,8 +27,11 @@ async function markRowPosted(params) {
         const sheets = googleapis_1.google.sheets({ version: 'v4', auth: authClient });
         // Resolve A1 notation for the target sheet and columns
         const sheetName = await resolveSheetName(sheets, spreadsheetId, sheetGid);
-        const postedColIndex = Math.max(0, headers.indexOf(postedColumn));
-        const tsColIndex = timestampColumn ? Math.max(0, headers.indexOf(timestampColumn)) : -1;
+        const postedColIndex = headers.indexOf(postedColumn);
+        if (postedColIndex < 0) {
+            throw new errors_1.AppError(`Column "${postedColumn}" not found in sheet headers. Cannot mark row as posted.`, errors_1.ErrorCode.VALIDATION_ERROR, 400, true, { postedColumn, availableHeaders: headers });
+        }
+        const tsColIndex = timestampColumn ? headers.indexOf(timestampColumn) : -1;
         const postedA1 = a1(sheetName, rowNumber, postedColIndex + 1);
         const tsA1 = tsColIndex >= 0 ? a1(sheetName, rowNumber, tsColIndex + 1) : undefined;
         const data = [{ range: postedA1, values: [['TRUE']] }];

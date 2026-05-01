@@ -69,6 +69,8 @@ export class HeyGenClient {
   private axios: AxiosInstance
   private apiKey: string
   private apiEndpoint: string
+  private _avatarCache: Record<string, string> = {}
+  private _voiceCache: Record<string, string> = {}
 
   constructor(cfg: HeyGenConfig = {}) {
     this.apiKey = cfg.apiKey || process.env.HEYGEN_API_KEY || ''
@@ -95,7 +97,7 @@ export class HeyGenClient {
   }
 
   async resolveAvatarId(nameOrId: string): Promise<string> {
-    if ((this as any)._avatarCache?.[nameOrId]) return (this as any)._avatarCache[nameOrId]
+    if (this._avatarCache[nameOrId]) return this._avatarCache[nameOrId]
     try {
       const res = await this.axios.get('/v2/avatars')
       const avatars: any[] = res.data?.data?.avatars || res.data?.avatars || []
@@ -103,8 +105,7 @@ export class HeyGenClient {
         || avatars.find((a: any) => (a.avatar_name || '').toLowerCase().includes(nameOrId.toLowerCase()))
         || avatars[0]
       const id = match?.avatar_id || nameOrId
-      if (!(this as any)._avatarCache) (this as any)._avatarCache = {}
-      for (const a of avatars) { if (a.avatar_id) (this as any)._avatarCache[a.avatar_name || a.avatar_id] = a.avatar_id; (this as any)._avatarCache[a.avatar_id] = a.avatar_id }
+      for (const a of avatars) { if (a.avatar_id) { this._avatarCache[a.avatar_name || a.avatar_id] = a.avatar_id; this._avatarCache[a.avatar_id] = a.avatar_id } }
       console.log('Discovered HeyGen avatar ID', { requested: nameOrId, resolved: id, total: avatars.length })
       return id
     } catch (e: any) {
@@ -113,7 +114,7 @@ export class HeyGenClient {
   }
 
   async resolveVoiceId(nameOrId: string): Promise<string> {
-    if ((this as any)._voiceCache?.[nameOrId]) return (this as any)._voiceCache[nameOrId]
+    if (this._voiceCache[nameOrId]) return this._voiceCache[nameOrId]
     try {
       const res = await this.axios.get('/v2/voices')
       const voices: any[] = res.data?.data?.voices || res.data?.voices || []
@@ -122,8 +123,7 @@ export class HeyGenClient {
         || voices.find((v: any) => v.language === 'en-US' || (v.locale || '').startsWith('en'))
         || voices[0]
       const id = match?.voice_id || nameOrId
-      if (!(this as any)._voiceCache) (this as any)._voiceCache = {}
-      for (const v of voices) { if (v.voice_id) (this as any)._voiceCache[v.name || v.voice_id] = v.voice_id; (this as any)._voiceCache[v.voice_id] = v.voice_id }
+      for (const v of voices) { if (v.voice_id) { this._voiceCache[v.name || v.voice_id] = v.voice_id; this._voiceCache[v.voice_id] = v.voice_id } }
       console.log('Discovered HeyGen voice ID', { requested: nameOrId, resolved: id })
       return id
     } catch (e: any) {

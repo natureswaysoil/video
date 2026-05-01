@@ -150,7 +150,7 @@ async function postToEnabledPlatforms(params: {
   product: Record<string, any>
   enabledPlatforms: Set<string>
   dryRun: boolean
-}): Promise<void> {
+}): Promise<{ anySucceeded: boolean }> {
   const { videoUrl, product, enabledPlatforms, dryRun } = params
   const caption = String(product.caption || product.Caption || product.details || product.description || product.title || product.name || '').trim()
   const title = String(product.title || product.name || 'Nature\'s Way Soil').trim()
@@ -160,36 +160,57 @@ async function postToEnabledPlatforms(params: {
 
   if (dryRun) {
     console.log('DRY_RUN_LOG_ONLY=true — skipping platform posting', { title, videoUrl })
-    return
+    return { anySucceeded: false }
   }
 
+  const config = getConfig()
+  let anySucceeded = false
+
   if (shouldPost('instagram')) {
-    const config = getConfig()
     if (config.INSTAGRAM_ACCESS_TOKEN && config.INSTAGRAM_IG_ID) {
-      await postToInstagram(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, config.INSTAGRAM_IG_ID)
+      try {
+        await postToInstagram(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, config.INSTAGRAM_IG_ID)
+        anySucceeded = true
+      } catch (e: any) {
+        console.error('❌ Instagram post failed:', e?.message || e)
+      }
     }
   }
   if (shouldPost('twitter')) {
-    const config = getConfig()
     if (config.TWITTER_BEARER_TOKEN) {
-      await postToTwitter(videoUrl, caption || title, config.TWITTER_BEARER_TOKEN)
+      try {
+        await postToTwitter(videoUrl, caption || title, config.TWITTER_BEARER_TOKEN)
+        anySucceeded = true
+      } catch (e: any) {
+        console.error('❌ Twitter post failed:', e?.message || e)
+      }
     }
   }
   if (shouldPost('pinterest')) {
-    const config = getConfig()
     if (config.PINTEREST_ACCESS_TOKEN && config.PINTEREST_BOARD_ID) {
-      await postToPinterest(videoUrl, caption, config.PINTEREST_ACCESS_TOKEN, config.PINTEREST_BOARD_ID)
+      try {
+        await postToPinterest(videoUrl, caption, config.PINTEREST_ACCESS_TOKEN, config.PINTEREST_BOARD_ID)
+        anySucceeded = true
+      } catch (e: any) {
+        console.error('❌ Pinterest post failed:', e?.message || e)
+      }
     }
   }
   if (shouldPost('youtube')) {
-    const config = getConfig()
     if (config.YT_CLIENT_ID && config.YT_CLIENT_SECRET && config.YT_REFRESH_TOKEN) {
-      await postToYouTube(videoUrl, caption, config.YT_CLIENT_ID, config.YT_CLIENT_SECRET, config.YT_REFRESH_TOKEN)
+      try {
+        await postToYouTube(videoUrl, caption, config.YT_CLIENT_ID, config.YT_CLIENT_SECRET, config.YT_REFRESH_TOKEN)
+        anySucceeded = true
+      } catch (e: any) {
+        console.error('❌ YouTube post failed:', e?.message || e)
+      }
     }
   }
 
   const skipped = allPlatforms.filter((platform) => !shouldPost(platform))
   if (skipped.length > 0) console.log('Skipped disabled platforms:', skipped.join(', '))
+
+  return { anySucceeded }
 }
 
 async function createOrPollVideo(params: {
@@ -213,7 +234,7 @@ async function createOrPollVideo(params: {
   if (!alwaysGenerate && videoState.videoId && (videoState.videoStatus || '').toLowerCase() === 'processing') {
     console.log(`⏳ Polling existing HeyGen job for row ${rowNumber}: ${videoState.videoId}`)
     const videoUrl = await heygenClient.pollJobForVideoUrl(videoState.videoId, {
-      timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 120000),
+      timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
       intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
     })
     await writeRowFields(csvUrl, headers, rowNumber, {
@@ -243,7 +264,7 @@ async function createOrPollVideo(params: {
   })
 
   const videoUrl = await heygenClient.pollJobForVideoUrl(videoId, {
-    timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 120000),
+    timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
     intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
   })
 
@@ -314,21 +335,31 @@ async function main(): Promise<void> {
       if (rowsThisCycle >= rowsPerRun) break
 
       console.log(`\n========== Processing Row ${rowNumber} ==========`)
-      console.log('Product:', product)
+      console.log('Product:', product?.title || product?.name || jobId)
 
       try {
         const videoUrl = await createOrPollVideo({ product, record, headers, rowNumber, csvUrl, alwaysGenerate })
-        await postToEnabledPlatforms({ videoUrl, product, enabledPlatforms, dryRun })
+        const { anySucceeded } = await postToEnabledPlatforms({ videoUrl, product, enabledPlatforms, dryRun })
 
-        const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
-        const sheetGid = extractGidFromCsv(csvUrl)
-        await markRowPosted({ spreadsheetId, sheetGid, rowNumber, headers })
+        if (!anySucceeded && !dryRun) {
+          throw new Error('No enabled platform post succeeded for this row')
+        }
+
+        if (anySucceeded || dryRun) {
+          const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
+          const sheetGid = extractGidFromCsv(csvUrl)
+          await markRowPosted({ spreadsheetId, sheetGid, rowNumber, headers })
+        } else {
+          console.warn(`⚠️ Row ${rowNumber}: no platforms succeeded, skipping writeback`)
+        }
 
         seen.add(jobId)
         rowsThisCycle++
         incrementSuccessfulPost()
         updateStatus({ status: 'processed-row', rowsProcessed: rowsThisCycle })
       } catch (error: any) {
+        // Add to seen so the same row is not retried every cycle on persistent errors
+        seen.add(jobId)
         incrementFailedPost()
         addError(error?.message || String(error))
         auditLogger.logEvent({
