@@ -188,7 +188,7 @@ async function main(): Promise<void> {
   state.nextIndex = (index + 1) % seeds.length
   state.lastUpdatedAt = new Date().toISOString()
 
-  const testVideosDir = process.env.TEST_VIDEOS_DIR || '/home/ubuntu/test_videos'
+  const testVideosDir = process.env.TEST_VIDEOS_DIR || path.resolve(process.cwd(), 'test-campaign-videos')
   const dryRun = String(process.env.DRY_RUN_LOG_ONLY || '').toLowerCase() === 'true'
   const enabledPlatforms = getEnabledPlatforms()
 
