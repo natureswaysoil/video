@@ -1,59 +1,4 @@
-/**
- * Adapter: map product row -> HeyGen payload and mapping info
- * Uses keyword rules and generic avatar/voice IDs as defaults.
- *
- * Exports:
- *  - mapProductToHeyGenPayload(row) => { payload, avatar, voice, lengthSeconds, reason }
- *  - writeBackMappingsToSheet(sheetId, gid, mappedRows) => Promise<boolean>
- */
-
-import { google } from 'googleapis'
-
-import { createGoogleAuthClient } from './google-auth'
-
-type ProductRow = Record<string, string>
-
-const DEFAULTS = {
-  avatar: 'garden_expert_01',
-  voice: 'en_us_warm_female_01',
-  music: { style: 'acoustic_nature', volume: 0.18 },
-  lengthSeconds: 30,
-}
-
-const CATEGORY_MAP: { pattern: RegExp; avatar: string; voice: string; lengthSeconds?: number; reason: string; visualHint: string }[] = [
-  { pattern: /\b(kelp|seaweed|algae)\b/i, avatar: 'garden_expert_01', voice: 'en_us_warm_female_01', lengthSeconds: 30, reason: 'matched keyword: kelp', visualHint: 'healthy green plants, liquid seaweed fertilizer, measuring cup, watering can, garden beds, natural sunlight' },
-  { pattern: /\b(bone ?meal|bonemeal|bone)\b/i, avatar: 'farm_expert_02', voice: 'en_us_deep_male_01', lengthSeconds: 35, reason: 'matched keyword: bone meal', visualHint: 'strong roots, blooming plants, calcium and phosphorus support, liquid bottle near garden soil' },
-  { pattern: /\b(hay|pasture|forage)\b/i, avatar: 'pasture_specialist_01', voice: 'en_us_neutral_mx_01', lengthSeconds: 40, reason: 'matched keyword: hay/pasture', visualHint: 'green pasture field, hay grass, sprayer application, farm fence line, healthy forage growth' },
-  { pattern: /\b(humic|fulvic|humate|fulvate)\b/i, avatar: 'eco_gardener_01', voice: 'en_us_warm_female_02', lengthSeconds: 30, reason: 'matched keyword: humic/fulvic', visualHint: 'dark rich soil, active roots, lawn and garden soil conditioner, close-up of root zone moisture' },
-  { pattern: /\b(compost|tea|soil conditioner)\b/i, avatar: 'eco_gardener_01', voice: 'en_us_warm_female_02', lengthSeconds: 30, reason: 'matched keyword: compost/soil', visualHint: 'living compost, worm castings, biochar, raised beds, vegetables, rich dark soil texture' },
-]
-
-function first(row: ProductRow, keys: string[]): string {
-  for (const key of keys) {
-    const value = row[key]
-    if (value !== undefined && value !== null && String(value).trim() !== '') return String(value).trim()
-  }
-  return ''
-}
-
-function cleanForPrompt(value: string): string {
-  return value.replace(/\s+/g, ' ').replace(/[<>]/g, '').trim().slice(0, 900)
-}
-
-function buildVisualPrompt(row: ProductRow, title: string, details: string, visualHint: string): string {
-  const existingPrompt = first(row, [
-    'Visual_Prompt', 'visual_prompt', 'Video_Prompt', 'video_prompt', 'Scene_Prompt', 'scene_prompt',
-    'Image_Prompt', 'image_prompt', 'Creative_Brief', 'creative_brief'
-  ])
-
-  if (existingPrompt) return cleanForPrompt(existingPrompt)
-
-  return cleanForPrompt(
-    `Create a premium vertical product marketing video for Nature's Way Soil. Show real garden and lawn visuals, not text describing the scene. Product: ${title}. Details: ${details}. Visual direction: ${visualHint}. Use close-up soil, roots, plants, product bottle, watering or spraying application, healthy before-and-after style transformation, warm natural light, clean Amazon-ready commercial look. Do not show a script, storyboard, captions as the main visual, or a person explaining what should be shown.`
-  )
-}
-
-export function mapProductToHeyGenPayload(row: ProductRow) {
+export async function mapProductToHeyGenPayload(row: ProductRow) {
   const textFields = [
     row.title, row.Title,
     row.name, row.Name,
@@ -81,16 +26,47 @@ export function mapProductToHeyGenPayload(row: ProductRow) {
 
   const title = first(row, ['Title', 'title', 'Product', 'product', 'Name', 'name']) || 'Nature\'s Way Soil product'
   const details = first(row, ['Product Description', 'description', 'Description', 'Details', 'details', 'caption', 'Caption'])
-  const script = (row['Product Description'] || row.description || row.Details || row.details || row.Title || row.title || '').toString()
 
-  const imageUrl = first(row, [
-    'Image_URL', 'image_url', 'Product_Image_URL', 'product_image_url', 'Main_Image_URL', 'main_image_url',
-    'Background_Image_URL', 'background_image_url', 'Hero_Image_URL', 'hero_image_url'
-  ])
-  const visualPrompt = buildVisualPrompt(row, title, details, visualHint)
+  // === NEW: Generate structured script with scenes + B-roll ===
+  let scriptData: any = { voiceover: '', scenes: [] }
+  try {
+    // Convert row to simple Product object that generateScript expects
+    const product = {
+      id: row.id || row.ID || '',
+      title: title,
+      details: details,
+      description: details,
+      name: title
+    } as any
 
+    const rawScript = await generateScript(product)   // ← uses your updated openai.ts
+    scriptData = JSON.parse(rawScript)
+  } catch (err) {
+    console.warn('Structured script failed, falling back to row description', err)
+    scriptData.voiceover = details || title
+  }
+
+  // === Fetch Pexels B-roll for every scene ===
+  const pexels = PexelsService.getInstance()
+  const scenes: any[] = []
+
+  for (const scene of scriptData.scenes || []) {
+    let brollUrl = ''
+    if (scene.brollKeyword) {
+      brollUrl = await pexels.getBrollVideo(scene.brollKeyword, 12)
+    }
+
+    scenes.push({
+      seconds: scene.seconds || '0-8',
+      avatarText: scene.avatarText || '',
+      brollUrl: brollUrl,
+      visualDesc: scene.visualDesc || ''
+    })
+  }
+
+  // Build the final payload (HeyGen will now get scenes + B-roll)
   const payload = {
-    script,
+    script: scriptData.voiceover || details,   // full narration
     avatar,
     voice,
     lengthSeconds,
@@ -98,13 +74,17 @@ export function mapProductToHeyGenPayload(row: ProductRow) {
     subtitles: { enabled: true, style: 'short_lines' },
     webhook: process.env.HEYGEN_WEBHOOK_URL || undefined,
     title,
-    visualPrompt,
-    imageUrl: imageUrl || undefined,
+    visualPrompt: buildVisualPrompt(row, title, details, visualHint),
+    imageUrl: first(row, ['Image_URL', 'image_url', 'Product_Image_URL', 'product_image_url', 'Main_Image_URL', 'main_image_url']) || undefined,
     meta: {
       productTitle: title,
       visualHint,
-      sourceImageUrl: imageUrl || undefined,
+      sourceImageUrl: first(row, ['Image_URL', 'image_url', ...]) || undefined,
+      mappingReason: reason
     },
+    // NEW: Multi-scene + B-roll support
+    scenes: scenes,
+    structuredScript: scriptData
   }
 
   return {
@@ -113,73 +93,6 @@ export function mapProductToHeyGenPayload(row: ProductRow) {
     voice,
     lengthSeconds,
     reason,
+    scenes   // extra for logging/debugging
   }
-}
-
-async function createSheetsAuthClient() {
-  const scopes = ['https://www.googleapis.com/auth/spreadsheets']
-  return createGoogleAuthClient(scopes)
-}
-
-export async function writeBackMappingsToSheet(sheetId: string, gid: string, mappedRows: any[], opts?: { force?: boolean }) {
-  const authClient = await createSheetsAuthClient()
-  if (typeof (authClient as any).authorize === 'function') {
-    await (authClient as any).authorize()
-  }
-  const sheets = google.sheets({ version: 'v4', auth: authClient as any })
-
-  const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
-  const sheet = (meta.data.sheets || []).find((s: any) => String(s.properties?.sheetId) === String(gid))
-  if (!sheet) throw new Error(`Sheet with gid ${gid} not found`)
-  const sheetTitle = sheet.properties!.title!
-
-  const headerRes = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: `${sheetTitle}!1:1` })
-  const headers = (headerRes.data.values?.[0] || []) as string[]
-
-  const newCols = ['HEYGEN_AVATAR', 'HEYGEN_VOICE', 'HEYGEN_LENGTH_SECONDS', 'HEYGEN_MAPPING_REASON', 'HEYGEN_MAPPED_AT']
-  const missing = newCols.filter((c) => !headers.includes(c))
-  let updatedHeaders = headers.slice()
-  if (missing.length > 0) {
-    updatedHeaders = headers.concat(missing)
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: sheetId,
-      range: `${sheetTitle}!1:1`,
-      valueInputOption: 'RAW',
-      requestBody: { values: [updatedHeaders] },
-    })
-  }
-
-  const headerRes2 = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: `${sheetTitle}!1:1` })
-  const finalHeaders = (headerRes2.data.values?.[0] || []) as string[]
-  const startIndex = finalHeaders.indexOf(newCols[0])
-  if (startIndex === -1) throw new Error('Failed to find new columns after header update')
-
-  const blockValues = mappedRows.map((r) => newCols.map((c) => r[c] || ''))
-  const startColLetter = columnToLetter(startIndex + 1)
-  const endColLetter = columnToLetter(startIndex + newCols.length)
-  const range = `${sheetTitle}!${startColLetter}2:${endColLetter}${mappedRows.length + 1}`
-
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: sheetId,
-    range,
-    valueInputOption: 'RAW',
-    requestBody: { values: blockValues },
-  })
-
-  return true
-}
-
-export default {
-  mapProductToHeyGenPayload,
-  writeBackMappingsToSheet,
-};
-
-function columnToLetter(col: number): string {
-  let temp = ''
-  while (col > 0) {
-    const rem = (col - 1) % 26
-    temp = String.fromCharCode(65 + rem) + temp
-    col = Math.floor((col - 1) / 26)
-  }
-  return temp
 }
