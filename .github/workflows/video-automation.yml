@@ -19,26 +19,48 @@ jobs:
     env:
       TEST_VIDEO_CAMPAIGN_MODE: 'true'
       TEST_VIDEOS_DIR: test-campaign-videos
-      GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT || 'natureswaysoil-video' }}
-      GCLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT || 'natureswaysoil-video' }}
-      GCP_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT || 'natureswaysoil-video' }}
+      DEFAULT_GOOGLE_CLOUD_PROJECT: natureswaysoil-video
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud (ADC)
-        id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: '${{ secrets.GOOGLE_CREDENTIALS }}'
-          create_credentials_file: true
-          export_environment_variables: true
+      - name: Prepare Google ADC credentials (match local setup)
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_CLOUD_PROJECT_SECRET: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+        run: |
+          set -euo pipefail
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ secrets.GOOGLE_CLOUD_PROJECT || 'natureswaysoil-video' }}
+          CREDS_JSON="${GOOGLE_CREDENTIALS:-}"
+          if [ -z "$CREDS_JSON" ]; then
+            CREDS_JSON="${GOOGLE_SERVICE_ACCOUNT_JSON:-}"
+          fi
+
+          if [ -z "$CREDS_JSON" ]; then
+            echo "::error::Missing Google service account secret. Set GOOGLE_CREDENTIALS (preferred) or GOOGLE_SERVICE_ACCOUNT_JSON."
+            exit 1
+          fi
+
+          CREDS_PATH="$RUNNER_TEMP/gcp-service-account.json"
+          printf '%s' "$CREDS_JSON" > "$CREDS_PATH"
+          chmod 600 "$CREDS_PATH"
+
+          PROJECT_FROM_JSON="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("project_id", ""))' "$CREDS_PATH" || true)"
+          EFFECTIVE_PROJECT="${GOOGLE_CLOUD_PROJECT_SECRET:-$PROJECT_FROM_JSON}"
+          if [ -z "$EFFECTIVE_PROJECT" ]; then
+            EFFECTIVE_PROJECT="$DEFAULT_GOOGLE_CLOUD_PROJECT"
+          fi
+
+          {
+            echo "GOOGLE_APPLICATION_CREDENTIALS=$CREDS_PATH"
+            echo "GOOGLE_CLOUD_PROJECT=$EFFECTIVE_PROJECT"
+            echo "GCLOUD_PROJECT=$EFFECTIVE_PROJECT"
+            echo "GCP_PROJECT=$EFFECTIVE_PROJECT"
+          } >> "$GITHUB_ENV"
+
+          echo "Using Google Cloud project: $EFFECTIVE_PROJECT"
 
       - name: Setup Node
         uses: actions/setup-node@v4
