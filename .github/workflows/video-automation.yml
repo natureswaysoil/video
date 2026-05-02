@@ -17,11 +17,8 @@ jobs:
     timeout-minutes: 45
 
     env:
-      RUN_ONCE: 'true'
-      ROWS_PER_RUN: '1'
-      ALWAYS_GENERATE_NEW_VIDEO: 'true'
-      ENABLE_PLATFORMS: 'youtube,instagram,facebook'
-      TEST_VIDEO_CAMPAIGN_MODE: ${{ secrets.TEST_VIDEO_CAMPAIGN_MODE || 'false' }}
+      TEST_VIDEO_CAMPAIGN_MODE: 'true'
+      TEST_VIDEOS_DIR: test-campaign-videos
       GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT || 'natureswaysoil-video' }}
       GCLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT || 'natureswaysoil-video' }}
       GCP_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT || 'natureswaysoil-video' }}
@@ -45,14 +42,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate daily rows at morning window (standard mode)
-        if: (github.event.schedule == '0 11 * * *' || github.event_name == 'workflow_dispatch') && env.TEST_VIDEO_CAMPAIGN_MODE != 'true'
-        run: npm run generate:rows
+      - name: Verify bundled test campaign videos exist
+        run: |
+          test -d "$TEST_VIDEOS_DIR"
+          ls -1 "$TEST_VIDEOS_DIR"/*.mp4
 
-      - name: Run test-video campaign (local/public test assets mode)
-        if: env.TEST_VIDEO_CAMPAIGN_MODE == 'true'
+      - name: Run test-video campaign (rotation mode)
         run: npm run run:test-campaign
-
-      - name: Run standard video pipeline once
-        if: env.TEST_VIDEO_CAMPAIGN_MODE != 'true'
-        run: npm run run:once
