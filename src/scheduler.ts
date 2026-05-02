@@ -1,52 +1,50 @@
+// @ts-nocheck
 import cron from 'node-cron'
 import { exec } from 'child_process'
 
-function runPipeline() {
-  console.log('🚀 Running video pipeline...')
+function runCommand(label: string, command: string) {
+  console.log(`🚀 ${label}... (${command})`)
 
-  exec('npm run run:once', (error: any, stdout: string, stderr: string) => {
+  exec(command, (error: any, stdout: string, stderr: string) => {
     if (error) {
-      console.error('❌ Pipeline error:', error.message)
+      console.error(`❌ ${label} error:`, error.message)
       return
     }
     if (stderr) {
-      console.error('⚠️ Pipeline stderr:', stderr)
+      console.error(`⚠️ ${label} stderr:`, stderr)
     }
-    console.log('✅ Pipeline output:', stdout)
+    console.log(`✅ ${label} output:`, stdout)
   })
+}
+
+function runPipeline() {
+  const pipelineCommand = process.env.SCHEDULER_PIPELINE_COMMAND || 'npm run run:once'
+  runCommand('Running pipeline', pipelineCommand)
 }
 
 function generateRows() {
-  console.log('🧠 Generating new content rows...')
+  const generateRowsCommand = process.env.SCHEDULER_GENERATE_ROWS_COMMAND || 'npm run generate:rows'
+  runCommand('Generating new content rows', generateRowsCommand)
+}
 
-  exec('npm run generate:rows', (error: any, stdout: string, stderr: string) => {
-    if (error) {
-      console.error('❌ Row generation error:', error.message)
-      return
-    }
-    if (stderr) {
-      console.error('⚠️ Row generation stderr:', stderr)
-    }
-    console.log('✅ Rows generated:', stdout)
+const schedule = (process.env.SCHEDULER_POST_TIMES || '15 8 * * *,30 11 * * *,0 13 * * *,15 18 * * *,30 19 * * *')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean)
+
+const isTestVideoMode = String(process.env.TEST_VIDEO_CAMPAIGN_MODE || 'false').toLowerCase() === 'true'
+
+if (!isTestVideoMode) {
+  const rowGenerationCron = process.env.SCHEDULER_ROW_GENERATION_CRON || '0 7 * * *'
+  cron.schedule(rowGenerationCron, () => {
+    console.log('🌅 Morning row generation triggered')
+    generateRows()
   })
 }
 
-// 🧠 NEW: Generate fresh rows every morning at 7:00 AM
-cron.schedule('0 7 * * *', () => {
-  console.log('🌅 Morning row generation triggered')
-  generateRows()
-})
-
-// Existing posting schedule
-const schedule = [
-  '15 8 * * *',   // YouTube AM
-  '30 11 * * *',  // Instagram AM
-  '0 13 * * *',   // Facebook
-  '15 18 * * *',  // Instagram PM
-  '30 19 * * *',  // YouTube PM
-]
-
 console.log('⏰ Scheduler started...')
+console.log('Schedule:', schedule)
+console.log('TEST_VIDEO_CAMPAIGN_MODE:', isTestVideoMode)
 
 schedule.forEach((time) => {
   cron.schedule(time, () => {

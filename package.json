@@ -13,6 +13,7 @@
     "generate:rows": "ts-node scripts/generate-rows.ts",
     "build:broll": "ts-node scripts/build-broll-ad.ts",
     "run:once": "ts-node scripts/run-once.ts",
+    "run:test-campaign": "ts-node scripts/run-test-video-campaign.ts",
     "validate": "ts-node scripts/validate-system.ts",
     "test:csv": "ts-node scripts/test-csv-processing.ts",
     "test:openai": "ts-node scripts/test-openai-script.ts",

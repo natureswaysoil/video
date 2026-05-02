@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
   schedule:
     # GitHub Actions uses UTC time.
-    - cron: '0 11 * * *'   # 7:00 AM ET during daylight time: generate rows + run pipeline
-    - cron: '15 12 * * *'  # 8:15 AM ET
-    - cron: '30 15 * * *'  # 11:30 AM ET
-    - cron: '0 17 * * *'   # 1:00 PM ET
-    - cron: '15 22 * * *'  # 6:15 PM ET
-    - cron: '30 23 * * *'  # 7:30 PM ET
+    # Five daily posting slots (~ET): 7:00 AM, 8:15 AM, 11:30 AM, 1:00 PM, 6:15 PM
+    - cron: '0 11 * * *'
+    - cron: '15 12 * * *'
+    - cron: '30 15 * * *'
+    - cron: '0 17 * * *'
+    - cron: '15 22 * * *'
 
 jobs:
   video-automation:
@@ -21,6 +21,7 @@ jobs:
       ROWS_PER_RUN: '1'
       ALWAYS_GENERATE_NEW_VIDEO: 'true'
       ENABLE_PLATFORMS: 'youtube,instagram,facebook'
+      TEST_VIDEO_CAMPAIGN_MODE: ${{ secrets.TEST_VIDEO_CAMPAIGN_MODE || 'false' }}
       GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT || 'natureswaysoil-video' }}
       GCLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT || 'natureswaysoil-video' }}
       GCP_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT || 'natureswaysoil-video' }}
@@ -44,9 +45,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate daily rows at morning window
-        if: github.event.schedule == '0 11 * * *' || github.event_name == 'workflow_dispatch'
+      - name: Generate daily rows at morning window (standard mode)
+        if: (github.event.schedule == '0 11 * * *' || github.event_name == 'workflow_dispatch') && env.TEST_VIDEO_CAMPAIGN_MODE != 'true'
         run: npm run generate:rows
 
-      - name: Run video pipeline once
+      - name: Run test-video campaign (local/public test assets mode)
+        if: env.TEST_VIDEO_CAMPAIGN_MODE == 'true'
+        run: npm run run:test-campaign
+
+      - name: Run standard video pipeline once
+        if: env.TEST_VIDEO_CAMPAIGN_MODE != 'true'
         run: npm run run:once
