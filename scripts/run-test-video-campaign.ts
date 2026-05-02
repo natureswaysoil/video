@@ -2,10 +2,10 @@
 import 'dotenv/config'
 import path from 'path'
 import fs from 'fs'
+import { createClient } from '@supabase/supabase-js'
 import { loadSecretsToEnv } from '../src/secret-manager'
 import { getConfig } from '../src/config-validator'
 import { getTestVideoCampaignSeeds } from '../src/content-seed-bank'
-import { uploadVideoToCloudinary } from '../src/cloudinary-upload'
 import { postToInstagram } from '../src/instagram'
 import { postToPinterest } from '../src/pinterest'
 import { postToYouTube } from '../src/youtube'
@@ -45,18 +45,24 @@ const TEST_CAMPAIGN_SECRET_NAMES = [
   'PINTEREST_ACCESS_TOKEN',
   'PINTEREST_BOARD_ID',
 
-  // YouTube (both naming conventions are supported)
+  // YouTube (multiple naming conventions)
   'YOUTUBE_CLIENT_ID',
   'YOUTUBE_CLIENT_SECRET',
   'YOUTUBE_REFRESH_TOKEN',
+  'YOUTUBE_OAUTH_REFRESH_TOKEN',
   'YT_CLIENT_ID',
   'YT_CLIENT_SECRET',
   'YT_REFRESH_TOKEN',
+  'CLIENT_ID',
+  'CLIENT_SECRET',
+  'REFRESH_TOKEN',
 
-  // Cloudinary (for hosting local videos when TEST_VIDEO_PUBLIC_BASE_URL is not set)
-  'CLOUDINARY_CLOUD_NAME',
-  'CLOUDINARY_API_KEY',
-  'CLOUDINARY_API_SECRET',
+  // Supabase Storage (for hosting local videos when TEST_VIDEO_PUBLIC_BASE_URL is not set)
+  'NEXT_PUBLIC_SUPABASE_URL',
+  'SUPABASE_URL',
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'SUPABASE_SERVICE_KEY',
+  'SUPABASE_VIDEO_BUCKET',
 ]
 
 async function loadCampaignSecretsFromGoogleSecretManager(): Promise<void> {
@@ -122,11 +128,56 @@ function getInstagramAccountId(): string {
   return process.env.INSTAGRAM_IG_ID || process.env.INSTAGRAM_USER_ID || process.env.INSTAGRAM_ACCOUNT_ID || ''
 }
 
+function pickFirstEnv(keys: string[]): { value: string; key: string } {
+  for (const key of keys) {
+    const value = process.env[key]?.trim()
+    if (value) return { value, key }
+  }
+  return { value: '', key: '' }
+}
+
 function getYouTubeCredentials(): { clientId: string; clientSecret: string; refreshToken: string } {
+  const clientId = pickFirstEnv(['YT_CLIENT_ID', 'YOUTUBE_CLIENT_ID', 'CLIENT_ID'])
+  const clientSecret = pickFirstEnv(['YT_CLIENT_SECRET', 'YOUTUBE_CLIENT_SECRET', 'CLIENT_SECRET'])
+  const refreshToken = pickFirstEnv([
+    'YT_REFRESH_TOKEN',
+    'YOUTUBE_REFRESH_TOKEN',
+    'YOUTUBE_OAUTH_REFRESH_TOKEN',
+    'GOOGLE_YOUTUBE_REFRESH_TOKEN',
+    'GOOGLE_REFRESH_TOKEN',
+    'REFRESH_TOKEN',
+  ])
+
+  if (clientId.key || clientSecret.key || refreshToken.key) {
+    console.log('🔍 YouTube credential sources:', {
+      clientId: clientId.key || 'missing',
+      clientSecret: clientSecret.key || 'missing',
+      refreshToken: refreshToken.key || 'missing',
+    })
+  }
+
+  if (!refreshToken.value && clientId.value && clientSecret.value) {
+    console.warn(
+      '⚠️ Found YouTube client ID/secret but no refresh token. Looked for YT_REFRESH_TOKEN, YOUTUBE_REFRESH_TOKEN, YOUTUBE_OAUTH_REFRESH_TOKEN, GOOGLE_YOUTUBE_REFRESH_TOKEN, GOOGLE_REFRESH_TOKEN, REFRESH_TOKEN.'
+    )
+  }
+
   return {
-    clientId: process.env.YT_CLIENT_ID || process.env.YOUTUBE_CLIENT_ID || '',
-    clientSecret: process.env.YT_CLIENT_SECRET || process.env.YOUTUBE_CLIENT_SECRET || '',
-    refreshToken: process.env.YT_REFRESH_TOKEN || process.env.YOUTUBE_REFRESH_TOKEN || '',
+    clientId: clientId.value,
+    clientSecret: clientSecret.value,
+    refreshToken: refreshToken.value,
+  }
+}
+
+function getSupabaseConfig(): { supabaseUrl: string; serviceRoleKey: string; bucketName: string } {
+  const supabaseUrl = pickFirstEnv(['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_URL'])
+  const serviceRoleKey = pickFirstEnv(['SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SERVICE_KEY'])
+  const bucketName = pickFirstEnv(['SUPABASE_VIDEO_BUCKET'])
+
+  return {
+    supabaseUrl: supabaseUrl.value,
+    serviceRoleKey: serviceRoleKey.value,
+    bucketName: bucketName.value || 'test-videos',
   }
 }
 
@@ -135,16 +186,60 @@ function assertCampaignSecretsAreAvailable(): void {
   const hasPinterest = Boolean(process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID)
   const youtubeCreds = getYouTubeCredentials()
   const hasYouTube = Boolean(youtubeCreds.clientId && youtubeCreds.clientSecret && youtubeCreds.refreshToken)
-  const hasCloudinary = Boolean(
-    process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET
-  )
+  const { supabaseUrl, serviceRoleKey } = getSupabaseConfig()
+  const hasSupabase = Boolean(supabaseUrl && serviceRoleKey)
   const hasPublicBaseUrl = Boolean(process.env.TEST_VIDEO_PUBLIC_BASE_URL?.trim())
 
-  if (!hasInstagram && !hasPinterest && !hasYouTube && !hasCloudinary && !hasPublicBaseUrl) {
+  if (!hasInstagram && !hasPinterest && !hasYouTube && !hasSupabase && !hasPublicBaseUrl) {
     throw new Error(
       'No campaign secrets appear to be loaded. Verify Google Secret Manager access (ADC/IAM/project) and ensure required secret names exist.'
     )
   }
+
+  if (!hasPublicBaseUrl && !hasSupabase) {
+    throw new Error(
+      'Local test videos need hosting before social posting. Set TEST_VIDEO_PUBLIC_BASE_URL or provide NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in Google Secret Manager.'
+    )
+  }
+}
+
+async function uploadVideoToSupabase(localVideoPath: string, seedFileName: string): Promise<string> {
+  const { supabaseUrl, serviceRoleKey, bucketName } = getSupabaseConfig()
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error(
+      'Supabase credentials missing. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_URL and SUPABASE_SERVICE_KEY).'
+    )
+  }
+
+  const supabase = createClient(supabaseUrl, serviceRoleKey)
+  const safeFileName = path.basename(seedFileName).replace(/[^a-zA-Z0-9._-]/g, '-')
+  const objectPath = `test-campaign/${safeFileName}`
+  const fileBuffer = fs.readFileSync(localVideoPath)
+
+  console.log('☁️ Uploading video to Supabase Storage:', {
+    bucketName,
+    objectPath,
+    localVideoPath,
+  })
+
+  const { error } = await supabase.storage.from(bucketName).upload(objectPath, fileBuffer, {
+    contentType: 'video/mp4',
+    upsert: true,
+  })
+
+  if (error) {
+    throw new Error(`Supabase upload failed for ${objectPath}: ${error.message}`)
+  }
+
+  const { data } = supabase.storage.from(bucketName).getPublicUrl(objectPath)
+  const publicUrl = data?.publicUrl || ''
+
+  if (!publicUrl) {
+    throw new Error(`Supabase did not return a public URL for ${bucketName}/${objectPath}`)
+  }
+
+  console.log('✅ Supabase upload complete:', publicUrl)
+  return publicUrl
 }
 
 async function resolveVideoUrl(seedFileName: string, testVideosDir: string, state: RotationState): Promise<string> {
@@ -162,13 +257,7 @@ async function resolveVideoUrl(seedFileName: string, testVideosDir: string, stat
   const existing = state.uploadedVideoUrls[seedFileName]
   if (existing) return existing
 
-  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-    throw new Error(
-      'No TEST_VIDEO_PUBLIC_BASE_URL provided and Cloudinary credentials are missing. Set TEST_VIDEO_PUBLIC_BASE_URL or CLOUDINARY_CLOUD_NAME/CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET in Google Secret Manager.'
-    )
-  }
-
-  const uploadedUrl = await uploadVideoToCloudinary(localVideoPath)
+  const uploadedUrl = await uploadVideoToSupabase(localVideoPath, seedFileName)
   state.uploadedVideoUrls[seedFileName] = uploadedUrl
   return uploadedUrl
 }
@@ -208,9 +297,7 @@ async function main(): Promise<void> {
     throw new Error(`Missing test video: ${localVideoPath}`)
   }
 
-  const videoUrl = dryRun
-    ? `file://${localVideoPath}`
-    : await resolveVideoUrl(seed.videoFileName, testVideosDir, state)
+  const videoUrl = dryRun ? `file://${localVideoPath}` : await resolveVideoUrl(seed.videoFileName, testVideosDir, state)
 
   console.log('🎯 Test video campaign slot selected')
   console.log({
