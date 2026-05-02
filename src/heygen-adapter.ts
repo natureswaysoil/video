@@ -1,3 +1,4 @@
+import { generateScript } from './openai'
 export async function mapProductToHeyGenPayload(row: ProductRow) {
   const textFields = [
     row.title, row.Title,
