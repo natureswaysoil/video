@@ -7,7 +7,6 @@ import { getConfig } from '../src/config-validator'
 import { getTestVideoCampaignSeeds } from '../src/content-seed-bank'
 import { uploadVideoToCloudinary } from '../src/cloudinary-upload'
 import { postToInstagram } from '../src/instagram'
-import { postToTwitter } from '../src/twitter'
 import { postToPinterest } from '../src/pinterest'
 import { postToYouTube } from '../src/youtube'
 
@@ -24,6 +23,47 @@ const DEFAULT_STATE: RotationState = {
 }
 
 const STATE_PATH = path.resolve(process.cwd(), '.runtime/test-video-campaign-state.json')
+
+/**
+ * Secret names expected in Google Secret Manager for this campaign.
+ *
+ * Notes:
+ * - Twitter/X is intentionally excluded (posting is disabled).
+ * - Facebook secrets are loaded for Meta ecosystem completeness even though
+ *   this script currently posts only to Instagram, Pinterest, and YouTube.
+ */
+const TEST_CAMPAIGN_SECRET_NAMES = [
+  // Instagram / Meta
+  'INSTAGRAM_ACCESS_TOKEN',
+  'INSTAGRAM_IG_ID',
+  'INSTAGRAM_USER_ID',
+  'INSTAGRAM_ACCOUNT_ID',
+  'FACEBOOK_ACCESS_TOKEN',
+  'FACEBOOK_PAGE_ID',
+
+  // Pinterest
+  'PINTEREST_ACCESS_TOKEN',
+  'PINTEREST_BOARD_ID',
+
+  // YouTube (both naming conventions are supported)
+  'YOUTUBE_CLIENT_ID',
+  'YOUTUBE_CLIENT_SECRET',
+  'YOUTUBE_REFRESH_TOKEN',
+  'YT_CLIENT_ID',
+  'YT_CLIENT_SECRET',
+  'YT_REFRESH_TOKEN',
+
+  // Cloudinary (for hosting local videos when TEST_VIDEO_PUBLIC_BASE_URL is not set)
+  'CLOUDINARY_CLOUD_NAME',
+  'CLOUDINARY_API_KEY',
+  'CLOUDINARY_API_SECRET',
+]
+
+async function loadCampaignSecretsFromGoogleSecretManager(): Promise<void> {
+  console.log('🔐 Loading campaign credentials from Google Secret Manager...')
+  await loadSecretsToEnv(TEST_CAMPAIGN_SECRET_NAMES)
+  console.log('✅ Google Secret Manager secret loading completed')
+}
 
 function ensureRuntimeDir(): void {
   const dir = path.dirname(STATE_PATH)
@@ -62,7 +102,16 @@ function buildCaption(params: {
 
 function getEnabledPlatforms(): Set<string> {
   const enabledPlatformsEnv = (process.env.ENABLE_PLATFORMS || '').toLowerCase()
-  return new Set(enabledPlatformsEnv.split(',').map((value) => value.trim()).filter(Boolean))
+  const platforms = new Set(enabledPlatformsEnv.split(',').map((value) => value.trim()).filter(Boolean))
+
+  // Twitter/X is hard-disabled for this campaign.
+  if (platforms.has('twitter') || platforms.has('x')) {
+    console.log('ℹ️ Twitter/X posting is disabled for this campaign and will be skipped.')
+    platforms.delete('twitter')
+    platforms.delete('x')
+  }
+
+  return platforms
 }
 
 function isPlatformEnabled(platform: string, enabledPlatforms: Set<string>): boolean {
@@ -78,6 +127,23 @@ function getYouTubeCredentials(): { clientId: string; clientSecret: string; refr
     clientId: process.env.YT_CLIENT_ID || process.env.YOUTUBE_CLIENT_ID || '',
     clientSecret: process.env.YT_CLIENT_SECRET || process.env.YOUTUBE_CLIENT_SECRET || '',
     refreshToken: process.env.YT_REFRESH_TOKEN || process.env.YOUTUBE_REFRESH_TOKEN || '',
+  }
+}
+
+function assertCampaignSecretsAreAvailable(): void {
+  const hasInstagram = Boolean(process.env.INSTAGRAM_ACCESS_TOKEN && getInstagramAccountId())
+  const hasPinterest = Boolean(process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID)
+  const youtubeCreds = getYouTubeCredentials()
+  const hasYouTube = Boolean(youtubeCreds.clientId && youtubeCreds.clientSecret && youtubeCreds.refreshToken)
+  const hasCloudinary = Boolean(
+    process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET
+  )
+  const hasPublicBaseUrl = Boolean(process.env.TEST_VIDEO_PUBLIC_BASE_URL?.trim())
+
+  if (!hasInstagram && !hasPinterest && !hasYouTube && !hasCloudinary && !hasPublicBaseUrl) {
+    throw new Error(
+      'No campaign secrets appear to be loaded. Verify Google Secret Manager access (ADC/IAM/project) and ensure required secret names exist.'
+    )
   }
 }
 
@@ -98,7 +164,7 @@ async function resolveVideoUrl(seedFileName: string, testVideosDir: string, stat
 
   if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
     throw new Error(
-      'No TEST_VIDEO_PUBLIC_BASE_URL provided and Cloudinary credentials are missing. Set TEST_VIDEO_PUBLIC_BASE_URL or CLOUDINARY_CLOUD_NAME/CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET.'
+      'No TEST_VIDEO_PUBLIC_BASE_URL provided and Cloudinary credentials are missing. Set TEST_VIDEO_PUBLIC_BASE_URL or CLOUDINARY_CLOUD_NAME/CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET in Google Secret Manager.'
     )
   }
 
@@ -108,14 +174,8 @@ async function resolveVideoUrl(seedFileName: string, testVideosDir: string, stat
 }
 
 async function main(): Promise<void> {
-  const useSecretManager = String(process.env.USE_SECRET_MANAGER || 'false').toLowerCase() === 'true'
-  if (useSecretManager) {
-    try {
-      await loadSecretsToEnv()
-    } catch (error: any) {
-      console.warn('Secret Manager load skipped:', error?.message || error)
-    }
-  }
+  await loadCampaignSecretsFromGoogleSecretManager()
+  assertCampaignSecretsAreAvailable()
 
   const config = getConfig()
 
@@ -163,7 +223,13 @@ async function main(): Promise<void> {
 
   if (dryRun) {
     console.log('DRY_RUN_LOG_ONLY=true; skipping social posting')
-    console.log({ videoUrl, caption, enabledPlatforms: [...enabledPlatforms] })
+    console.log({
+      videoUrl,
+      caption,
+      enabledPlatforms: [...enabledPlatforms],
+      expectedGoogleSecretNames: TEST_CAMPAIGN_SECRET_NAMES,
+      twitterDisabled: true,
+    })
     writeState(state)
     return
   }
@@ -174,15 +240,6 @@ async function main(): Promise<void> {
     await postToInstagram(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, getInstagramAccountId())
     anySucceeded = true
     console.log('✅ Posted to Instagram')
-  }
-
-  const hasTwitterUploadCreds = Boolean(
-    process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env.TWITTER_ACCESS_TOKEN && process.env.TWITTER_ACCESS_SECRET
-  )
-  if (isPlatformEnabled('twitter', enabledPlatforms) && (config.TWITTER_BEARER_TOKEN || hasTwitterUploadCreds)) {
-    await postToTwitter(videoUrl, caption, config.TWITTER_BEARER_TOKEN)
-    anySucceeded = true
-    console.log('✅ Posted to Twitter/X')
   }
 
   if (isPlatformEnabled('pinterest', enabledPlatforms) && config.PINTEREST_ACCESS_TOKEN && config.PINTEREST_BOARD_ID) {
@@ -206,7 +263,9 @@ async function main(): Promise<void> {
   }
 
   if (!anySucceeded) {
-    throw new Error('No enabled platform had valid credentials. Configure ENABLE_PLATFORMS and platform secrets.')
+    throw new Error(
+      'No enabled platform had valid credentials. Configure ENABLE_PLATFORMS for instagram/pinterest/youtube and ensure required secrets exist in Google Secret Manager. Twitter/X is disabled.'
+    )
   }
 
   writeState(state)

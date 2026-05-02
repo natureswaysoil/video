@@ -8,63 +8,97 @@ and rotate through one product per slot, five times per day.
 
 ---
 
-## 1) What the current posting system is doing
+## 1) Current test campaign behavior
 
 ### Scheduler and automation flow
 
 - **Scheduler entrypoint**: `src/scheduler.ts`
+- **Campaign runner**: `scripts/run-test-video-campaign.ts`
+- **NPM command**: `npm run run:test-campaign`
 - **Default scheduled times (server-local)**:
   - `15 8 * * *`
   - `30 11 * * *`
   - `0 13 * * *`
   - `15 18 * * *`
   - `30 19 * * *`
-- **Standard pipeline command**: `npm run run:once`
-- Optional row-generation (standard CSV mode): daily at `0 7 * * *`
 
-### Platform integrations currently wired
+### Platforms used by the test campaign
 
-From `src/cli.ts` and platform adapters:
+- ✅ Instagram
+- ✅ Pinterest
+- ✅ YouTube
+- ❌ Twitter/X (**disabled intentionally**)
 
-- ✅ Instagram (`src/instagram.ts`)
-- ✅ Twitter/X (`src/twitter.ts`)
-- ✅ Pinterest (`src/pinterest.ts`)
-- ✅ YouTube (`src/youtube.ts`)
-
-Not implemented in the main posting pipeline:
-
-- ❌ TikTok
-- ❌ Facebook (there is related code in blog pipeline, but not part of the main `cli.ts` posting loop)
-
-### Content-seed-bank integration
-
-- Existing seed bank: `src/content-seed-bank.ts`
-- Added a dedicated test campaign seed set:
-  - `TEST_VIDEO_CAMPAIGN_SEEDS`
-  - `getTestVideoCampaignSeeds()`
+> Note: Twitter posting is hard-disabled in `run-test-video-campaign.ts` even if `ENABLE_PLATFORMS` includes `twitter` or `x`.
 
 ---
 
-## 2) New test-video campaign configuration
+## 2) Credentials source (Google Secret Manager)
 
-### New campaign runner
+The test campaign now loads credentials from **Google Secret Manager** at runtime.
 
-- Script: `scripts/run-test-video-campaign.ts`
-- NPM command: `npm run run:test-campaign`
+- No manual export of platform API credentials is required for normal runs.
+- The script calls `loadSecretsToEnv(...)` with the campaign secret list.
+- Any matching secret loaded from Google Secret Manager is injected into `process.env` for runtime use.
 
-What it does each run:
+### Required Google Secret Manager secret names
 
-1. Loads the 5 test campaign seeds from `content-seed-bank`
-2. Picks the next product in rotation (stateful index)
-3. Resolves a postable video URL from one of:
-   - `TEST_VIDEO_PUBLIC_BASE_URL` + file name, or
-   - local upload to Cloudinary from `TEST_VIDEOS_DIR` (cached after first upload)
-4. Builds optimized caption with:
-   - product title
-   - benefit-driven description
-   - landing page URL
-   - product hashtags
-5. Posts to enabled platforms that have valid credentials
+Create these secret names in your GCP project used by the campaign (`GOOGLE_CLOUD_PROJECT` / `GCLOUD_PROJECT` / `GCP_PROJECT`):
+
+#### Instagram / Meta
+
+- `INSTAGRAM_ACCESS_TOKEN`
+- `INSTAGRAM_IG_ID`
+- `INSTAGRAM_USER_ID`
+- `INSTAGRAM_ACCOUNT_ID`
+- `FACEBOOK_ACCESS_TOKEN`
+- `FACEBOOK_PAGE_ID`
+
+#### Pinterest
+
+- `PINTEREST_ACCESS_TOKEN`
+- `PINTEREST_BOARD_ID`
+
+#### YouTube
+
+Supported naming (either convention):
+
+- `YOUTUBE_CLIENT_ID` or `YT_CLIENT_ID`
+- `YOUTUBE_CLIENT_SECRET` or `YT_CLIENT_SECRET`
+- `YOUTUBE_REFRESH_TOKEN` or `YT_REFRESH_TOKEN`
+
+#### Cloudinary (only needed when `TEST_VIDEO_PUBLIC_BASE_URL` is not set)
+
+- `CLOUDINARY_CLOUD_NAME`
+- `CLOUDINARY_API_KEY`
+- `CLOUDINARY_API_SECRET`
+
+### Optional non-secret runtime variables
+
+These are normal runtime env settings (not required to be in Secret Manager):
+
+- `TEST_VIDEO_PUBLIC_BASE_URL` (if videos are already publicly hosted)
+- `TEST_VIDEOS_DIR` (default: `/home/ubuntu/test_videos`)
+- `ENABLE_PLATFORMS` (supported values for this script: `instagram,pinterest,youtube`)
+- `DRY_RUN_LOG_ONLY=true` (preview mode)
+- `YT_PRIVACY_STATUS=public|unlisted|private`
+
+---
+
+## 3) Campaign runner workflow
+
+Each run of `scripts/run-test-video-campaign.ts` does the following:
+
+1. Loads campaign credentials from Google Secret Manager
+2. Loads the 5 test campaign seeds from `src/content-seed-bank.ts`
+3. Picks the next seed by rotation index
+4. Resolves a postable video URL from either:
+   - `TEST_VIDEO_PUBLIC_BASE_URL`, or
+   - Cloudinary upload from local `TEST_VIDEOS_DIR`
+5. Builds caption text (title + product description + landing URL + hashtags)
+6. Posts to available enabled platforms (Instagram, Pinterest, YouTube)
+7. Writes updated rotation/cache state to:
+   - `.runtime/test-video-campaign-state.json`
 
 ### Product/video/URL mapping used
 
@@ -74,71 +108,11 @@ What it does each run:
 - `hydroponic-nutrients-test.mp4` → `https://natureswaysoil.com/hydroponic-nutrients`
 - `fruit-tree-fertilizer-test.mp4` → `https://natureswaysoil.com/fruit-tree-fertilizer`
 
-### Rotation state file
-
-- `.runtime/test-video-campaign-state.json`
-
-Stores:
-
-- `nextIndex` (which product posts next)
-- `uploadedVideoUrls` cache (if Cloudinary is used)
-- `lastUpdatedAt`
-
 ---
 
-## 3) Credentials/API keys required
+## 4) Start / stop / dry-run
 
-### Instagram
-
-- `INSTAGRAM_ACCESS_TOKEN`
-- One of: `INSTAGRAM_IG_ID` / `INSTAGRAM_USER_ID` / `INSTAGRAM_ACCOUNT_ID`
-
-### Twitter/X
-
-One of:
-
-- Full OAuth upload creds:
-  - `TWITTER_API_KEY`
-  - `TWITTER_API_SECRET`
-  - `TWITTER_ACCESS_TOKEN`
-  - `TWITTER_ACCESS_SECRET`
-- OR fallback text posting:
-  - `TWITTER_BEARER_TOKEN`
-
-### Pinterest
-
-- `PINTEREST_ACCESS_TOKEN`
-- `PINTEREST_BOARD_ID`
-
-### YouTube
-
-One of naming formats is accepted by campaign runner:
-
-- `YT_CLIENT_ID` / `YOUTUBE_CLIENT_ID`
-- `YT_CLIENT_SECRET` / `YOUTUBE_CLIENT_SECRET`
-- `YT_REFRESH_TOKEN` / `YOUTUBE_REFRESH_TOKEN`
-
-Optional:
-
-- `YT_PRIVACY_STATUS` (`public`, `unlisted`, `private`)
-
-### Video hosting (required unless videos are already public)
-
-If local test files are used directly:
-
-- `CLOUDINARY_CLOUD_NAME`
-- `CLOUDINARY_API_KEY`
-- `CLOUDINARY_API_SECRET`
-
-Alternative (no Cloudinary needed):
-
-- `TEST_VIDEO_PUBLIC_BASE_URL`
-
----
-
-## 4) How to start/stop automated posting
-
-## Start (scheduler mode)
+### Start scheduler mode
 
 ```bash
 TEST_VIDEO_CAMPAIGN_MODE=true \
@@ -146,18 +120,18 @@ SCHEDULER_PIPELINE_COMMAND="npm run run:test-campaign" \
 npm run schedule
 ```
 
-## Stop
+### Stop
 
 - Stop the scheduler process (Ctrl+C if foreground)
 - Or terminate the process in your process manager/container
 
-## Run one slot manually
+### Run one slot manually
 
 ```bash
 TEST_VIDEO_CAMPAIGN_MODE=true npm run run:test-campaign
 ```
 
-## Dry run (no real posting)
+### Dry run (no social posting)
 
 ```bash
 DRY_RUN_LOG_ONLY=true TEST_VIDEO_CAMPAIGN_MODE=true npm run run:test-campaign
@@ -165,48 +139,34 @@ DRY_RUN_LOG_ONLY=true TEST_VIDEO_CAMPAIGN_MODE=true npm run run:test-campaign
 
 ---
 
-## 5) Schedule and monitoring
-
-### Posting schedule
-
-- 5 daily slots, one product per slot, rotating across all 5 products.
-- Default cron list in `src/scheduler.ts` and `.env.example`:
-  - `15 8 * * *`
-  - `30 11 * * *`
-  - `0 13 * * *`
-  - `15 18 * * *`
-  - `30 19 * * *`
-
-Override using:
-
-- `SCHEDULER_POST_TIMES` (comma-separated cron expressions)
+## 5) Monitoring and adjustments
 
 ### Monitoring
 
 - Scheduler logs (stdout/stderr)
 - Campaign runner logs from `run-test-video-campaign.ts`
-- Rotation state + upload cache:
+- Rotation state file:
   - `.runtime/test-video-campaign-state.json`
 
 ### Adjustments
 
-- Change captions/hashtags/products in:
+- Update captions/hashtags/products in:
   - `src/content-seed-bank.ts` (`TEST_VIDEO_CAMPAIGN_SEEDS`)
-- Change cadence/times via env:
+- Change schedule via:
   - `SCHEDULER_POST_TIMES`
-- Restrict platforms via env:
+- Restrict platforms via:
   - `ENABLE_PLATFORMS=instagram,youtube` (example)
 
 ---
 
 ## GitHub Actions schedule notes
 
-Workflow file updated: `.github/workflows/video-automation.yml`
+Workflow file: `.github/workflows/video-automation.yml`
 
 - Uses 5 scheduled triggers/day
 - Supports feature flag:
   - `TEST_VIDEO_CAMPAIGN_MODE` secret
-- In test campaign mode it runs:
+- In test campaign mode:
   - `npm run run:test-campaign`
-- In standard mode it runs:
+- In standard mode:
   - `npm run run:once`

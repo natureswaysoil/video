@@ -1,7 +1,14 @@
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager'
 
-const client = new SecretManagerServiceClient()
+let client: SecretManagerServiceClient | null = null
 const loaded = new Set<string>()
+
+function getSecretManagerClient(): SecretManagerServiceClient {
+  if (!client) {
+    client = new SecretManagerServiceClient()
+  }
+  return client
+}
 
 export const DEFAULT_SECRET_NAMES = [
   'CSV_URL',
@@ -46,7 +53,7 @@ export async function loadSecretToEnv(secretName: string): Promise<boolean> {
 
   try {
     const name = `projects/${projectId}/secrets/${secretName}/versions/latest`
-    const [version] = await client.accessSecretVersion({ name })
+    const [version] = await getSecretManagerClient().accessSecretVersion({ name })
     const value = version.payload?.data?.toString()
 
     if (value) {
