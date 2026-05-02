@@ -159,14 +159,65 @@ DRY_RUN_LOG_ONLY=true TEST_VIDEO_CAMPAIGN_MODE=true npm run run:test-campaign
 
 ---
 
-## GitHub Actions schedule notes
+## GitHub Actions schedule + Google Cloud authentication
 
 Workflow file: `.github/workflows/video-automation.yml`
 
 - Uses 5 scheduled triggers/day
-- Supports feature flag:
-  - `TEST_VIDEO_CAMPAIGN_MODE` secret
-- In test campaign mode:
+- Runs in test campaign mode and executes:
   - `npm run run:test-campaign`
-- In standard mode:
-  - `npm run run:once`
+- Before campaign execution, the workflow now authenticates to Google Cloud using:
+  - `google-github-actions/auth@v2`
+  - `google-github-actions/setup-gcloud@v2`
+- Auth input secret name:
+  - `GOOGLE_CREDENTIALS`
+- Optional/recommended project secret:
+  - `GOOGLE_CLOUD_PROJECT`
+
+### How to add `GOOGLE_CREDENTIALS` in GitHub
+
+1. Open your repository on GitHub.
+2. Go to **Settings → Secrets and variables → Actions**.
+3. Click **New repository secret**.
+4. Set:
+   - **Name:** `GOOGLE_CREDENTIALS`
+   - **Secret:** paste the full service account JSON (entire file contents, including braces).
+5. Save the secret.
+
+Also add (or confirm) this secret:
+
+- **Name:** `GOOGLE_CLOUD_PROJECT`
+- **Value:** your Google Cloud project ID (example: `natureswaysoil-video`)
+
+### What `GOOGLE_CREDENTIALS` must contain
+
+`GOOGLE_CREDENTIALS` must be the raw JSON key for a Google Cloud service account, for example keys like:
+
+- `type`
+- `project_id`
+- `private_key_id`
+- `private_key`
+- `client_email`
+- `token_uri`
+
+Do **not** base64-encode it unless you also add decode logic in the workflow.
+
+### Where to create/find the service account in Google Cloud
+
+1. In Google Cloud Console, open:
+   - **IAM & Admin → Service Accounts**
+   - Link: https://console.cloud.google.com/iam-admin/serviceaccounts
+2. Select your project (`GOOGLE_CLOUD_PROJECT`).
+3. Either:
+   - Reuse your existing automation service account, or
+   - Create a new one (recommended name like `github-actions-secret-reader`).
+4. Grant required IAM roles (minimum):
+   - `Secret Manager Secret Accessor` (`roles/secretmanager.secretAccessor`)
+5. Open the service account → **Keys** → **Add key** → **Create new key** → **JSON**.
+6. Copy the downloaded JSON file contents into the GitHub `GOOGLE_CREDENTIALS` secret.
+
+### Why this is required
+
+Without Google Cloud auth in GitHub Actions, Secret Manager calls cannot retrieve secrets. That causes empty/missing values and downstream JSON parsing failures such as:
+
+- `Unexpected end of JSON input`
