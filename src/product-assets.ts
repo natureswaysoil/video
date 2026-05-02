@@ -20,6 +20,18 @@ const PRODUCT_LANDING_CONFIGS: Record<string, ProductLandingConfig> = {
     url: `${BASE_DOMAIN}/dog-urine-neutralizer`,
     cta: 'Fix yellow pet spots fast',
   },
+  B0DC9CSMWS: {
+    asin: 'B0DC9CSMWS',
+    slug: 'dog-urine-neutralizer',
+    url: `${BASE_DOMAIN}/dog-urine-neutralizer`,
+    cta: 'Fix yellow pet spots fast',
+  },
+  B0FG38YYJ5: {
+    asin: 'B0FG38YYJ5',
+    slug: 'dog-urine-neutralizer',
+    url: `${BASE_DOMAIN}/dog-urine-neutralizer`,
+    cta: 'Fix yellow pet spots fast',
+  },
   B0GFC45K6T: {
     asin: 'B0GFC45K6T',
     slug: 'lawn-fertilizer',

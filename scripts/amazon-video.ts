@@ -154,8 +154,49 @@ function fileExists(value: string): boolean {
   return !!value && fs.existsSync(value)
 }
 
+function buildFallbackClip(clipPath: string, query: string, clipIndex: number): void {
+  const fallbackSource = path.join(process.cwd(), 'amazon-video-final.mp4')
+
+  if (fileExists(fallbackSource)) {
+    try {
+      const startSeconds = String(clipIndex * 5)
+      runFfmpeg([
+        '-y',
+        '-ss', startSeconds,
+        '-t', '6',
+        '-i', fallbackSource,
+        '-vf', 'scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720',
+        '-an',
+        '-r', '30',
+        '-pix_fmt', 'yuv420p',
+        clipPath,
+      ])
+      return
+    } catch (error: any) {
+      console.warn(`Fallback source video unusable; switching to synthetic clip: ${error?.message || error}`)
+    }
+  }
+
+  runFfmpeg([
+    '-y',
+    '-f', 'lavfi',
+    '-i', 'testsrc2=s=1280x720:r=30:d=6',
+    '-vf', `drawbox=x=120:y=575:w=1040:h=92:color=black@0.55:t=fill,drawtext=text='Fallback clip - ${safeText(query, 42)}':fontcolor=white:fontsize=36:x=(w-text_w)/2:y=605`,
+    '-an',
+    '-r', '30',
+    '-pix_fmt', 'yuv420p',
+    clipPath,
+  ])
+}
+
 async function main(): Promise<void> {
-  await loadSecretsToEnv(['CSV_URL', 'GOOGLE_SHEET_CSV_URL', 'PEXELS_API_KEY'])
+  if (process.env.SKIP_SECRET_MANAGER !== 'true') {
+    try {
+      await loadSecretsToEnv(['CSV_URL', 'GOOGLE_SHEET_CSV_URL', 'PEXELS_API_KEY'])
+    } catch (error: any) {
+      console.warn(`Secret loading failed; continuing with environment/default values: ${error?.message || error}`)
+    }
+  }
 
   const csvUrl = process.env.CSV_URL || process.env.GOOGLE_SHEET_CSV_URL || DEFAULT_SHEET_CSV_URL
   const result = await processCsvUrl(csvUrl)
@@ -202,11 +243,18 @@ async function main(): Promise<void> {
 
   const clipPaths: string[] = []
   for (let i = 0; i < queries.length; i++) {
-    console.log(`Searching Pexels: ${queries[i]}`)
-    const clipUrl = await findPexelsClip(queries[i])
     const clipPath = path.join(outDir, `clip-${i + 1}.mp4`)
-    console.log(`Downloading clip ${i + 1}`)
-    await downloadFile(clipUrl, clipPath)
+
+    try {
+      console.log(`Searching Pexels: ${queries[i]}`)
+      const clipUrl = await findPexelsClip(queries[i])
+      console.log(`Downloading clip ${i + 1}`)
+      await downloadFile(clipUrl, clipPath)
+    } catch (error: any) {
+      console.warn(`Pexels clip retrieval failed for scene ${i + 1}; using fallback clip.`, error?.message || error)
+      buildFallbackClip(clipPath, queries[i], i)
+    }
+
     clipPaths.push(clipPath)
   }
 
