@@ -172,7 +172,7 @@ export class HeyGenClient {
                   ? { type: 'video', url: scene.brollUrl }
                   : payload.imageUrl
                     ? { type: 'image', url: payload.imageUrl }
-                    : { type: 'ai', prompt: payload.visualPrompt || 'natural garden scene, healthy plants, rich soil, product application' }
+                    : { type: 'color', value: '#1a3a1a' }
 
                 videoInputs.push({
                   character: {
@@ -205,7 +205,7 @@ export class HeyGenClient {
                 },
                 background: payload.imageUrl
                   ? { type: 'image', url: payload.imageUrl }
-                  : { type: 'ai', prompt: payload.visualPrompt || 'natural garden scene, healthy plants, soil, product application' },
+                  : { type: 'color', value: '#1a3a1a' },
               }]
             }
 
