@@ -1,0 +1,61 @@
+{
+  "defaults": {
+    "avatar": "Daisy-inskirt-20220818",
+    "voice": "2d5b0e6cf36f460aa7fc47e3eee4ba54",
+    "lengthSeconds": 45,
+    "avatarScale": 0.58,
+    "avatarOffsetX": 0,
+    "avatarOffsetY": 0.08,
+    "avatarStyle": "normal"
+  },
+  "rules": [
+    {
+      "name": "dog-urine-lawn",
+      "pattern": "dog\\s?urine|yellow\\s?spot|lawn\\s?repair|pet\\s?odor|kennel|artificial\\s?turf",
+      "avatar": "Daisy-inskirt-20220818",
+      "voice": "2d5b0e6cf36f460aa7fc47e3eee4ba54",
+      "lengthSeconds": 45,
+      "avatarScale": 0.55,
+      "avatarOffsetX": 0,
+      "avatarOffsetY": 0.1,
+      "avatarStyle": "normal",
+      "visualHint": "dog walking on lawn, yellow grass spot, product bottle, healthy green grass close-up"
+    },
+    {
+      "name": "hay-pasture",
+      "pattern": "hay|pasture|forage|cattle|livestock|horse|field|turf",
+      "avatar": "Daisy-inskirt-20220818",
+      "voice": "2d5b0e6cf36f460aa7fc47e3eee4ba54",
+      "lengthSeconds": 45,
+      "avatarScale": 0.52,
+      "avatarOffsetX": 0,
+      "avatarOffsetY": 0.12,
+      "avatarStyle": "normal",
+      "visualHint": "green pasture field, hay bales, cattle grazing, lush grass close-up"
+    },
+    {
+      "name": "soil-booster",
+      "pattern": "humic|fulvic|kelp|seaweed|soil\\s?boost|soil\\s?conditioner|root|nutrient",
+      "avatar": "Daisy-inskirt-20220818",
+      "voice": "2d5b0e6cf36f460aa7fc47e3eee4ba54",
+      "lengthSeconds": 45,
+      "avatarScale": 0.58,
+      "avatarOffsetX": 0,
+      "avatarOffsetY": 0.08,
+      "avatarStyle": "normal",
+      "visualHint": "rich soil close-up, plant roots, kelp ocean, vegetable garden"
+    },
+    {
+      "name": "living-compost",
+      "pattern": "compost|worm\\s?cast|biochar|duckweed|living\\s?soil",
+      "avatar": "Daisy-inskirt-20220818",
+      "voice": "2d5b0e6cf36f460aa7fc47e3eee4ba54",
+      "lengthSeconds": 45,
+      "avatarScale": 0.58,
+      "avatarOffsetX": 0,
+      "avatarOffsetY": 0.08,
+      "avatarStyle": "normal",
+      "visualHint": "compost soil close-up, worm castings, raised bed garden, hands holding healthy soil"
+    }
+  ]
+}
