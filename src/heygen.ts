@@ -191,6 +191,7 @@ export class HeyGenClient {
               }
             } else {
               // Fallback to single-scene (old behavior)
+              const isVideoBackground = typeof payload.imageUrl === 'string' && /\.(mp4|mov|webm)(\?|$)/i.test(payload.imageUrl)
               videoInputs = [{
                 character: {
                   type: 'avatar',
@@ -204,7 +205,9 @@ export class HeyGenClient {
                   speed: 1.0,
                 },
                 background: payload.imageUrl
-                  ? { type: 'image', url: payload.imageUrl }
+                  ? isVideoBackground
+                    ? { type: 'video', url: payload.imageUrl, play_style: 'fit_to_scene' }
+                    : { type: 'image', url: payload.imageUrl }
                   : { type: 'color', value: '#0a3d0a' },
               }]
             }
@@ -244,10 +247,12 @@ export class HeyGenClient {
   }
 
   async getJobStatus(jobId: string): Promise<HeyGenJobResult> {
-    // (unchanged from your original file)
     try {
       const config = getConfig()
-      const response = await this.axios.get(`/v2/video/${jobId}`, { timeout: config.TIMEOUT_HEYGEN })
+      const response = await this.axios.get('/v1/video_status.get', {
+        timeout: config.TIMEOUT_HEYGEN,
+        params: { video_id: jobId },
+      })
       const data = response.data?.data || response.data
       return {
         jobId,
@@ -257,12 +262,12 @@ export class HeyGenClient {
       }
     } catch (error: any) {
       logger.error('Failed to get HeyGen job status', 'HeyGen', { jobId }, error)
+      if (axios.isAxiosError(error)) throw fromAxiosError(error, ErrorCode.HEYGEN_API_ERROR, { jobId })
       throw error
     }
   }
 
   async pollJobForVideoUrl(jobId: string, opts?: { timeoutMs?: number; intervalMs?: number }): Promise<string> {
-    // (unchanged from your original file - kept full for safety)
     const startTime = Date.now()
     const timeoutMs = opts?.timeoutMs ?? 20 * 60_000
     const intervalMs = opts?.intervalMs ?? 10_000
