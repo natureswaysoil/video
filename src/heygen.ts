@@ -51,6 +51,10 @@ export type HeyGenVideoPayload = {
   webhook?: string
   title?: string
   meta?: Record<string, any>
+  avatarScale?: number
+  avatarOffsetX?: number
+  avatarOffsetY?: number
+  avatarStyle?: string
   // NEW: Multi-scene + Pexels B-roll support
   scenes?: Array<{
     seconds: string
@@ -138,6 +142,22 @@ export class HeyGenClient {
     }
   }
 
+  private buildCharacter(avatarId: string, payload: HeyGenVideoPayload): Record<string, any> {
+    const scale = Number(payload.avatarScale ?? process.env.HEYGEN_AVATAR_SCALE ?? 0.58)
+    const offsetX = Number(payload.avatarOffsetX ?? process.env.HEYGEN_AVATAR_OFFSET_X ?? 0)
+    const offsetY = Number(payload.avatarOffsetY ?? process.env.HEYGEN_AVATAR_OFFSET_Y ?? 0.08)
+    return {
+      type: 'avatar',
+      avatar_id: avatarId,
+      avatar_style: payload.avatarStyle || process.env.HEYGEN_AVATAR_STYLE || 'normal',
+      scale,
+      offset: {
+        x: offsetX,
+        y: offsetY,
+      },
+    }
+  }
+
   /**
    * Create a new video generation job — NOW SUPPORTS MULTI-SCENE + PEXELS B-ROLL
    */
@@ -153,6 +173,7 @@ export class HeyGenClient {
         scriptLength: payload.script.length,
         avatar: payload.avatar,
         voice: payload.voice,
+        avatarScale: payload.avatarScale,
         hasScenes: !!(payload.scenes && payload.scenes.length > 0),
         sceneCount: payload.scenes?.length || 1,
       })
@@ -162,6 +183,7 @@ export class HeyGenClient {
           async () => {
             const resolvedAvatarId = await this.resolveAvatarId(payload.avatar || 'default')
             const resolvedVoiceId = await this.resolveVoiceId(payload.voice || 'default')
+            const character = this.buildCharacter(resolvedAvatarId, payload)
 
             let videoInputs: any[] = []
 
@@ -175,11 +197,7 @@ export class HeyGenClient {
                     : { type: 'color', value: '#0a3d0a' }
 
                 videoInputs.push({
-                  character: {
-                    type: 'avatar',
-                    avatar_id: resolvedAvatarId,
-                    avatar_style: 'normal',
-                  },
+                  character,
                   voice: {
                     type: 'text',
                     input_text: scene.avatarText || payload.script,
@@ -193,11 +211,7 @@ export class HeyGenClient {
               // Fallback to single-scene (old behavior)
               const isVideoBackground = typeof payload.imageUrl === 'string' && /\.(mp4|mov|webm)(\?|$)/i.test(payload.imageUrl)
               videoInputs = [{
-                character: {
-                  type: 'avatar',
-                  avatar_id: resolvedAvatarId,
-                  avatar_style: 'normal',
-                },
+                character,
                 voice: {
                   type: 'text',
                   input_text: payload.script,
