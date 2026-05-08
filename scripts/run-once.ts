@@ -6,6 +6,7 @@ import { mapProductToHeyGenPayload } from '../src/heygen-adapter'
 import { createClientWithSecrets as createHeyGenClient } from '../src/heygen'
 import { postToInstagram } from '../src/instagram'
 import { postToYouTube } from '../src/youtube'
+import { getConfig } from '../src/config-validator'
 import { spawn } from 'child_process'
 
 function runCommand(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<void> {
@@ -22,6 +23,14 @@ function runCommand(command: string, args: string[], env: NodeJS.ProcessEnv): Pr
       else reject(new Error(`${command} ${args.join(' ')} exited with code ${code}`))
     })
   })
+}
+
+function pickFirstEnv(keys: string[]): string {
+  for (const key of keys) {
+    const value = process.env[key]?.trim()
+    if (value) return value
+  }
+  return ''
 }
 
 async function runDirectSeedVideo(env: NodeJS.ProcessEnv): Promise<void> {
@@ -47,7 +56,7 @@ async function runDirectSeedVideo(env: NodeJS.ProcessEnv): Promise<void> {
   const script = await generateScript(product)
   console.log('Script generated:', script)
 
-  const mapping = mapProductToHeyGenPayload(product)
+  const mapping = await mapProductToHeyGenPayload(product)
   const heygen = await createHeyGenClient()
   const videoId = await heygen.createVideoJob({
     ...mapping.payload,
@@ -57,7 +66,7 @@ async function runDirectSeedVideo(env: NodeJS.ProcessEnv): Promise<void> {
   console.log('HeyGen video job created:', videoId)
 
   const videoUrl = await heygen.pollJobForVideoUrl(videoId, {
-    timeoutMs: Number(env.HEYGEN_POLL_TIMEOUT_MS || 120000),
+    timeoutMs: Number(env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
     intervalMs: Number(env.HEYGEN_POLL_INTERVAL_MS || 15000),
   })
 
@@ -71,14 +80,29 @@ async function runDirectSeedVideo(env: NodeJS.ProcessEnv): Promise<void> {
     return
   }
 
+  const config = getConfig()
+
   if (enabled.includes('youtube')) {
-    console.log('Posting to YouTube...')
-    await postToYouTube({ videoUrl, title: seed.title, description: caption })
+    const clientId = pickFirstEnv(['YT_CLIENT_ID', 'YOUTUBE_CLIENT_ID', 'CLIENT_ID']) || config.YT_CLIENT_ID
+    const clientSecret = pickFirstEnv(['YT_CLIENT_SECRET', 'YOUTUBE_CLIENT_SECRET', 'CLIENT_SECRET']) || config.YT_CLIENT_SECRET
+    const refreshToken = pickFirstEnv(['YT_REFRESH_TOKEN', 'YOUTUBE_REFRESH_TOKEN', 'YOUTUBE_OAUTH_REFRESH_TOKEN', 'REFRESH_TOKEN']) || config.YT_REFRESH_TOKEN
+    if (clientId && clientSecret && refreshToken) {
+      console.log('Posting to YouTube...')
+      await postToYouTube(videoUrl, caption, clientId, clientSecret, refreshToken, (process.env.YT_PRIVACY_STATUS as any) || 'public')
+    } else {
+      console.warn('Skipping YouTube: missing OAuth credentials')
+    }
   }
 
   if (enabled.includes('instagram')) {
-    console.log('Posting to Instagram...')
-    await postToInstagram({ videoUrl, caption })
+    const igToken = config.INSTAGRAM_ACCESS_TOKEN
+    const igId = config.INSTAGRAM_IG_ID || process.env.INSTAGRAM_USER_ID || process.env.INSTAGRAM_ACCOUNT_ID || ''
+    if (igToken && igId) {
+      console.log('Posting to Instagram...')
+      await postToInstagram(videoUrl, caption, igToken, igId)
+    } else {
+      console.warn('Skipping Instagram: missing access token or IG ID')
+    }
   }
 
   console.log('Direct seed video finished:', {
@@ -90,24 +114,33 @@ async function runDirectSeedVideo(env: NodeJS.ProcessEnv): Promise<void> {
 async function main() {
   await loadSecretsToEnv()
 
+  const rotationMode = String(process.env.USE_SEED_ROTATION || '').toLowerCase() === 'true'
   const env = {
     ...process.env,
     RUN_ONCE: 'true',
     ROWS_PER_RUN: process.env.ROWS_PER_RUN || '1',
     DAILY_ROW_COUNT: process.env.DAILY_ROW_COUNT || '1',
     ALWAYS_GENERATE_NEW_VIDEO: process.env.ALWAYS_GENERATE_NEW_VIDEO || 'true',
-    ENABLE_PLATFORMS: process.env.ENABLE_PLATFORMS || 'youtube,instagram,facebook',
+    ENABLE_PLATFORMS: process.env.ENABLE_PLATFORMS || 'youtube,instagram',
   }
 
-  console.log('Starting one-video end-to-end pipeline test')
+  console.log('Starting one-video end-to-end pipeline')
   console.log('Settings:', {
     RUN_ONCE: env.RUN_ONCE,
     ROWS_PER_RUN: env.ROWS_PER_RUN,
     DAILY_ROW_COUNT: env.DAILY_ROW_COUNT,
     ALWAYS_GENERATE_NEW_VIDEO: env.ALWAYS_GENERATE_NEW_VIDEO,
     ENABLE_PLATFORMS: env.ENABLE_PLATFORMS,
+    USE_SEED_ROTATION: rotationMode,
     HAS_CSV_URL: Boolean(env.CSV_URL || env.GOOGLE_SHEET_CSV_URL),
   })
+
+  if (rotationMode) {
+    console.log('USE_SEED_ROTATION=true. Running top-products rotation through src/cli.ts.')
+    await runCommand('ts-node', ['src/cli.ts'], env)
+    console.log('One-video rotation pipeline finished')
+    return
+  }
 
   const hasSheet = Boolean(env.CSV_URL || env.GOOGLE_SHEET_CSV_URL)
 
