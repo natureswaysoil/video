@@ -244,11 +244,21 @@ export class HeyGenClient {
   }
 
   async getJobStatus(jobId: string): Promise<HeyGenJobResult> {
-    // (unchanged from your original file)
     try {
       const config = getConfig()
-      const response = await this.axios.get(`/v2/video/${jobId}`, { timeout: config.TIMEOUT_HEYGEN })
+      // v1/video_status.get is the correct endpoint for checking async generation status.
+      // GET /v2/video/{id} is for accessing completed library videos and 404s on in-progress jobs.
+      const response = await this.axios.get(`/v1/video_status.get?video_id=${jobId}`, { timeout: config.TIMEOUT_HEYGEN })
       const data = response.data?.data || response.data
+      // v1 can return 200 with an error code meaning "not found"
+      if (response.data?.code && response.data.code !== 100) {
+        throw new AppError(
+          `HeyGen job expired or not found: ${jobId}`,
+          ErrorCode.HEYGEN_API_ERROR,
+          404,
+          false
+        )
+      }
       return {
         jobId,
         status: this.normalizeStatus(data?.status),
@@ -256,28 +266,45 @@ export class HeyGenClient {
         error: data?.error || data?.error_message,
       }
     } catch (error: any) {
-      logger.error('Failed to get HeyGen job status', 'HeyGen', { jobId }, error)
-      // 404 = job expired or never existed on HeyGen's side — permanent failure, never retry
+      if (error instanceof AppError) throw error
+      logger.error('Failed to get HeyGen job status', 'HeyGen', { jobId, heygenError: (error as any)?.response?.data }, error)
+      // 404 = job expired or never existed — permanent failure, never retry
       if (axios.isAxiosError(error) && error.response?.status === 404) {
         throw new AppError(
           `HeyGen job expired or not found: ${jobId}`,
           ErrorCode.HEYGEN_API_ERROR,
           404,
-          false  // isOperational=false — withRetry will not retry this
+          false
         )
       }
       throw error
     }
   }
 
-  async pollJobForVideoUrl(jobId: string, opts?: { timeoutMs?: number; intervalMs?: number }): Promise<string> {
-    // (unchanged from your original file - kept full for safety)
+  async pollJobForVideoUrl(jobId: string, opts?: { timeoutMs?: number; intervalMs?: number; initialDelayMs?: number }): Promise<string> {
     const startTime = Date.now()
     const timeoutMs = opts?.timeoutMs ?? 20 * 60_000
-    const intervalMs = opts?.intervalMs ?? 10_000
+    const intervalMs = opts?.intervalMs ?? 15_000
+    const initialDelayMs = opts?.initialDelayMs ?? 0
+    // Wait for initial delay before first poll (gives HeyGen time to index new jobs)
+    if (initialDelayMs > 0) {
+      logger.info(`Waiting ${initialDelayMs}ms before first poll`, 'HeyGen', { jobId })
+      await new Promise(resolve => setTimeout(resolve, initialDelayMs))
+    }
     try {
       while (Date.now() - startTime < timeoutMs) {
-        const result = await this.getJobStatus(jobId)
+        let result: HeyGenJobResult
+        try {
+          result = await this.getJobStatus(jobId)
+        } catch (statusError: any) {
+          // 404 = job is gone — exit immediately, no point retrying
+          if (statusError instanceof AppError && statusError.statusCode === 404) {
+            throw statusError
+          }
+          // Transient error — wait and retry
+          await new Promise(resolve => setTimeout(resolve, intervalMs))
+          continue
+        }
         if (result.status === 'completed' && result.videoUrl) return result.videoUrl
         if (result.status === 'failed') throw new AppError(`HeyGen job failed: ${result.error}`, ErrorCode.HEYGEN_API_ERROR)
         await new Promise(resolve => setTimeout(resolve, intervalMs))

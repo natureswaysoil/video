@@ -283,6 +283,7 @@ async function createOrPollVideo(params: {
   const videoUrl = await heygenClient.pollJobForVideoUrl(videoId, {
     timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
     intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
+    initialDelayMs: 30000,  // give HeyGen 30s to index the new job before first poll
   })
 
   await writeRowFields(csvUrl, headers, rowNumber, {
@@ -322,7 +323,8 @@ async function main(): Promise<void> {
   const rowsPerRun = Number(process.env.ROWS_PER_RUN ?? '1')
   const dryRun = String(process.env.DRY_RUN_LOG_ONLY || '').toLowerCase() === 'true'
   const enabledPlatformsEnv = (process.env.ENABLE_PLATFORMS || '').toLowerCase()
-  const enabledPlatforms = new Set(enabledPlatformsEnv.split(',').map((s) => s.trim()).filter(Boolean))
+  // Support both comma and caret as separators (gcloud env var escaping can produce either)
+  const enabledPlatforms = new Set(enabledPlatformsEnv.split(/[,^]/).map((s) => s.trim()).filter(Boolean))
   const loopResetPosted = String(process.env.LOOP_RESET_POSTED || 'false').toLowerCase() === 'true'
   const alwaysGenerate = String(process.env.ALWAYS_GENERATE_NEW_VIDEO || 'false').toLowerCase() === 'true'
 
