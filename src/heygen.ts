@@ -236,7 +236,7 @@ export class HeyGenClient {
       const duration = Date.now() - startTime
       metrics.incrementCounter('heygen.create_job.error')
       metrics.recordHistogram('heygen.create_job.error_duration', duration)
-      logger.error('Failed to create HeyGen video job', 'HeyGen', { duration }, error)
+      logger.error('Failed to create HeyGen video job', 'HeyGen', { duration, heygenError: error?.response?.data }, error)
       if (error instanceof AppError) throw error
       if (axios.isAxiosError(error)) throw fromAxiosError(error, ErrorCode.HEYGEN_API_ERROR)
       throw new AppError(`HeyGen job creation failed: ${error.message || String(error)}`, ErrorCode.HEYGEN_API_ERROR, 500, true)
