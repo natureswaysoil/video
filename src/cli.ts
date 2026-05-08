@@ -232,17 +232,34 @@ async function createOrPollVideo(params: {
   const heygenClient = await createHeyGenClient()
 
   if (!alwaysGenerate && videoState.videoId && (videoState.videoStatus || '').toLowerCase() === 'processing') {
-    console.log(`⏳ Polling existing HeyGen job for row ${rowNumber}: ${videoState.videoId}`)
-    const videoUrl = await heygenClient.pollJobForVideoUrl(videoState.videoId, {
-      timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
-      intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
-    })
-    await writeRowFields(csvUrl, headers, rowNumber, {
-      Video_URL: videoUrl,
-      Video_Status: 'completed',
-      Video_Completed_At: new Date().toISOString(),
-    })
-    return videoUrl
+    console.log(`⏳ Existing HeyGen job found for row ${rowNumber}: ${videoState.videoId}`)
+    console.log('Polling HeyGen job')
+    try {
+      const videoUrl = await heygenClient.pollJobForVideoUrl(videoState.videoId, {
+        timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
+        intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
+      })
+      await writeRowFields(csvUrl, headers, rowNumber, {
+        Video_URL: videoUrl,
+        Video_Status: 'completed',
+        Video_Completed_At: new Date().toISOString(),
+      })
+      return videoUrl
+    } catch (pollError: any) {
+      // 404 = HeyGen job expired or never existed. Clear stale IDs and re-request a fresh video.
+      if (pollError?.statusCode === 404) {
+        console.log(`⚠️ HeyGen job ${videoState.videoId} is expired — clearing stale IDs and re-requesting`)
+        await writeRowFields(csvUrl, headers, rowNumber, {
+          Video_ID: '',
+          Video_Status: '',
+          Video_URL: '',
+          Error_Message: `Job ${videoState.videoId} expired — re-requested at ${new Date().toISOString()}`,
+        })
+        // fall through to create a new job below
+      } else {
+        throw pollError
+      }
+    }
   }
 
   const mapping = mapProductToHeyGenPayload(record)

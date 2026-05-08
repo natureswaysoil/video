@@ -257,6 +257,15 @@ export class HeyGenClient {
       }
     } catch (error: any) {
       logger.error('Failed to get HeyGen job status', 'HeyGen', { jobId }, error)
+      // 404 = job expired or never existed on HeyGen's side — permanent failure, never retry
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        throw new AppError(
+          `HeyGen job expired or not found: ${jobId}`,
+          ErrorCode.HEYGEN_API_ERROR,
+          404,
+          false  // isOperational=false — withRetry will not retry this
+        )
+      }
       throw error
     }
   }
