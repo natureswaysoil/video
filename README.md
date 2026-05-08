@@ -48,6 +48,24 @@ npm run test:e2e:dry
 
 Then configure the product feed and provider keys in `.env`.
 
+## Clean demo product sheet
+
+A polished demo product sheet is included at:
+
+```text
+data/demo-products-clean.csv
+```
+
+It includes five clean demo products:
+
+1. Hay, Pasture & Lawn Fertilizer
+2. Dog Urine Neutralizer & Lawn Revitalizer
+3. Liquid Humic & Fulvic Acid with Organic Kelp
+4. Liquid Kelp Fertilizer
+5. Liquid Biochar with Humates
+
+Use this sheet for buyer demos instead of a messy working product sheet. For local testing, either point `CSV_URL` to a hosted/raw copy of this CSV or upload these columns into a Google Sheet and use the Google Sheet CSV export URL.
+
 ## Lease demo command
 
 Use this when showing the system to a potential client or testing that the engine can produce a finished demo video.
