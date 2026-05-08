@@ -14,18 +14,33 @@ on:
 jobs:
   video-automation:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     env:
-      TEST_VIDEO_CAMPAIGN_MODE: 'true'
-      TEST_VIDEOS_DIR: test-campaign-videos
       DEFAULT_GOOGLE_CLOUD_PROJECT: natureswaysoil-video
+      USE_SECRET_MANAGER: 'true'
+      USE_SEED_ROTATION: 'true'
+      SEED_PRODUCT_LIMIT: '5'
+      VARIATIONS_PER_PRODUCT: '5'
+      ROWS_PER_RUN: '1'
+      DAILY_ROW_COUNT: '1'
+      ALWAYS_GENERATE_NEW_VIDEO: 'true'
+      ENABLE_PLATFORMS: youtube,instagram
+      YT_PRIVACY_STATUS: public
+      DRY_RUN: 'false'
+      DRY_RUN_LOG_ONLY: 'false'
+      HEYGEN_POLL_TIMEOUT_MS: '1500000'
+      HEYGEN_POLL_INTERVAL_MS: '15000'
+      ROTATION_STATE_FILE: data/rotation-state.json
+      PUBLIC_SITE_URL: https://www.natureswaysoil.com
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
-      - name: Prepare Google ADC credentials (match local setup)
+      - name: Prepare Google ADC credentials
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
@@ -71,10 +86,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify bundled test campaign videos exist
+      - name: Show scheduled generation settings
         run: |
-          test -d "$TEST_VIDEOS_DIR"
-          ls -1 "$TEST_VIDEOS_DIR"/*.mp4
+          echo "USE_SEED_ROTATION=$USE_SEED_ROTATION"
+          echo "SEED_PRODUCT_LIMIT=$SEED_PRODUCT_LIMIT"
+          echo "VARIATIONS_PER_PRODUCT=$VARIATIONS_PER_PRODUCT"
+          echo "ROWS_PER_RUN=$ROWS_PER_RUN"
+          echo "ENABLE_PLATFORMS=$ENABLE_PLATFORMS"
+          echo "YT_PRIVACY_STATUS=$YT_PRIVACY_STATUS"
 
-      - name: Run test-video campaign (rotation mode)
-        run: npm run run:test-campaign
+      - name: Generate and post one fresh product video
+        run: npm run run:once
+
+      - name: Upload rotation state artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rotation-state
+          path: data/rotation-state.json
+          if-no-files-found: ignore
