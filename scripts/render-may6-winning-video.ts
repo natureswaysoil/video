@@ -11,39 +11,39 @@ const SECRET_NAMES = ['OPENAI_API_KEY', 'PEXELS_API_KEY']
 
 const PRODUCT = {
   slug: 'enhanced-living-compost-may6-test',
-  title: 'Fix Lawn Not Growing Naturally - Enhanced Living Compost',
+  title: 'Build Better Garden Soil - Enhanced Living Compost',
 }
 
 const SCENES = [
   {
     seconds: 4,
-    query: 'patchy lawn close up dry soil grass',
-    overlay: 'Lawn not growing?',
-    narration: 'If your lawn is not growing, the problem may be below the grass.',
+    query: 'raised bed garden soil close up dry potting mix',
+    overlay: 'Tired garden soil?',
+    narration: 'If your garden soil looks tired, start by rebuilding the soil itself.',
   },
   {
     seconds: 5,
     query: 'hands holding rich compost soil close up',
-    overlay: 'Start with the soil',
-    narration: 'Enhanced Living Compost is built to support the soil first.',
+    overlay: 'Living compost blend',
+    narration: 'Enhanced Living Compost is made to support raised beds, containers, and planting mixes.',
   },
   {
     seconds: 6,
-    query: 'spreading compost on lawn garden soil',
-    overlay: 'Top dress. Mix in. Water in.',
-    narration: 'Top dress thin areas, mix it into beds, or work it around the root zone.',
+    query: 'mixing compost into raised bed garden soil',
+    overlay: 'Mix into beds or pots',
+    narration: 'Blend it into garden beds, containers, or planting holes before watering in.',
   },
   {
     seconds: 6,
     query: 'worm castings biochar compost close up soil',
-    overlay: 'Compost + castings + biochar',
+    overlay: 'Castings + biochar',
     narration: 'Worm castings, biochar, compost, and fermented duckweed help support living soil.',
   },
   {
     seconds: 7,
-    query: 'healthy green lawn raised bed garden sunlight',
+    query: 'healthy raised bed vegetable garden sunlight',
     overlay: 'Natures Way Soil',
-    narration: 'For full directions, visit Nature’s Way Soil and look for Enhanced Living Compost.',
+    narration: 'For full garden use directions, visit Nature’s Way Soil and look for Enhanced Living Compost.',
   },
 ]
 
@@ -132,9 +132,6 @@ function concat(scenePaths: string[], audioPath: string, finalPath: string, work
   const listPath = path.join(workDir, 'concat-list.txt')
   fs.writeFileSync(listPath, scenePaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n'))
 
-  // Re-encode during final concat instead of stream-copying. This is slower but
-  // avoids ffmpeg exit code 8 when downloaded clips have different timestamps,
-  // timebases, metadata, or encoder settings.
   run('ffmpeg', [
     '-y',
     '-f', 'concat',
