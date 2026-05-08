@@ -181,15 +181,39 @@ export function isRateLimitError(error: unknown): boolean {
   )
 }
 
+function sanitizeApiErrorMessage(message: any): string {
+  if (!message) return 'Unknown API error'
+  if (typeof message === 'string') return message
+  try {
+    return JSON.stringify(message)
+  } catch {
+    return String(message)
+  }
+}
+
+function buildSafeAxiosContext(error: any, context?: Record<string, any>): Record<string, any> {
+  const statusCode = error?.response?.status || 500
+  return {
+    ...context,
+    statusCode,
+    url: error?.config?.url,
+    method: error?.config?.method,
+    providerErrorCode: error?.response?.data?.error?.code,
+    providerErrorMessage: error?.response?.data?.error?.message,
+  }
+}
+
 /**
- * Create an error from an axios error
+ * Create an error from an axios error. Do not attach the raw Axios error because
+ * it can contain Authorization/X-Api-Key headers and request payloads.
  */
 export function fromAxiosError(error: any, code: ErrorCode, context?: Record<string, any>): AppError {
-  const message = error?.response?.data?.message 
+  const rawMessage = error?.response?.data?.message 
+    || error?.response?.data?.error?.message
     || error?.response?.data?.error
     || error?.message 
     || 'Unknown API error'
-  
+  const message = sanitizeApiErrorMessage(rawMessage)
   const statusCode = error?.response?.status || 500
   
   return new AppError(
@@ -197,13 +221,7 @@ export function fromAxiosError(error: any, code: ErrorCode, context?: Record<str
     code,
     statusCode,
     true,
-    {
-      ...context,
-      statusCode,
-      url: error?.config?.url,
-      method: error?.config?.method,
-    },
-    error
+    buildSafeAxiosContext(error, context)
   )
 }
 
