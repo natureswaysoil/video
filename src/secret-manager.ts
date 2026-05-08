@@ -49,6 +49,11 @@ function getProjectId(): string {
 function hasLikelyAdc(): boolean {
   if (String(process.env.SKIP_SECRET_MANAGER || '').toLowerCase() === 'true') return false
 
+  // If explicitly enabled, try Secret Manager and let the Google library locate ADC.
+  // This supports `gcloud auth application-default login`, which stores credentials
+  // in the standard gcloud config folder without setting GOOGLE_APPLICATION_CREDENTIALS.
+  if (String(process.env.USE_SECRET_MANAGER || '').toLowerCase() === 'true') return true
+
   return Boolean(
     process.env.GOOGLE_APPLICATION_CREDENTIALS ||
       process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
@@ -118,7 +123,7 @@ export async function loadSecretToEnv(secretName: string): Promise<boolean> {
   if (!hasLikelyAdc()) {
     if (!warnedNoAdc) {
       console.warn(
-        'Skipping Google Secret Manager lookups because ADC is not configured (set GOOGLE_APPLICATION_CREDENTIALS or run in GCP runtime).'
+        'Skipping Google Secret Manager lookups because ADC is not configured. Set USE_SECRET_MANAGER=true after running gcloud auth application-default login, set GOOGLE_APPLICATION_CREDENTIALS, or run in GCP runtime.'
       )
       warnedNoAdc = true
     }
