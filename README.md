@@ -48,10 +48,33 @@ npm run test:e2e:dry
 
 Then configure the product feed and provider keys in `.env`.
 
+## Lease demo command
+
+Use this when showing the system to a potential client or testing that the engine can produce a finished demo video.
+
+Required environment variables:
+
+- `OPENAI_API_KEY`
+- `HEYGEN_API_KEY`
+
+Recommended environment variables:
+
+- `CSV_URL` or `GOOGLE_SHEET_CSV_URL`
+- `PEXELS_API_KEY`
+
+Run:
+
+```bash
+npm run demo:lease
+```
+
+The command checks required credentials, reads the product feed, generates a script, starts a HeyGen render, waits for completion, and prints the finished video URL.
+
 ## Core scripts
 
 ```bash
 npm run dev              # Run CLI workflow
+npm run demo:lease       # Run one clean lease demo video
 npm run one:video        # Generate one good video
 npm run amazon:video     # Generate Amazon product video flow
 npm run schedule         # Run scheduler
