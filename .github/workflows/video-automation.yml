@@ -40,6 +40,14 @@ jobs:
         with:
           lfs: true
 
+      - name: Restore rotation state
+        uses: actions/cache/restore@v4
+        with:
+          path: data/rotation-state.json
+          key: rotation-state-${{ github.run_id }}
+          restore-keys: |
+            rotation-state-
+
       - name: Prepare Google ADC credentials
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
@@ -94,9 +102,18 @@ jobs:
           echo "ROWS_PER_RUN=$ROWS_PER_RUN"
           echo "ENABLE_PLATFORMS=$ENABLE_PLATFORMS"
           echo "YT_PRIVACY_STATUS=$YT_PRIVACY_STATUS"
+          echo "ROTATION_STATE_FILE=$ROTATION_STATE_FILE"
+          test -f "$ROTATION_STATE_FILE" && cat "$ROTATION_STATE_FILE" || echo "No prior rotation state restored"
 
       - name: Generate and post one fresh product video
         run: npm run run:once
+
+      - name: Save rotation state cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/rotation-state.json
+          key: rotation-state-${{ github.run_id }}
 
       - name: Upload rotation state artifact
         if: always()
