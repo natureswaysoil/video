@@ -78,7 +78,7 @@ async function main(): Promise<void> {
     details,
   })
 
-  const mapping = mapProductToHeyGenPayload(row.record)
+  const mapping = await mapProductToHeyGenPayload(row.record)
   const payload = {
     ...mapping.payload,
     script,
