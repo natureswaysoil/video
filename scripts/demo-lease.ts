@@ -1,7 +1,9 @@
 import 'dotenv/config'
+import { loadSecretsToEnv } from '../src/secret-manager'
 
 const requiredEnv = ['OPENAI_API_KEY', 'HEYGEN_API_KEY']
 const optionalEnv = ['CSV_URL', 'GOOGLE_SHEET_CSV_URL', 'PEXELS_API_KEY']
+const demoSecretNames = [...requiredEnv, ...optionalEnv, 'OPENAI_MODEL', 'HEYGEN_API_ENDPOINT']
 
 function hasValue(name: string): boolean {
   const value = process.env[name]
@@ -22,6 +24,16 @@ function printHeader(): void {
   console.log('\nThe finished HeyGen video URL will print when complete.\n')
 }
 
+async function loadConfiguredSecrets(): Promise<void> {
+  const wantsSecretManager = String(process.env.USE_SECRET_MANAGER || '').toLowerCase() === 'true'
+  const hasDirectKeys = requiredEnv.every(hasValue)
+
+  if (!hasDirectKeys || wantsSecretManager) {
+    console.log('Loading demo secrets from environment / Google Secret Manager when available...')
+    await loadSecretsToEnv(demoSecretNames)
+  }
+}
+
 function validateEnvironment(): void {
   const missing = requiredEnv.filter((name) => !hasValue(name))
 
@@ -36,8 +48,10 @@ function validateEnvironment(): void {
   if (missing.length > 0) {
     console.error('\nCannot run live lease demo yet. Missing required environment variables:')
     for (const name of missing) console.error(`- ${name}`)
-    console.error('\nFix: copy .env.example to .env and add the required keys, then run:')
-    console.error('npm run demo:lease')
+    console.error('\nFix options:')
+    console.error('1. Add the missing keys to .env, or')
+    console.error('2. Set USE_SECRET_MANAGER=true and configure Google Application Default Credentials, then run:')
+    console.error('   npm run demo:lease')
     process.exit(1)
   }
 
@@ -48,10 +62,12 @@ function validateEnvironment(): void {
 
 async function main(): Promise<void> {
   printHeader()
-  validateEnvironment()
 
   process.env.DRY_RUN = process.env.DRY_RUN || 'false'
   process.env.DEMO_MODE = 'lease'
+
+  await loadConfiguredSecrets()
+  validateEnvironment()
 
   console.log('\nStarting live video generation demo...\n')
   await import('./one-good-video')
