@@ -106,7 +106,7 @@ jobs:
           test -f "$ROTATION_STATE_FILE" && cat "$ROTATION_STATE_FILE" || echo "No prior rotation state restored"
 
       - name: Generate and post one fresh product video
-        run: npm run run:once
+        run: npm run post:scheduled
 
       - name: Save rotation state cache
         if: always()
