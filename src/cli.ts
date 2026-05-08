@@ -21,6 +21,13 @@ import {
 } from './health-server'
 import { getAuditLogger } from './audit-logger'
 import { validateConfig } from './config-validator'
+import {
+  isRotationEnabled,
+  nextSeedSelection,
+  buildRotationRow,
+  noteHeygenJob,
+  clearInflight as clearRotationInflight,
+} from './rotation'
 
 // 🔐 NEW: Load ALL secrets at startup (once)
 async function bootstrapSecrets() {
@@ -220,9 +227,19 @@ async function createOrPollVideo(params: {
   rowNumber: number
   csvUrl: string
   alwaysGenerate: boolean
+  skipSheetWriteback?: boolean
 }): Promise<string> {
-  const { product, record, headers, rowNumber, csvUrl, alwaysGenerate } = params
+  const { product, record, headers, rowNumber, csvUrl, alwaysGenerate, skipSheetWriteback } = params
   const videoState = getVideoState(record)
+
+  const writeIfPossible = async (updates: Record<string, string>) => {
+    if (skipSheetWriteback || !csvUrl || !headers.length || !rowNumber) return
+    try {
+      await writeRowFields(csvUrl, headers, rowNumber, updates)
+    } catch (e: any) {
+      console.warn('⚠️ Sheet writeback failed (continuing):', e?.message || e)
+    }
+  }
 
   if (videoState.videoUrl && !alwaysGenerate) {
     console.log('✅ Using existing video:', videoState.videoUrl)
@@ -237,7 +254,7 @@ async function createOrPollVideo(params: {
       timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
       intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
     })
-    await writeRowFields(csvUrl, headers, rowNumber, {
+    await writeIfPossible({
       Video_URL: videoUrl,
       Video_Status: 'completed',
       Video_Completed_At: new Date().toISOString(),
@@ -245,7 +262,7 @@ async function createOrPollVideo(params: {
     return videoUrl
   }
 
-  const mapping = mapProductToHeyGenPayload(record)
+  const mapping = await mapProductToHeyGenPayload(record)
   const generatedScript = await generateScript(product)
   const payload = {
     ...mapping.payload,
@@ -253,7 +270,12 @@ async function createOrPollVideo(params: {
   }
 
   const videoId = await heygenClient.createVideoJob(payload)
-  await writeRowFields(csvUrl, headers, rowNumber, {
+  // Persist the HeyGen job into rotation in-flight state so a crash mid-poll
+  // resumes the same job rather than spending HeyGen credits twice.
+  if (skipSheetWriteback) {
+    try { await noteHeygenJob(videoId) } catch {}
+  }
+  await writeIfPossible({
     Video_ID: videoId,
     Video_Status: 'processing',
     HEYGEN_AVATAR: mapping.avatar,
@@ -268,7 +290,7 @@ async function createOrPollVideo(params: {
     intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
   })
 
-  await writeRowFields(csvUrl, headers, rowNumber, {
+  await writeIfPossible({
     Video_URL: videoUrl,
     Video_Status: 'completed',
     Video_Completed_At: new Date().toISOString(),
@@ -295,9 +317,11 @@ async function main(): Promise<void> {
   await loadSecretToEnv('CSV_URL')
 
   const csvUrl = process.env.CSV_URL || process.env.GOOGLE_SHEET_CSV_URL
+  const rotationMode = isRotationEnabled()
   console.log('GOOGLE_SHEET_CSV_URL loaded:', !!process.env.GOOGLE_SHEET_CSV_URL)
+  if (rotationMode) console.log('\u{1F501} USE_SEED_ROTATION=true — sourcing rows from config/top-products.json')
 
-  if (!csvUrl) throw new Error('CSV_URL / GOOGLE_SHEET_CSV_URL not set')
+  if (!csvUrl && !rotationMode) throw new Error('CSV_URL / GOOGLE_SHEET_CSV_URL not set (or set USE_SEED_ROTATION=true)')
 
   const seen = new Set<string>()
   const intervalMs = Number(process.env.POLL_INTERVAL_MS ?? '60000')
@@ -320,7 +344,19 @@ async function main(): Promise<void> {
 
   const cycle = async (): Promise<void> => {
     updateStatus({ status: 'processing', rowsProcessed: 0 })
-    const result = await processCsvUrl(csvUrl)
+
+    let result: { skipped: boolean; rows: any[] }
+    if (rotationMode) {
+      const selection = await nextSeedSelection()
+      console.log(
+        `\u{1F501} Seed rotation: product=${selection.product.id} variation=${selection.variationIndex + 1}/${selection.variationCount}` +
+          (selection.resumed ? ' (resumed in-flight)' : '') +
+          (selection.pendingHeygenJobId ? ` heygenJobId=${selection.pendingHeygenJobId}` : '')
+      )
+      result = { skipped: false, rows: [buildRotationRow(selection)] }
+    } else {
+      result = await processCsvUrl(csvUrl!)
+    }
 
     if (result.skipped || result.rows.length === 0) {
       updateStatus({ status: 'idle', rowsProcessed: 0 })
@@ -337,25 +373,41 @@ async function main(): Promise<void> {
       console.log(`\n========== Processing Row ${rowNumber} ==========`)
       console.log('Product:', product?.title || product?.name || jobId)
 
+      // Synthetic rows from seed rotation have no real sheet row — skip writeback
+      const isSynthetic = rotationMode || rowNumber === 0 || headers.length === 0
+
       try {
-        const videoUrl = await createOrPollVideo({ product, record, headers, rowNumber, csvUrl, alwaysGenerate })
+        const videoUrl = await createOrPollVideo({
+          product,
+          record,
+          headers,
+          rowNumber,
+          csvUrl: csvUrl || '',
+          alwaysGenerate,
+          skipSheetWriteback: isSynthetic,
+        })
         const { anySucceeded } = await postToEnabledPlatforms({ videoUrl, product, enabledPlatforms, dryRun })
 
         if (!anySucceeded && !dryRun) {
           throw new Error('No enabled platform post succeeded for this row')
         }
 
-        if (anySucceeded || dryRun) {
+        if ((anySucceeded || dryRun) && !isSynthetic && csvUrl) {
           const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
           const sheetGid = extractGidFromCsv(csvUrl)
           await markRowPosted({ spreadsheetId, sheetGid, rowNumber, headers })
-        } else {
+        } else if (!anySucceeded && !dryRun) {
           console.warn(`⚠️ Row ${rowNumber}: no platforms succeeded, skipping writeback`)
         }
 
         seen.add(jobId)
         rowsThisCycle++
         incrementSuccessfulPost()
+        if (rotationMode) {
+          try { await clearRotationInflight({ success: true }) } catch (e: any) {
+            console.warn('⚠️ Failed to clear rotation in-flight state:', e?.message || e)
+          }
+        }
         updateStatus({ status: 'processed-row', rowsProcessed: rowsThisCycle })
       } catch (error: any) {
         // Add to seen so the same row is not retried every cycle on persistent errors
@@ -370,15 +422,24 @@ async function main(): Promise<void> {
           product: product?.title || product?.name,
           details: { error: error?.message || String(error) },
         })
-        await writeRowFields(csvUrl, headers, rowNumber, {
-          Video_Status: 'failed',
-          Last_Error: error?.message || String(error),
-          Last_Error_At: new Date().toISOString(),
-        })
+        if (!isSynthetic && csvUrl) {
+          try {
+            await writeRowFields(csvUrl, headers, rowNumber, {
+              Video_Status: 'failed',
+              Last_Error: error?.message || String(error),
+              Last_Error_At: new Date().toISOString(),
+            })
+          } catch (writeErr: any) {
+            console.warn('⚠️ Failed to write failure to sheet:', writeErr?.message || writeErr)
+          }
+        }
+        if (rotationMode) {
+          try { await clearRotationInflight({ success: false }) } catch {}
+        }
       }
     }
 
-    if (loopResetPosted && rowsThisCycle === 0) {
+    if (loopResetPosted && rowsThisCycle === 0 && !rotationMode && csvUrl) {
       const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
       const sheetGid = extractGidFromCsv(csvUrl)
       await resetPostedColumn({

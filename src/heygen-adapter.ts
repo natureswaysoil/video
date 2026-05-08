@@ -1,4 +1,79 @@
 import { generateScript } from './openai'
+import { selectPexelsBackground } from './pexels'
+
+type ProductRow = Record<string, any>
+
+const DEFAULTS = {
+  avatar: 'Daisy-inskirt-20220818',
+  voice: '2d5b0e6cf36f460aa7fc47e3eee4ba54',
+  lengthSeconds: 60,
+  music: { style: 'upbeat', volume: 0.2 },
+}
+
+type CategoryRule = {
+  pattern: RegExp
+  avatar: string
+  voice: string
+  lengthSeconds?: number
+  reason: string
+  visualHint: string
+}
+
+const CATEGORY_MAP: CategoryRule[] = [
+  {
+    pattern: /dog\s?urine|yellow\s?spot|lawn\s?repair/i,
+    avatar: DEFAULTS.avatar,
+    voice: DEFAULTS.voice,
+    lengthSeconds: 60,
+    reason: 'dog-urine-lawn',
+    visualHint: 'dog walking on lawn, yellow grass spot, product bottle, healthy green grass close-up',
+  },
+  {
+    pattern: /humic|fulvic|kelp|seaweed|soil\s?boost/i,
+    avatar: DEFAULTS.avatar,
+    voice: DEFAULTS.voice,
+    lengthSeconds: 60,
+    reason: 'soil-booster',
+    visualHint: 'rich soil close-up, plant roots, kelp ocean, vegetable garden',
+  },
+  {
+    pattern: /compost|worm\s?cast|biochar|duckweed/i,
+    avatar: DEFAULTS.avatar,
+    voice: DEFAULTS.voice,
+    lengthSeconds: 60,
+    reason: 'living-compost',
+    visualHint: 'compost soil close-up, worm castings, raised bed garden, hands holding healthy soil',
+  },
+  {
+    pattern: /hay|pasture|forage|cattle|livestock/i,
+    avatar: DEFAULTS.avatar,
+    voice: DEFAULTS.voice,
+    lengthSeconds: 60,
+    reason: 'hay-pasture',
+    visualHint: 'green pasture field, hay bales, cattle grazing, lush grass close-up',
+  },
+]
+
+function first(row: ProductRow, keys: string[]): string {
+  for (const key of keys) {
+    const value = row?.[key]
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      return String(value).trim()
+    }
+  }
+  return ''
+}
+
+function buildVisualPrompt(row: ProductRow, title: string, details: string, visualHint: string): string {
+  const parts = [
+    `Premium 9:16 vertical product ad for ${title}.`,
+    details ? `Context: ${details}` : '',
+    `Visual style: ${visualHint}.`,
+    'Realistic outdoor footage, shallow depth of field, natural sunlight, close-up product shots, soil/root/grass details.',
+  ].filter(Boolean)
+  return parts.join(' ')
+}
+
 export async function mapProductToHeyGenPayload(row: ProductRow) {
   const textFields = [
     row.title, row.Title,
@@ -48,13 +123,23 @@ export async function mapProductToHeyGenPayload(row: ProductRow) {
   }
 
   // === Fetch Pexels B-roll for every scene ===
-  const pexels = PexelsService.getInstance()
   const scenes: any[] = []
 
   for (const scene of scriptData.scenes || []) {
     let brollUrl = ''
-    if (scene.brollKeyword) {
-      brollUrl = await pexels.getBrollVideo(scene.brollKeyword, 12)
+    const keyword = scene.brollKeyword || scene.visualDesc
+    if (keyword) {
+      try {
+        const picked = await selectPexelsBackground({
+          product: { title, details, name: title },
+          record: { Category: keyword },
+          orientation: 'portrait',
+          minDurationSeconds: 8,
+        })
+        if (picked) brollUrl = picked.url
+      } catch (e) {
+        console.warn('Pexels b-roll lookup failed for scene', e)
+      }
     }
 
     scenes.push({
@@ -80,7 +165,7 @@ export async function mapProductToHeyGenPayload(row: ProductRow) {
     meta: {
       productTitle: title,
       visualHint,
-      sourceImageUrl: first(row, ['Image_URL', 'image_url', ...]) || undefined,
+      sourceImageUrl: first(row, ['Image_URL', 'image_url', 'Product_Image_URL', 'product_image_url', 'Main_Image_URL', 'main_image_url']) || undefined,
       mappingReason: reason
     },
     // NEW: Multi-scene + B-roll support

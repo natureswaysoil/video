@@ -75,6 +75,14 @@ declare module 'fs' {
   export function existsSync(path: string): boolean
   export function mkdirSync(path: string, options?: any): void
   export function writeFileSync(path: string, data: string): void
+  export function readFileSync(path: string, encoding?: string): string
+  export function mkdtempSync(prefix: string): string
+  export function statSync(path: string): { size: number; isDirectory(): boolean }
+  export function rmSync(path: string, options?: any): void
+  export function unlinkSync(path: string): void
+  export function readdirSync(path: string): string[]
+  export function createWriteStream(path: string, options?: any): any
+  export function createReadStream(path: string, options?: any): any
 }
 
 declare module 'fs/promises' {
@@ -86,6 +94,26 @@ declare module 'fs/promises' {
 declare module 'path' {
   export function dirname(path: string): string
   export function join(...paths: string[]): string
+  export function resolve(...paths: string[]): string
+  export function basename(path: string, ext?: string): string
+  export function extname(path: string): string
+  export const sep: string
+}
+
+declare module 'os' {
+  export function tmpdir(): string
+  export function platform(): string
+  export function homedir(): string
+}
+
+declare module 'child_process' {
+  export function execFile(
+    file: string,
+    args?: string[],
+    callback?: (error: any, stdout: string, stderr: string) => void
+  ): any
+  export function exec(command: string, callback?: (error: any, stdout: string, stderr: string) => void): any
+  export function spawn(command: string, args?: string[], options?: any): any
 }
 
 declare module 'zod' {
