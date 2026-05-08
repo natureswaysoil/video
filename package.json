@@ -6,6 +6,7 @@
   "description": "Licensed product-catalog-to-video automation engine for ecommerce brands.",
   "scripts": {
     "dev": "ts-node src/cli.ts",
+    "demo:lease": "ts-node scripts/demo-lease.ts",
     "one:video": "ts-node scripts/one-good-video.ts",
     "amazon:video": "ts-node scripts/amazon-video.ts",
     "typecheck": "tsc --noEmit",
