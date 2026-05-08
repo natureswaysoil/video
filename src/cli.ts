@@ -9,7 +9,6 @@ import { postToYouTube } from './youtube'
 import { getConfig } from './config-validator'
 import { createClientWithSecrets as createHeyGenClient } from './heygen'
 import { mapProductToHeyGenPayload } from './heygen-adapter'
-import { generateScript } from './openai'
 import { markRowPosted, writeColumnValues, resetPostedColumn } from './sheets'
 import {
   startHealthServer,
@@ -28,6 +27,8 @@ import {
   noteHeygenJob,
   clearInflight as clearRotationInflight,
 } from './rotation'
+import { buildMultiSceneVideo, captionsFromVoiceover } from './multi-scene-broll'
+import { uploadLocalVideoToCloudinary } from './cloudinary-upload'
 
 // 🔐 NEW: Load ALL secrets at startup (once)
 async function bootstrapSecrets() {
@@ -263,11 +264,8 @@ async function createOrPollVideo(params: {
   }
 
   const mapping = await mapProductToHeyGenPayload(record)
-  const generatedScript = await generateScript(product)
-  const payload = {
-    ...mapping.payload,
-    script: generatedScript,
-  }
+  // mapping.payload.script already contains the GPT voiceover; do not regenerate.
+  const payload = mapping.payload
 
   const videoId = await heygenClient.createVideoJob(payload)
   // Persist the HeyGen job into rotation in-flight state so a crash mid-poll
@@ -285,10 +283,44 @@ async function createOrPollVideo(params: {
     HEYGEN_MAPPED_AT: new Date().toISOString(),
   })
 
-  const videoUrl = await heygenClient.pollJobForVideoUrl(videoId, {
+  let videoUrl = await heygenClient.pollJobForVideoUrl(videoId, {
     timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
     intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
   })
+
+  // Optional Path B: locally composite Pexels b-roll + burn captions, then upload.
+  if (String(process.env.ENABLE_LOCAL_BROLL_COMPOSE || '').toLowerCase() === 'true') {
+    try {
+      const localScenes: Array<{ query: string; seconds?: number }> =
+        (Array.isArray(product?.scenes) && product.scenes.length > 0
+          ? product.scenes
+          : Array.isArray(record?.scenes) ? record.scenes : []) || []
+      if (localScenes.length === 0) {
+        console.warn('⚠️ ENABLE_LOCAL_BROLL_COMPOSE=true but no scenes available; skipping local compose')
+      } else {
+        const voiceover: string = (mapping as any).voiceover || mapping.payload?.script || ''
+        const totalSeconds = Number(mapping.lengthSeconds) || 60
+        const captions = captionsFromVoiceover(voiceover, totalSeconds)
+        console.log(`🎬 Compositing ${localScenes.length} Pexels scenes with HeyGen avatar + ${captions.length} captions`)
+        const compose = await buildMultiSceneVideo({
+          heygenVideoUrl: videoUrl,
+          scenes: localScenes,
+          outputId: `nws_${(product?.id || 'video')}_${Date.now()}`,
+          captions,
+          burnCaptions: true,
+          pipPosition: (process.env.BROLL_PIP_POSITION as any) || 'tr',
+          pipScale: Number(process.env.BROLL_PIP_SCALE || 0.36),
+        })
+        const uploadedUrl = await uploadLocalVideoToCloudinary(compose.outputPath, {
+          publicIdPrefix: `nws_${product?.id || 'video'}`,
+        })
+        console.log(`✅ Local b-roll composite uploaded: ${uploadedUrl}`)
+        videoUrl = uploadedUrl
+      }
+    } catch (composeErr: any) {
+      console.warn('⚠️ Local b-roll compose failed; falling back to HeyGen URL:', composeErr?.message || composeErr)
+    }
+  }
 
   await writeIfPossible({
     Video_URL: videoUrl,

@@ -246,12 +246,14 @@ export function buildRotationRow(selection: RotationSelection) {
   // unique per cycle so the cli.ts `seen` set doesn't dedupe across cycles
   const jobId = `${product.id}-v${variationIndex + 1}-${cycleId}`
 
-  const record: Record<string, string> = {
+  const record: Record<string, any> = {
     Product_ID: product.id,
     ASIN: product.id,
     Product_Title: product.name,
     Product_Description: details,
     Product_URL: funnelUrl,
+    // Pass rotation-defined Pexels scene queries through to heygen-adapter
+    scenes: Array.isArray(product.scenes) ? product.scenes : [],
   }
 
   if (pendingHeygenJobId) {

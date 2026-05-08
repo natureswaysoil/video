@@ -13,11 +13,77 @@ const execFileP: (file: string, args: string[], options?: any) => Promise<{ stdo
 
 export type Scene = { query: string; seconds?: number }
 
+export type CaptionLine = { startSec: number; endSec: number; text: string }
+
 export type MultiSceneResult = {
   outputPath: string
   workDir: string
   sceneCount: number
   totalSeconds: number
+}
+
+function srtTimestamp(sec: number): string {
+  const ms = Math.max(0, Math.round(sec * 1000))
+  const hh = Math.floor(ms / 3_600_000)
+  const mm = Math.floor((ms % 3_600_000) / 60_000)
+  const ss = Math.floor((ms % 60_000) / 1000)
+  const mmm = ms % 1000
+  return (
+    String(hh).padStart(2, '0') +
+    ':' +
+    String(mm).padStart(2, '0') +
+    ':' +
+    String(ss).padStart(2, '0') +
+    ',' +
+    String(mmm).padStart(3, '0')
+  )
+}
+
+function writeSrt(lines: CaptionLine[], destPath: string): void {
+  const body = lines
+    .map((line, i) => `${i + 1}\n${srtTimestamp(line.startSec)} --> ${srtTimestamp(line.endSec)}\n${line.text}\n`)
+    .join('\n')
+  fs.writeFileSync(destPath, body)
+}
+
+/**
+ * Build caption lines from a voiceover and a target duration.
+ * Splits the script into sentence-ish chunks and distributes them evenly.
+ */
+export function captionsFromVoiceover(voiceover: string, totalSeconds: number, maxLineLen = 42): CaptionLine[] {
+  const sentences = (voiceover || '')
+    .replace(/\s+/g, ' ')
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (sentences.length === 0 || totalSeconds <= 0) return []
+
+  // Further split long sentences into <=maxLineLen char chunks (preserve word boundaries)
+  const chunks: string[] = []
+  for (const s of sentences) {
+    if (s.length <= maxLineLen) {
+      chunks.push(s)
+      continue
+    }
+    const words = s.split(' ')
+    let buf = ''
+    for (const w of words) {
+      if ((buf + ' ' + w).trim().length > maxLineLen) {
+        if (buf) chunks.push(buf.trim())
+        buf = w
+      } else {
+        buf = (buf + ' ' + w).trim()
+      }
+    }
+    if (buf) chunks.push(buf.trim())
+  }
+
+  const perChunk = totalSeconds / chunks.length
+  return chunks.map((text, i) => ({
+    startSec: +(i * perChunk).toFixed(3),
+    endSec: +((i + 1) * perChunk).toFixed(3),
+    text,
+  }))
 }
 
 async function downloadFile(url: string, dest: string): Promise<void> {
@@ -65,6 +131,8 @@ export async function buildMultiSceneVideo(opts: {
   fps?: number
   pipScale?: number // 0.0–1.0 of width
   pipMargin?: number
+  captions?: CaptionLine[]
+  burnCaptions?: boolean
 }): Promise<MultiSceneResult> {
   if (!Array.isArray(opts.scenes) || opts.scenes.length === 0) {
     throw new Error('buildMultiSceneVideo requires at least one scene')
@@ -166,7 +234,22 @@ export async function buildMultiSceneVideo(opts: {
   if (opts.pipPosition === 'br') xy = `W-w-${MARGIN}:H-h-${MARGIN}`
   if (opts.pipPosition === 'bl') xy = `${MARGIN}:H-h-${MARGIN}`
   if (opts.pipPosition === 'tl') xy = `${MARGIN}:${MARGIN}`
-  filter += `[bg][pip]overlay=${xy}:shortest=1[outv]`
+  filter += `[bg][pip]overlay=${xy}:shortest=1`
+
+  // Optionally burn captions as a final filter step
+  const burnCaptions = opts.burnCaptions !== false && opts.captions && opts.captions.length > 0
+  let srtPath = ''
+  if (burnCaptions) {
+    srtPath = path.join(workDir, 'captions.srt')
+    writeSrt(opts.captions!, srtPath)
+    // ffmpeg's subtitles filter requires escaping ':' and '\'
+    const escaped = srtPath.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'")
+    filter +=
+      `[withpip];` +
+      `[withpip]subtitles='${escaped}':force_style='Fontsize=22,PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,BorderStyle=3,Outline=2,Shadow=0,Alignment=2,MarginV=120'[outv]`
+  } else {
+    filter += '[outv]'
+  }
 
   const outPath = path.join(workDir, `${opts.outputId || 'final'}.mp4`)
   const args = [
