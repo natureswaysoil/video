@@ -42,8 +42,8 @@ const SCENES = [
   {
     seconds: 7,
     query: 'healthy raised bed vegetable garden sunlight',
-    overlay: 'Natures Way Soil',
-    narration: 'For full garden use directions, visit Nature’s Way Soil and look for Enhanced Living Compost.',
+    overlay: 'Visit natureswaysoil.com',
+    narration: 'Visit natureswaysoil.com.',
   },
 ]
 
