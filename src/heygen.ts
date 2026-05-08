@@ -281,24 +281,34 @@ export class HeyGenClient {
     }
   }
 
-  async pollJobForVideoUrl(jobId: string, opts?: { timeoutMs?: number; intervalMs?: number; initialDelayMs?: number }): Promise<string> {
+  async pollJobForVideoUrl(jobId: string, opts?: { timeoutMs?: number; intervalMs?: number; initialDelayMs?: number; notFoundGracePeriodMs?: number }): Promise<string> {
     const startTime = Date.now()
     const timeoutMs = opts?.timeoutMs ?? 20 * 60_000
     const intervalMs = opts?.intervalMs ?? 15_000
     const initialDelayMs = opts?.initialDelayMs ?? 0
-    // Wait for initial delay before first poll (gives HeyGen time to index new jobs)
+    // How long to keep retrying 404s before treating as permanent (0 = fail immediately on first 404)
+    const notFoundGracePeriodMs = opts?.notFoundGracePeriodMs ?? 0
+
     if (initialDelayMs > 0) {
       logger.info(`Waiting ${initialDelayMs}ms before first poll`, 'HeyGen', { jobId })
       await new Promise(resolve => setTimeout(resolve, initialDelayMs))
     }
+
     try {
       while (Date.now() - startTime < timeoutMs) {
         let result: HeyGenJobResult
         try {
           result = await this.getJobStatus(jobId)
         } catch (statusError: any) {
-          // 404 = job is gone — exit immediately, no point retrying
           if (statusError instanceof AppError && statusError.statusCode === 404) {
+            const elapsed = Date.now() - startTime
+            if (elapsed < notFoundGracePeriodMs) {
+              // Still in grace period — job is likely still indexing on HeyGen's side
+              logger.info(`Job ${jobId} not found yet (${Math.round(elapsed/1000)}s elapsed), retrying...`, 'HeyGen', { jobId, elapsed })
+              await new Promise(resolve => setTimeout(resolve, intervalMs))
+              continue
+            }
+            // Grace period expired — treat as permanent failure
             throw statusError
           }
           // Transient error — wait and retry

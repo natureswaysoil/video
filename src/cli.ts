@@ -238,6 +238,7 @@ async function createOrPollVideo(params: {
       const videoUrl = await heygenClient.pollJobForVideoUrl(videoState.videoId, {
         timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
         intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
+        notFoundGracePeriodMs: 0,  // existing stale job: fail immediately on 404
       })
       await writeRowFields(csvUrl, headers, rowNumber, {
         Video_URL: videoUrl,
@@ -283,7 +284,8 @@ async function createOrPollVideo(params: {
   const videoUrl = await heygenClient.pollJobForVideoUrl(videoId, {
     timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
     intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
-    initialDelayMs: 30000,  // give HeyGen 30s to index the new job before first poll
+    initialDelayMs: 30000,          // give HeyGen 30s to index before first poll
+    notFoundGracePeriodMs: 600000,  // retry 404 for up to 10 minutes (video still processing)
   })
 
   await writeRowFields(csvUrl, headers, rowNumber, {
@@ -377,8 +379,8 @@ async function main(): Promise<void> {
         incrementSuccessfulPost()
         updateStatus({ status: 'processed-row', rowsProcessed: rowsThisCycle })
       } catch (error: any) {
-        // Add to seen so the same row is not retried every cycle on persistent errors
         seen.add(jobId)
+        rowsThisCycle++  // count failed rows so ROWS_PER_RUN=1 truly means one attempt per run
         incrementFailedPost()
         addError(error?.message || String(error))
         auditLogger.logEvent({
