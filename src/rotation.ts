@@ -1,5 +1,5 @@
-import fs from 'fs'
-import path from 'path'
+import * as fs from 'fs'
+import * as path from 'path'
 
 // Lazy-loaded to avoid requiring @google-cloud/storage when GCS state isn't used
 type StorageClient = any
