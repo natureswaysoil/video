@@ -1,58 +1,58 @@
+import fs from 'fs'
+import path from 'path'
 import { generateScript } from './openai'
 import { selectPexelsBackground } from './pexels'
 
 type ProductRow = Record<string, any>
 
-const DEFAULTS = {
-  avatar: 'Daisy-inskirt-20220818',
-  voice: '2d5b0e6cf36f460aa7fc47e3eee4ba54',
-  lengthSeconds: 60,
-  music: { style: 'upbeat', volume: 0.2 },
-}
-
-type CategoryRule = {
-  pattern: RegExp
+type HeyGenMappingDefaults = {
   avatar: string
   voice: string
-  lengthSeconds?: number
-  reason: string
+  lengthSeconds: number
+  avatarScale: number
+  avatarOffsetX: number
+  avatarOffsetY: number
+  avatarStyle: string
+}
+
+type HeyGenMappingRule = Partial<HeyGenMappingDefaults> & {
+  name: string
+  pattern: string
   visualHint: string
 }
 
-const CATEGORY_MAP: CategoryRule[] = [
-  {
-    pattern: /dog\s?urine|yellow\s?spot|lawn\s?repair/i,
-    avatar: DEFAULTS.avatar,
-    voice: DEFAULTS.voice,
-    lengthSeconds: 60,
-    reason: 'dog-urine-lawn',
-    visualHint: 'dog walking on lawn, yellow grass spot, product bottle, healthy green grass close-up',
+type HeyGenMappingConfig = {
+  defaults: HeyGenMappingDefaults
+  rules: HeyGenMappingRule[]
+}
+
+const FALLBACK_MAPPING: HeyGenMappingConfig = {
+  defaults: {
+    avatar: 'Daisy-inskirt-20220818',
+    voice: '2d5b0e6cf36f460aa7fc47e3eee4ba54',
+    lengthSeconds: 45,
+    avatarScale: 0.58,
+    avatarOffsetX: 0,
+    avatarOffsetY: 0.08,
+    avatarStyle: 'normal',
   },
-  {
-    pattern: /humic|fulvic|kelp|seaweed|soil\s?boost/i,
-    avatar: DEFAULTS.avatar,
-    voice: DEFAULTS.voice,
-    lengthSeconds: 60,
-    reason: 'soil-booster',
-    visualHint: 'rich soil close-up, plant roots, kelp ocean, vegetable garden',
-  },
-  {
-    pattern: /compost|worm\s?cast|biochar|duckweed/i,
-    avatar: DEFAULTS.avatar,
-    voice: DEFAULTS.voice,
-    lengthSeconds: 60,
-    reason: 'living-compost',
-    visualHint: 'compost soil close-up, worm castings, raised bed garden, hands holding healthy soil',
-  },
-  {
-    pattern: /hay|pasture|forage|cattle|livestock/i,
-    avatar: DEFAULTS.avatar,
-    voice: DEFAULTS.voice,
-    lengthSeconds: 60,
-    reason: 'hay-pasture',
-    visualHint: 'green pasture field, hay bales, cattle grazing, lush grass close-up',
-  },
-]
+  rules: [],
+}
+
+function loadHeyGenMapping(): HeyGenMappingConfig {
+  const mappingPath = process.env.HEYGEN_MAPPING_FILE || path.resolve(process.cwd(), 'config', 'heygen-mapping.json')
+  try {
+    if (!fs.existsSync(mappingPath)) return FALLBACK_MAPPING
+    const parsed = JSON.parse(fs.readFileSync(mappingPath, 'utf8'))
+    return {
+      defaults: { ...FALLBACK_MAPPING.defaults, ...(parsed.defaults || {}) },
+      rules: Array.isArray(parsed.rules) ? parsed.rules : [],
+    }
+  } catch (error) {
+    console.warn('Could not load HeyGen mapping config, using fallback mapping:', error)
+    return FALLBACK_MAPPING
+  }
+}
 
 function first(row: ProductRow, keys: string[]): string {
   for (const key of keys) {
@@ -62,6 +62,13 @@ function first(row: ProductRow, keys: string[]): string {
     }
   }
   return ''
+}
+
+function numberFromRow(row: ProductRow, keys: string[], fallback: number): number {
+  const raw = first(row, keys)
+  if (!raw) return fallback
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : fallback
 }
 
 function buildVisualPrompt(row: ProductRow, title: string, details: string, visualHint: string): string {
@@ -74,31 +81,55 @@ function buildVisualPrompt(row: ProductRow, title: string, details: string, visu
   return parts.join(' ')
 }
 
+function pickMapping(row: ProductRow, textFields: string) {
+  const mapping = loadHeyGenMapping()
+  const defaults = mapping.defaults
+  const matchedRule = mapping.rules.find((rule) => {
+    try {
+      return new RegExp(rule.pattern, 'i').test(textFields)
+    } catch {
+      return false
+    }
+  })
+  const selected = { ...defaults, ...(matchedRule || {}) }
+
+  const avatar = first(row, ['HEYGEN_AVATAR', 'HeyGen_Avatar', 'Avatar_ID', 'avatar_id']) || process.env.HEYGEN_DEFAULT_AVATAR || selected.avatar
+  const voice = first(row, ['HEYGEN_VOICE', 'HeyGen_Voice', 'Voice_ID', 'voice_id']) || process.env.HEYGEN_DEFAULT_VOICE || selected.voice
+  const lengthSeconds = numberFromRow(row, ['HEYGEN_LENGTH_SECONDS', 'Length_Seconds', 'lengthSeconds'], Number(selected.lengthSeconds || defaults.lengthSeconds))
+  const avatarScale = numberFromRow(row, ['HEYGEN_AVATAR_SCALE', 'Avatar_Scale', 'avatarScale'], Number(selected.avatarScale || defaults.avatarScale))
+  const avatarOffsetX = numberFromRow(row, ['HEYGEN_AVATAR_OFFSET_X', 'Avatar_Offset_X', 'avatarOffsetX'], Number(selected.avatarOffsetX || defaults.avatarOffsetX))
+  const avatarOffsetY = numberFromRow(row, ['HEYGEN_AVATAR_OFFSET_Y', 'Avatar_Offset_Y', 'avatarOffsetY'], Number(selected.avatarOffsetY || defaults.avatarOffsetY))
+  const avatarStyle = first(row, ['HEYGEN_AVATAR_STYLE', 'Avatar_Style', 'avatarStyle']) || selected.avatarStyle || defaults.avatarStyle
+
+  return {
+    avatar,
+    voice,
+    lengthSeconds,
+    avatarScale,
+    avatarOffsetX,
+    avatarOffsetY,
+    avatarStyle,
+    reason: matchedRule?.name || 'default',
+    visualHint: matchedRule?.visualHint || 'organic garden product, healthy plants, rich soil, roots, lawn and garden care, product bottle, natural outdoor setting',
+  }
+}
+
 export async function mapProductToHeyGenPayload(row: ProductRow) {
   const textFields = [
     row.title, row.Title,
     row.name, row.Name,
     row.description, row.Description,
     row.details, row.Details,
+    row.Category, row.category,
+    row.Keywords, row.keywords,
+    row.Benefits, row.benefits,
     row['Short Description'], row['short_description'], row['Short_Description']
   ].filter(Boolean).map(String).join(' ')
 
-  let avatar = process.env.HEYGEN_DEFAULT_AVATAR || DEFAULTS.avatar
-  let voice = process.env.HEYGEN_DEFAULT_VOICE || DEFAULTS.voice
-  let lengthSeconds = DEFAULTS.lengthSeconds
-  let reason = 'default'
-  let visualHint = 'organic garden product, healthy plants, rich soil, roots, lawn and garden care, product bottle, natural outdoor setting'
-
-  for (const rule of CATEGORY_MAP) {
-    if (rule.pattern.test(textFields)) {
-      avatar = rule.avatar
-      voice = rule.voice
-      lengthSeconds = rule.lengthSeconds || lengthSeconds
-      reason = rule.reason
-      visualHint = rule.visualHint
-      break
-    }
-  }
+  const selectedMapping = pickMapping(row, textFields)
+  const { avatar, voice, lengthSeconds, avatarScale, avatarOffsetX, avatarOffsetY, avatarStyle } = selectedMapping
+  const reason = selectedMapping.reason
+  const visualHint = selectedMapping.visualHint
 
   const title = first(row, ['Title', 'title', 'Product', 'product', 'Name', 'name']) || 'Nature\'s Way Soil product'
   const details = first(row, ['Product Description', 'description', 'Description', 'Details', 'details', 'caption', 'Caption'])
@@ -140,7 +171,7 @@ export async function mapProductToHeyGenPayload(row: ProductRow) {
   //   2. Rotation-supplied product.scenes[] (deterministic per-product queries)
   //   3. CATEGORY_MAP visualHint (single-scene fallback)
   const rotationScenes: Array<{ query: string; seconds?: number }> = Array.isArray(row.scenes) ? row.scenes : []
-  const totalSeconds = lengthSeconds || DEFAULTS.lengthSeconds
+  const totalSeconds = lengthSeconds || FALLBACK_MAPPING.defaults.lengthSeconds
 
   type PreparedScene = { query: string; seconds: number; avatarText: string; visualDesc: string }
   let preparedScenes: PreparedScene[] = []
@@ -198,7 +229,11 @@ export async function mapProductToHeyGenPayload(row: ProductRow) {
     avatar,
     voice,
     lengthSeconds,
-    music: DEFAULTS.music,
+    avatarScale,
+    avatarOffsetX,
+    avatarOffsetY,
+    avatarStyle,
+    music: { style: 'upbeat', volume: 0.2 },
     subtitles: { enabled: true, style: 'short_lines' },
     webhook: process.env.HEYGEN_WEBHOOK_URL || undefined,
     title,
@@ -209,6 +244,12 @@ export async function mapProductToHeyGenPayload(row: ProductRow) {
       visualHint,
       sourceImageUrl: first(row, ['Image_URL', 'image_url', 'Product_Image_URL', 'product_image_url', 'Main_Image_URL', 'main_image_url']) || undefined,
       mappingReason: reason,
+      heygenAvatar: avatar,
+      heygenVoice: voice,
+      avatarScale,
+      avatarOffsetX,
+      avatarOffsetY,
+      avatarStyle,
       sceneSource:
         scriptData.scenes.length > 0 ? 'gpt-structured' : rotationScenes.length > 0 ? 'rotation-config' : 'none',
     },
