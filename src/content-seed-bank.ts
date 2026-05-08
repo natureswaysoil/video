@@ -82,6 +82,16 @@ export const CONTENT_SEED_BANK: SeedVariation[] = [
 
 export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
   {
+    angle: 'may6-enhanced-living-compost-render',
+    title: 'Fix Lawn Not Growing Naturally - Enhanced Living Compost',
+    productDescription: 'If the lawn is not growing, start with the soil. Nature’s Way Soil Enhanced Living Compost supports tired soil with compost, worm castings, biochar, and fermented duckweed extract.',
+    visualPrompt: '5 fast scenes: patchy lawn problem, living compost soil close-up, application, worm castings and biochar close-up, healthier lawn result with CTA.',
+    websiteUrl: 'https://natureswaysoil.com/living-compost',
+    platform: 'youtube,instagram,facebook',
+    videoFileName: 'enhanced-living-compost-may6-test.mp4',
+    hashtags: ['#LivingCompost', '#SoilHealth', '#LawnCare', '#NaturesWaySoil'],
+  },
+  {
     angle: 'pasture-revival-test',
     title: 'Pasture Revival Soil Support',
     productDescription: 'Bring tired pasture back to life with soil-first nutrition support designed for stronger root activity and more resilient forage growth.',
