@@ -169,7 +169,7 @@ export class HeyGenClient {
               // Multi-scene mode with Pexels B-roll
               for (const scene of payload.scenes) {
                 const background = scene.brollUrl
-                  ? { type: 'video', url: scene.brollUrl }
+                  ? { type: 'video', url: scene.brollUrl, play_style: 'fit_to_scene' }
                   : payload.imageUrl
                     ? { type: 'image', url: payload.imageUrl }
                     : { type: 'color', value: '#0a3d0a' }
