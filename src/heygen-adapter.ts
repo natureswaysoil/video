@@ -80,7 +80,7 @@ export async function mapProductToHeyGenPayload(row: ProductRow) {
     meta: {
       productTitle: title,
       visualHint,
-      sourceImageUrl: first(row, ['Image_URL', 'image_url', ...]) || undefined,
+      sourceImageUrl: first(row, ['Image_URL', 'image_url', 'Product_Image_URL', 'product_image_url']) || undefined,
       mappingReason: reason
     },
     // NEW: Multi-scene + B-roll support
