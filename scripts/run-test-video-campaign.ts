@@ -24,28 +24,15 @@ const DEFAULT_STATE: RotationState = {
 
 const STATE_PATH = path.resolve(process.cwd(), '.runtime/test-video-campaign-state.json')
 
-/**
- * Secret names expected in Google Secret Manager for this campaign.
- *
- * Notes:
- * - Twitter/X is intentionally excluded (posting is disabled).
- * - Facebook secrets are loaded for Meta ecosystem completeness even though
- *   this script currently posts only to Instagram, Pinterest, and YouTube.
- */
 const TEST_CAMPAIGN_SECRET_NAMES = [
-  // Instagram / Meta
   'INSTAGRAM_ACCESS_TOKEN',
   'INSTAGRAM_IG_ID',
   'INSTAGRAM_USER_ID',
   'INSTAGRAM_ACCOUNT_ID',
   'FACEBOOK_ACCESS_TOKEN',
   'FACEBOOK_PAGE_ID',
-
-  // Pinterest
   'PINTEREST_ACCESS_TOKEN',
   'PINTEREST_BOARD_ID',
-
-  // YouTube (multiple naming conventions)
   'YOUTUBE_CLIENT_ID',
   'YOUTUBE_CLIENT_SECRET',
   'YOUTUBE_REFRESH_TOKEN',
@@ -56,8 +43,6 @@ const TEST_CAMPAIGN_SECRET_NAMES = [
   'CLIENT_ID',
   'CLIENT_SECRET',
   'REFRESH_TOKEN',
-
-  // Supabase Storage (for hosting local videos when TEST_VIDEO_PUBLIC_BASE_URL is not set)
   'NEXT_PUBLIC_SUPABASE_URL',
   'SUPABASE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',
@@ -109,14 +94,11 @@ function buildCaption(params: {
 function getEnabledPlatforms(): Set<string> {
   const enabledPlatformsEnv = (process.env.ENABLE_PLATFORMS || '').toLowerCase()
   const platforms = new Set(enabledPlatformsEnv.split(',').map((value) => value.trim()).filter(Boolean))
-
-  // Twitter/X is hard-disabled for this campaign.
   if (platforms.has('twitter') || platforms.has('x')) {
     console.log('ℹ️ Twitter/X posting is disabled for this campaign and will be skipped.')
     platforms.delete('twitter')
     platforms.delete('x')
   }
-
   return platforms
 }
 
@@ -156,12 +138,6 @@ function getYouTubeCredentials(): { clientId: string; clientSecret: string; refr
     })
   }
 
-  if (!refreshToken.value && clientId.value && clientSecret.value) {
-    console.warn(
-      '⚠️ Found YouTube client ID/secret but no refresh token. Looked for YT_REFRESH_TOKEN, YOUTUBE_REFRESH_TOKEN, YOUTUBE_OAUTH_REFRESH_TOKEN, GOOGLE_YOUTUBE_REFRESH_TOKEN, GOOGLE_REFRESH_TOKEN, REFRESH_TOKEN.'
-    )
-  }
-
   return {
     clientId: clientId.value,
     clientSecret: clientSecret.value,
@@ -173,7 +149,6 @@ function getSupabaseConfig(): { supabaseUrl: string; serviceRoleKey: string; buc
   const supabaseUrl = pickFirstEnv(['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_URL'])
   const serviceRoleKey = pickFirstEnv(['SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SERVICE_KEY'])
   const bucketName = pickFirstEnv(['SUPABASE_VIDEO_BUCKET'])
-
   return {
     supabaseUrl: supabaseUrl.value,
     serviceRoleKey: serviceRoleKey.value,
@@ -191,52 +166,35 @@ function assertCampaignSecretsAreAvailable(): void {
   const hasPublicBaseUrl = Boolean(process.env.TEST_VIDEO_PUBLIC_BASE_URL?.trim())
 
   if (!hasInstagram && !hasPinterest && !hasYouTube && !hasSupabase && !hasPublicBaseUrl) {
-    throw new Error(
-      'No campaign secrets appear to be loaded. Verify Google Secret Manager access (ADC/IAM/project) and ensure required secret names exist.'
-    )
+    throw new Error('No campaign secrets appear to be loaded. Verify Google Secret Manager access and required secret names.')
   }
 
   if (!hasPublicBaseUrl && !hasSupabase) {
-    throw new Error(
-      'Local test videos need hosting before social posting. Set TEST_VIDEO_PUBLIC_BASE_URL or provide NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in Google Secret Manager.'
-    )
+    throw new Error('Local test videos need hosting before social posting. Set TEST_VIDEO_PUBLIC_BASE_URL or Supabase credentials.')
   }
 }
 
 async function uploadVideoToSupabase(localVideoPath: string, seedFileName: string): Promise<string> {
   const { supabaseUrl, serviceRoleKey, bucketName } = getSupabaseConfig()
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error(
-      'Supabase credentials missing. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_URL and SUPABASE_SERVICE_KEY).'
-    )
-  }
+  if (!supabaseUrl || !serviceRoleKey) throw new Error('Supabase credentials missing.')
 
   const supabase = createClient(supabaseUrl, serviceRoleKey)
   const safeFileName = path.basename(seedFileName).replace(/[^a-zA-Z0-9._-]/g, '-')
   const objectPath = `test-campaign/${safeFileName}`
   const fileBuffer = fs.readFileSync(localVideoPath)
 
-  console.log('☁️ Uploading video to Supabase Storage:', {
-    bucketName,
-    objectPath,
-    localVideoPath,
-  })
+  console.log('☁️ Uploading video to Supabase Storage:', { bucketName, objectPath, localVideoPath })
 
   const { error } = await supabase.storage.from(bucketName).upload(objectPath, fileBuffer, {
     contentType: 'video/mp4',
     upsert: true,
   })
 
-  if (error) {
-    throw new Error(`Supabase upload failed for ${objectPath}: ${error.message}`)
-  }
+  if (error) throw new Error(`Supabase upload failed for ${objectPath}: ${error.message}`)
 
   const { data } = supabase.storage.from(bucketName).getPublicUrl(objectPath)
   const publicUrl = data?.publicUrl || ''
-
-  if (!publicUrl) {
-    throw new Error(`Supabase did not return a public URL for ${bucketName}/${objectPath}`)
-  }
+  if (!publicUrl) throw new Error(`Supabase did not return a public URL for ${bucketName}/${objectPath}`)
 
   console.log('✅ Supabase upload complete:', publicUrl)
   return publicUrl
@@ -244,9 +202,7 @@ async function uploadVideoToSupabase(localVideoPath: string, seedFileName: strin
 
 async function resolveVideoUrl(seedFileName: string, testVideosDir: string, state: RotationState): Promise<string> {
   const localVideoPath = path.resolve(testVideosDir, seedFileName)
-  if (!fs.existsSync(localVideoPath)) {
-    throw new Error(`Missing test video: ${localVideoPath}`)
-  }
+  if (!fs.existsSync(localVideoPath)) throw new Error(`Missing test video: ${localVideoPath}`)
 
   const publicBaseUrl = process.env.TEST_VIDEO_PUBLIC_BASE_URL?.trim()
   if (publicBaseUrl) {
@@ -254,12 +210,31 @@ async function resolveVideoUrl(seedFileName: string, testVideosDir: string, stat
     return `${base}/${encodeURIComponent(seedFileName)}`
   }
 
+  const forceReupload = String(process.env.FORCE_REUPLOAD_VIDEO || '').toLowerCase() === 'true'
   const existing = state.uploadedVideoUrls[seedFileName]
-  if (existing) return existing
+  if (existing && !forceReupload) return existing
 
   const uploadedUrl = await uploadVideoToSupabase(localVideoPath, seedFileName)
   state.uploadedVideoUrls[seedFileName] = uploadedUrl
   return uploadedUrl
+}
+
+function selectSeed(seeds: any[], state: RotationState): { seed: any; index: number; forced: boolean } {
+  const forcedFile = process.env.TEST_VIDEO_FILE?.trim()
+  if (forcedFile) {
+    const index = seeds.findIndex((seed) => seed.videoFileName === forcedFile)
+    if (index < 0) throw new Error(`TEST_VIDEO_FILE did not match any configured seed: ${forcedFile}`)
+    return { seed: seeds[index], index, forced: true }
+  }
+
+  const forcedIndexRaw = process.env.TEST_VIDEO_INDEX?.trim()
+  if (forcedIndexRaw) {
+    const index = Math.abs(Number(forcedIndexRaw)) % seeds.length
+    return { seed: seeds[index], index, forced: true }
+  }
+
+  const index = Math.abs(state.nextIndex) % seeds.length
+  return { seed: seeds[index], index, forced: false }
 }
 
 async function main(): Promise<void> {
@@ -267,14 +242,15 @@ async function main(): Promise<void> {
   assertCampaignSecretsAreAvailable()
 
   const config = getConfig()
-
   const seeds = getTestVideoCampaignSeeds()
   if (seeds.length === 0) throw new Error('No test video campaign seeds configured')
 
   const state = readState()
-  const index = Math.abs(state.nextIndex) % seeds.length
-  const seed = seeds[index]
-  state.nextIndex = (index + 1) % seeds.length
+  const selected = selectSeed(seeds, state)
+  const seed = selected.seed
+  if (!selected.forced) {
+    state.nextIndex = (selected.index + 1) % seeds.length
+  }
   state.lastUpdatedAt = new Date().toISOString()
 
   const testVideosDir = process.env.TEST_VIDEOS_DIR || path.resolve(process.cwd(), 'test-campaign-videos')
@@ -288,20 +264,17 @@ async function main(): Promise<void> {
     hashtags: seed.hashtags,
   })
 
-  if (!seed.videoFileName) {
-    throw new Error(`Seed is missing videoFileName: ${seed.title}`)
-  }
+  if (!seed.videoFileName) throw new Error(`Seed is missing videoFileName: ${seed.title}`)
 
   const localVideoPath = path.resolve(testVideosDir, seed.videoFileName)
-  if (!fs.existsSync(localVideoPath)) {
-    throw new Error(`Missing test video: ${localVideoPath}`)
-  }
+  if (!fs.existsSync(localVideoPath)) throw new Error(`Missing test video: ${localVideoPath}`)
 
   const videoUrl = dryRun ? `file://${localVideoPath}` : await resolveVideoUrl(seed.videoFileName, testVideosDir, state)
 
   console.log('🎯 Test video campaign slot selected')
   console.log({
-    rotationIndex: index,
+    rotationIndex: selected.index,
+    forcedSelection: selected.forced,
     title: seed.title,
     videoFileName: seed.videoFileName,
     websiteUrl: seed.websiteUrl,
@@ -310,13 +283,7 @@ async function main(): Promise<void> {
 
   if (dryRun) {
     console.log('DRY_RUN_LOG_ONLY=true; skipping social posting')
-    console.log({
-      videoUrl,
-      caption,
-      enabledPlatforms: [...enabledPlatforms],
-      expectedGoogleSecretNames: TEST_CAMPAIGN_SECRET_NAMES,
-      twitterDisabled: true,
-    })
+    console.log({ videoUrl, caption, enabledPlatforms: [...enabledPlatforms], expectedGoogleSecretNames: TEST_CAMPAIGN_SECRET_NAMES, twitterDisabled: true })
     writeState(state)
     return
   }
@@ -349,11 +316,7 @@ async function main(): Promise<void> {
     console.log('✅ Posted to YouTube')
   }
 
-  if (!anySucceeded) {
-    throw new Error(
-      'No enabled platform had valid credentials. Configure ENABLE_PLATFORMS for instagram/pinterest/youtube and ensure required secrets exist in Google Secret Manager. Twitter/X is disabled.'
-    )
-  }
+  if (!anySucceeded) throw new Error('No enabled platform had valid credentials.')
 
   writeState(state)
   console.log('✅ Test video campaign slot completed')
