@@ -41,10 +41,11 @@ async function main() {
     return
   }
 
+  // Do not force a custom fileSizeLimit here. Some Supabase projects reject
+  // limits larger than the plan allows. Let the project default apply.
   const { error: createError } = await supabase.storage.createBucket(bucketName, {
     public: true,
     allowedMimeTypes: ['video/mp4'],
-    fileSizeLimit: 1024 * 1024 * 500,
   })
 
   if (createError) throw new Error(`Could not create Supabase bucket ${bucketName}: ${createError.message}`)
