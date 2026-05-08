@@ -1,0 +1,84 @@
+{
+  "topProducts": [
+    {
+      "id": "NWS_014",
+      "name": "Dog Urine Neutralizer & Lawn Revitalizer",
+      "description": "Stops yellow lawn spots from dog urine. Pet-safe, soil-level repair — not a green dye.",
+      "category": "Lawn Repair",
+      "keywords": ["dog urine", "yellow spots", "lawn repair", "pet safe"],
+      "funnelUrl": "/lawn-repair",
+      "checkoutUrl": "/checkout?productId=NWS_014&coupon=SAVE15",
+      "priority": 1,
+      "scenes": [
+        { "query": "dog walking on green lawn" },
+        { "query": "yellow grass patches lawn" },
+        { "query": "garden hose watering lawn" },
+        { "query": "lush green backyard lawn" }
+      ]
+    },
+    {
+      "id": "NWS_011",
+      "name": "Liquid Humic & Fulvic Acid with Kelp",
+      "description": "Liquid soil booster blending humic acid, fulvic acid, and kelp for stronger roots and better nutrient uptake.",
+      "category": "Soil Booster",
+      "keywords": ["humic acid", "fulvic acid", "kelp", "soil health"],
+      "funnelUrl": "/soil-boost",
+      "checkoutUrl": "/checkout?productId=NWS_011&coupon=SAVE15",
+      "priority": 2,
+      "scenes": [
+        { "query": "rich soil close up" },
+        { "query": "plant roots in soil" },
+        { "query": "kelp seaweed ocean" },
+        { "query": "vegetable garden growing" }
+      ]
+    },
+    {
+      "id": "NWS_013",
+      "name": "Enhanced Living Compost with Worm Castings & Biochar",
+      "description": "Concentrated living compost with worm castings, biochar, and fermented duckweed extract for real soil improvement.",
+      "category": "Living Compost",
+      "keywords": ["compost", "worm castings", "biochar", "duckweed"],
+      "funnelUrl": "/living-compost",
+      "checkoutUrl": "/checkout?productId=NWS_013&coupon=SAVE15",
+      "priority": 3,
+      "scenes": [
+        { "query": "rich compost soil close up" },
+        { "query": "worm castings compost" },
+        { "query": "raised bed vegetable garden" },
+        { "query": "hands holding healthy soil" }
+      ]
+    },
+    {
+      "id": "NWS_021",
+      "name": "Hay, Pasture & Lawn Fertilizer",
+      "description": "Liquid fertilizer for thicker hay, pasture, and lawn growth on landowner and homeowner properties.",
+      "category": "Hay Pasture Lawn",
+      "keywords": ["hay", "pasture", "lawn fertilizer", "grass growth"],
+      "funnelUrl": "/pasture-boost",
+      "checkoutUrl": "/checkout?productId=NWS_021&coupon=SAVE15",
+      "priority": 4,
+      "scenes": [
+        { "query": "green pasture grass field" },
+        { "query": "hay bales farm field" },
+        { "query": "cattle grazing pasture" },
+        { "query": "lush grass close up" }
+      ]
+    },
+    {
+      "id": "NWS_018",
+      "name": "Seaweed & Humic Acid Lawn Treatment",
+      "description": "Liquid lawn treatment combining seaweed extract and humic acid for greener turf and healthier root zone.",
+      "category": "Lawn Treatment",
+      "keywords": ["seaweed", "humic acid", "lawn", "root zone"],
+      "funnelUrl": "/soil-boost",
+      "checkoutUrl": "/checkout?productId=NWS_018&coupon=SAVE15",
+      "priority": 5,
+      "scenes": [
+        { "query": "lush green lawn close up" },
+        { "query": "seaweed kelp ocean" },
+        { "query": "watering green grass" },
+        { "query": "healthy lawn sunset" }
+      ]
+    }
+  ]
+}
