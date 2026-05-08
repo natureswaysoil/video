@@ -42,7 +42,7 @@ const SCENES = [
   {
     seconds: 7,
     query: 'healthy green lawn raised bed garden sunlight',
-    overlay: "Nature's Way Soil",
+    overlay: 'Natures Way Soil',
     narration: 'For full directions, visit Nature’s Way Soil and look for Enhanced Living Compost.',
   },
 ]
@@ -86,7 +86,7 @@ async function pexels(query: string): Promise<string> {
 }
 
 function escapeText(text: string): string {
-  return text.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'")
+  return text.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, '')
 }
 
 function renderScene(inputPath: string, outputPath: string, scene: any) {
@@ -101,7 +101,19 @@ function renderScene(inputPath: string, outputPath: string, scene: any) {
     'fade=t=in:st=0:d=0.25',
     `fade=t=out:st=${Math.max(0, scene.seconds - 0.35)}:d=0.35`,
   ].join(',')
-  run('ffmpeg', ['-y', '-i', inputPath, '-t', String(scene.seconds), '-vf', vf, '-an', '-r', '30', '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', outputPath])
+  run('ffmpeg', [
+    '-y',
+    '-i', inputPath,
+    '-t', String(scene.seconds),
+    '-vf', vf,
+    '-an',
+    '-r', '30',
+    '-c:v', 'libx264',
+    '-preset', 'veryfast',
+    '-pix_fmt', 'yuv420p',
+    '-movflags', '+faststart',
+    outputPath,
+  ])
 }
 
 async function voiceover(outPath: string) {
@@ -119,9 +131,28 @@ async function voiceover(outPath: string) {
 function concat(scenePaths: string[], audioPath: string, finalPath: string, workDir: string) {
   const listPath = path.join(workDir, 'concat-list.txt')
   fs.writeFileSync(listPath, scenePaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n'))
-  const silentPath = path.join(workDir, 'silent.mp4')
-  run('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy', silentPath])
-  run('ffmpeg', ['-y', '-i', silentPath, '-i', audioPath, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k', '-shortest', '-movflags', '+faststart', finalPath])
+
+  // Re-encode during final concat instead of stream-copying. This is slower but
+  // avoids ffmpeg exit code 8 when downloaded clips have different timestamps,
+  // timebases, metadata, or encoder settings.
+  run('ffmpeg', [
+    '-y',
+    '-f', 'concat',
+    '-safe', '0',
+    '-i', listPath,
+    '-i', audioPath,
+    '-map', '0:v:0',
+    '-map', '1:a:0',
+    '-vf', 'scale=720:1280,setsar=1,fps=30,format=yuv420p',
+    '-c:v', 'libx264',
+    '-preset', 'veryfast',
+    '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-shortest',
+    '-movflags', '+faststart',
+    finalPath,
+  ])
 }
 
 async function main() {
