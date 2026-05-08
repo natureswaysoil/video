@@ -1,260 +1,110 @@
-import fs from 'fs'
-import path from 'path'
-import { generateScript } from './openai'
-import { selectPexelsBackground } from './pexels'
+/**
+ * Adapter: map product row -> HeyGen payload and mapping info
+ * Uses keyword rules and generic avatar/voice IDs as defaults.
+ *
+ * Exports:
+ *  - mapProductToHeyGenPayload(row) => { payload, avatar, voice, lengthSeconds, reason }
+ *  - writeBackMappingsToSheet(sheetId, gid, mappedRows) => Promise<boolean>
+ */
 
-type ProductRow = Record<string, any>
+import { google } from 'googleapis'
 
-type HeyGenMappingDefaults = {
-  avatar: string
-  voice: string
-  lengthSeconds: number
-  avatarScale: number
-  avatarOffsetX: number
-  avatarOffsetY: number
-  avatarStyle: string
+import { createGoogleAuthClient } from './google-auth'
+
+type ProductRow = Record<string, string>
+
+const DEFAULTS = {
+  avatar: 'garden_expert_01',
+  voice: 'en_us_warm_female_01',
+  music: { style: 'acoustic_nature', volume: 0.18 },
+  lengthSeconds: 30,
 }
 
-type HeyGenMappingRule = Partial<HeyGenMappingDefaults> & {
-  name: string
-  pattern: string
-  visualHint: string
-}
-
-type HeyGenMappingConfig = {
-  defaults: HeyGenMappingDefaults
-  rules: HeyGenMappingRule[]
-}
-
-const FALLBACK_MAPPING: HeyGenMappingConfig = {
-  defaults: {
-    avatar: 'Daisy-inskirt-20220818',
-    voice: '2d5b0e6cf36f460aa7fc47e3eee4ba54',
-    lengthSeconds: 45,
-    avatarScale: 0.58,
-    avatarOffsetX: 0,
-    avatarOffsetY: 0.08,
-    avatarStyle: 'normal',
-  },
-  rules: [],
-}
-
-function loadHeyGenMapping(): HeyGenMappingConfig {
-  const mappingPath = process.env.HEYGEN_MAPPING_FILE || path.resolve(process.cwd(), 'config', 'heygen-mapping.json')
-  try {
-    if (!fs.existsSync(mappingPath)) return FALLBACK_MAPPING
-    const parsed = JSON.parse(fs.readFileSync(mappingPath, 'utf8'))
-    return {
-      defaults: { ...FALLBACK_MAPPING.defaults, ...(parsed.defaults || {}) },
-      rules: Array.isArray(parsed.rules) ? parsed.rules : [],
-    }
-  } catch (error) {
-    console.warn('Could not load HeyGen mapping config, using fallback mapping:', error)
-    return FALLBACK_MAPPING
-  }
-}
+const CATEGORY_MAP: { pattern: RegExp; avatar: string; voice: string; lengthSeconds?: number; reason: string; visualHint: string }[] = [
+  { pattern: /\b(kelp|seaweed|algae)\b/i, avatar: 'garden_expert_01', voice: 'en_us_warm_female_01', lengthSeconds: 30, reason: 'matched keyword: kelp', visualHint: 'healthy green plants, liquid seaweed fertilizer, measuring cup, watering can, garden beds, natural sunlight' },
+  { pattern: /\b(bone ?meal|bonemeal|bone)\b/i, avatar: 'farm_expert_02', voice: 'en_us_deep_male_01', lengthSeconds: 35, reason: 'matched keyword: bone meal', visualHint: 'strong roots, blooming plants, calcium and phosphorus support, liquid bottle near garden soil' },
+  { pattern: /\b(hay|pasture|forage)\b/i, avatar: 'pasture_specialist_01', voice: 'en_us_neutral_mx_01', lengthSeconds: 40, reason: 'matched keyword: hay/pasture', visualHint: 'green pasture field, hay grass, sprayer application, farm fence line, healthy forage growth' },
+  { pattern: /\b(humic|fulvic|humate|fulvate)\b/i, avatar: 'eco_gardener_01', voice: 'en_us_warm_female_02', lengthSeconds: 30, reason: 'matched keyword: humic/fulvic', visualHint: 'dark rich soil, active roots, lawn and garden soil conditioner, close-up of root zone moisture' },
+  { pattern: /\b(compost|tea|soil conditioner)\b/i, avatar: 'eco_gardener_01', voice: 'en_us_warm_female_02', lengthSeconds: 30, reason: 'matched keyword: compost/soil', visualHint: 'living compost, worm castings, biochar, raised beds, vegetables, rich dark soil texture' },
+]
 
 function first(row: ProductRow, keys: string[]): string {
   for (const key of keys) {
-    const value = row?.[key]
-    if (value !== undefined && value !== null && String(value).trim() !== '') {
-      return String(value).trim()
-    }
+    const value = row[key]
+    if (value !== undefined && value !== null && String(value).trim() !== '') return String(value).trim()
   }
   return ''
 }
 
-function numberFromRow(row: ProductRow, keys: string[], fallback: number): number {
-  const raw = first(row, keys)
-  if (!raw) return fallback
-  const value = Number(raw)
-  return Number.isFinite(value) ? value : fallback
+function cleanForPrompt(value: string): string {
+  return value.replace(/\s+/g, ' ').replace(/[<>]/g, '').trim().slice(0, 900)
 }
 
 function buildVisualPrompt(row: ProductRow, title: string, details: string, visualHint: string): string {
-  const parts = [
-    `Premium 9:16 vertical product ad for ${title}.`,
-    details ? `Context: ${details}` : '',
-    `Visual style: ${visualHint}.`,
-    'Realistic outdoor footage, shallow depth of field, natural sunlight, close-up product shots, soil/root/grass details.',
-  ].filter(Boolean)
-  return parts.join(' ')
+  const existingPrompt = first(row, [
+    'Visual_Prompt', 'visual_prompt', 'Video_Prompt', 'video_prompt', 'Scene_Prompt', 'scene_prompt',
+    'Image_Prompt', 'image_prompt', 'Creative_Brief', 'creative_brief'
+  ])
+
+  if (existingPrompt) return cleanForPrompt(existingPrompt)
+
+  return cleanForPrompt(
+    `Create a premium vertical product marketing video for Nature's Way Soil. Show real garden and lawn visuals, not text describing the scene. Product: ${title}. Details: ${details}. Visual direction: ${visualHint}. Use close-up soil, roots, plants, product bottle, watering or spraying application, healthy before-and-after style transformation, warm natural light, clean Amazon-ready commercial look. Do not show a script, storyboard, captions as the main visual, or a person explaining what should be shown.`
+  )
 }
 
-function pickMapping(row: ProductRow, textFields: string) {
-  const mapping = loadHeyGenMapping()
-  const defaults = mapping.defaults
-  const matchedRule = mapping.rules.find((rule) => {
-    try {
-      return new RegExp(rule.pattern, 'i').test(textFields)
-    } catch {
-      return false
-    }
-  })
-  const selected = { ...defaults, ...(matchedRule || {}) }
-
-  const avatar = first(row, ['HEYGEN_AVATAR', 'HeyGen_Avatar', 'Avatar_ID', 'avatar_id']) || process.env.HEYGEN_DEFAULT_AVATAR || selected.avatar
-  const voice = first(row, ['HEYGEN_VOICE', 'HeyGen_Voice', 'Voice_ID', 'voice_id']) || process.env.HEYGEN_DEFAULT_VOICE || selected.voice
-  const lengthSeconds = numberFromRow(row, ['HEYGEN_LENGTH_SECONDS', 'Length_Seconds', 'lengthSeconds'], Number(selected.lengthSeconds || defaults.lengthSeconds))
-  const avatarScale = numberFromRow(row, ['HEYGEN_AVATAR_SCALE', 'Avatar_Scale', 'avatarScale'], Number(selected.avatarScale || defaults.avatarScale))
-  const avatarOffsetX = numberFromRow(row, ['HEYGEN_AVATAR_OFFSET_X', 'Avatar_Offset_X', 'avatarOffsetX'], Number(selected.avatarOffsetX || defaults.avatarOffsetX))
-  const avatarOffsetY = numberFromRow(row, ['HEYGEN_AVATAR_OFFSET_Y', 'Avatar_Offset_Y', 'avatarOffsetY'], Number(selected.avatarOffsetY || defaults.avatarOffsetY))
-  const avatarStyle = first(row, ['HEYGEN_AVATAR_STYLE', 'Avatar_Style', 'avatarStyle']) || selected.avatarStyle || defaults.avatarStyle
-
-  return {
-    avatar,
-    voice,
-    lengthSeconds,
-    avatarScale,
-    avatarOffsetX,
-    avatarOffsetY,
-    avatarStyle,
-    reason: matchedRule?.name || 'default',
-    visualHint: matchedRule?.visualHint || 'organic garden product, healthy plants, rich soil, roots, lawn and garden care, product bottle, natural outdoor setting',
-  }
-}
-
-export async function mapProductToHeyGenPayload(row: ProductRow) {
+export function mapProductToHeyGenPayload(row: ProductRow) {
   const textFields = [
     row.title, row.Title,
     row.name, row.Name,
     row.description, row.Description,
     row.details, row.Details,
-    row.Category, row.category,
-    row.Keywords, row.keywords,
-    row.Benefits, row.benefits,
     row['Short Description'], row['short_description'], row['Short_Description']
   ].filter(Boolean).map(String).join(' ')
 
-  const selectedMapping = pickMapping(row, textFields)
-  const { avatar, voice, lengthSeconds, avatarScale, avatarOffsetX, avatarOffsetY, avatarStyle } = selectedMapping
-  const reason = selectedMapping.reason
-  const visualHint = selectedMapping.visualHint
+  let avatar = process.env.HEYGEN_DEFAULT_AVATAR || DEFAULTS.avatar
+  let voice = process.env.HEYGEN_DEFAULT_VOICE || DEFAULTS.voice
+  let lengthSeconds = DEFAULTS.lengthSeconds
+  let reason = 'default'
+  let visualHint = 'organic garden product, healthy plants, rich soil, roots, lawn and garden care, product bottle, natural outdoor setting'
+
+  for (const rule of CATEGORY_MAP) {
+    if (rule.pattern.test(textFields)) {
+      avatar = rule.avatar
+      voice = rule.voice
+      lengthSeconds = rule.lengthSeconds || lengthSeconds
+      reason = rule.reason
+      visualHint = rule.visualHint
+      break
+    }
+  }
 
   const title = first(row, ['Title', 'title', 'Product', 'product', 'Name', 'name']) || 'Nature\'s Way Soil product'
   const details = first(row, ['Product Description', 'description', 'Description', 'Details', 'details', 'caption', 'Caption'])
+  const script = (row['Product Description'] || row.description || row.Details || row.details || row.Title || row.title || '').toString()
 
-  // === Generate voiceover script (plain text or structured JSON) ===
-  let scriptData: { voiceover: string; scenes: Array<any> } = { voiceover: '', scenes: [] }
-  let rawScript = ''
-  try {
-    const product = {
-      id: row.id || row.ID || '',
-      title,
-      details,
-      description: details,
-      name: title,
-    } as any
-    rawScript = await generateScript(product)
-    try {
-      const parsed = JSON.parse(rawScript)
-      if (parsed && typeof parsed === 'object') {
-        scriptData = {
-          voiceover: parsed.voiceover || rawScript,
-          scenes: Array.isArray(parsed.scenes) ? parsed.scenes : [],
-        }
-      } else {
-        scriptData.voiceover = rawScript
-      }
-    } catch {
-      // GPT returned plain text — that's the normal path
-      scriptData.voiceover = rawScript
-    }
-  } catch (err) {
-    console.warn('Script generation failed, falling back to row description', err)
-    scriptData.voiceover = details || title
-  }
+  const imageUrl = first(row, [
+    'Image_URL', 'image_url', 'Product_Image_URL', 'product_image_url', 'Main_Image_URL', 'main_image_url',
+    'Background_Image_URL', 'background_image_url', 'Hero_Image_URL', 'hero_image_url'
+  ])
+  const visualPrompt = buildVisualPrompt(row, title, details, visualHint)
 
-  // === Build scenes for HeyGen + Pexels b-roll ===
-  // Priority order:
-  //   1. GPT-supplied structured scenes (if openai.ts returns JSON in future)
-  //   2. Rotation-supplied product.scenes[] (deterministic per-product queries)
-  //   3. CATEGORY_MAP visualHint (single-scene fallback)
-  const rotationScenes: Array<{ query: string; seconds?: number }> = Array.isArray(row.scenes) ? row.scenes : []
-  const totalSeconds = lengthSeconds || FALLBACK_MAPPING.defaults.lengthSeconds
-
-  type PreparedScene = { query: string; seconds: number; avatarText: string; visualDesc: string }
-  let preparedScenes: PreparedScene[] = []
-
-  if (scriptData.scenes.length > 0) {
-    preparedScenes = scriptData.scenes.map((s: any, i: number) => ({
-      query: String(s.brollKeyword || s.visualDesc || rotationScenes[i]?.query || visualHint),
-      seconds: Number(s.seconds) || totalSeconds / scriptData.scenes.length,
-      avatarText: String(s.avatarText || ''),
-      visualDesc: String(s.visualDesc || s.brollKeyword || ''),
-    }))
-  } else if (rotationScenes.length > 0) {
-    const evenSeconds = totalSeconds / rotationScenes.length
-    // Crude but useful: split voiceover into N chunks for per-scene avatarText
-    const voSentences = (scriptData.voiceover || '')
-      .split(/(?<=[.!?])\s+/)
-      .map((s) => s.trim())
-      .filter(Boolean)
-    const chunkSize = Math.max(1, Math.ceil(voSentences.length / rotationScenes.length))
-    preparedScenes = rotationScenes.map((s, i) => ({
-      query: s.query,
-      seconds: s.seconds || evenSeconds,
-      avatarText: voSentences.slice(i * chunkSize, (i + 1) * chunkSize).join(' '),
-      visualDesc: s.query,
-    }))
-  }
-
-  // === Resolve a Pexels b-roll URL for each prepared scene ===
-  const scenes: any[] = []
-  for (const sc of preparedScenes) {
-    let brollUrl = ''
-    try {
-      const picked = await selectPexelsBackground({
-        product: { title, details, name: title },
-        record: { Category: sc.query },
-        orientation: 'portrait',
-        minDurationSeconds: Math.max(3, Math.ceil(sc.seconds)),
-      })
-      if (picked) brollUrl = picked.url
-    } catch (e) {
-      console.warn('Pexels b-roll lookup failed for scene', sc.query, e)
-    }
-
-    scenes.push({
-      seconds: String(sc.seconds.toFixed(1)),
-      avatarText: sc.avatarText,
-      brollUrl,
-      visualDesc: sc.visualDesc,
-    })
-  }
-
-  // Build the final payload (HeyGen will now get scenes + B-roll)
   const payload = {
-    script: scriptData.voiceover || details,   // full narration
+    script,
     avatar,
     voice,
     lengthSeconds,
-    avatarScale,
-    avatarOffsetX,
-    avatarOffsetY,
-    avatarStyle,
-    music: { style: 'upbeat', volume: 0.2 },
+    music: DEFAULTS.music,
     subtitles: { enabled: true, style: 'short_lines' },
     webhook: process.env.HEYGEN_WEBHOOK_URL || undefined,
     title,
-    visualPrompt: buildVisualPrompt(row, title, details, visualHint),
-    imageUrl: first(row, ['Image_URL', 'image_url', 'Product_Image_URL', 'product_image_url', 'Main_Image_URL', 'main_image_url']) || undefined,
+    visualPrompt,
+    imageUrl: imageUrl || undefined,
     meta: {
       productTitle: title,
       visualHint,
-      sourceImageUrl: first(row, ['Image_URL', 'image_url', 'Product_Image_URL', 'product_image_url', 'Main_Image_URL', 'main_image_url']) || undefined,
-      mappingReason: reason,
-      heygenAvatar: avatar,
-      heygenVoice: voice,
-      avatarScale,
-      avatarOffsetX,
-      avatarOffsetY,
-      avatarStyle,
-      sceneSource:
-        scriptData.scenes.length > 0 ? 'gpt-structured' : rotationScenes.length > 0 ? 'rotation-config' : 'none',
+      sourceImageUrl: imageUrl || undefined,
     },
-    scenes,
-    structuredScript: scriptData,
   }
 
   return {
@@ -263,7 +113,73 @@ export async function mapProductToHeyGenPayload(row: ProductRow) {
     voice,
     lengthSeconds,
     reason,
-    scenes,
-    voiceover: scriptData.voiceover,
   }
+}
+
+async function createSheetsAuthClient() {
+  const scopes = ['https://www.googleapis.com/auth/spreadsheets']
+  return createGoogleAuthClient(scopes)
+}
+
+export async function writeBackMappingsToSheet(sheetId: string, gid: string, mappedRows: any[], opts?: { force?: boolean }) {
+  const authClient = await createSheetsAuthClient()
+  if (typeof (authClient as any).authorize === 'function') {
+    await (authClient as any).authorize()
+  }
+  const sheets = google.sheets({ version: 'v4', auth: authClient as any })
+
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
+  const sheet = (meta.data.sheets || []).find((s: any) => String(s.properties?.sheetId) === String(gid))
+  if (!sheet) throw new Error(`Sheet with gid ${gid} not found`)
+  const sheetTitle = sheet.properties!.title!
+
+  const headerRes = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: `${sheetTitle}!1:1` })
+  const headers = (headerRes.data.values?.[0] || []) as string[]
+
+  const newCols = ['HEYGEN_AVATAR', 'HEYGEN_VOICE', 'HEYGEN_LENGTH_SECONDS', 'HEYGEN_MAPPING_REASON', 'HEYGEN_MAPPED_AT']
+  const missing = newCols.filter((c) => !headers.includes(c))
+  let updatedHeaders = headers.slice()
+  if (missing.length > 0) {
+    updatedHeaders = headers.concat(missing)
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: `${sheetTitle}!1:1`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [updatedHeaders] },
+    })
+  }
+
+  const headerRes2 = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: `${sheetTitle}!1:1` })
+  const finalHeaders = (headerRes2.data.values?.[0] || []) as string[]
+  const startIndex = finalHeaders.indexOf(newCols[0])
+  if (startIndex === -1) throw new Error('Failed to find new columns after header update')
+
+  const blockValues = mappedRows.map((r) => newCols.map((c) => r[c] || ''))
+  const startColLetter = columnToLetter(startIndex + 1)
+  const endColLetter = columnToLetter(startIndex + newCols.length)
+  const range = `${sheetTitle}!${startColLetter}2:${endColLetter}${mappedRows.length + 1}`
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sheetId,
+    range,
+    valueInputOption: 'RAW',
+    requestBody: { values: blockValues },
+  })
+
+  return true
+}
+
+export default {
+  mapProductToHeyGenPayload,
+  writeBackMappingsToSheet,
+};
+
+function columnToLetter(col: number): string {
+  let temp = ''
+  while (col > 0) {
+    const rem = (col - 1) % 26
+    temp = String.fromCharCode(65 + rem) + temp
+    col = Math.floor((col - 1) / 26)
+  }
+  return temp
 }
