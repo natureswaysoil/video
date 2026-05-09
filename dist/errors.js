@@ -24,6 +24,7 @@ var ErrorCode;
     ErrorCode["YOUTUBE_API_ERROR"] = "YOUTUBE_API_ERROR";
     ErrorCode["PINTEREST_API_ERROR"] = "PINTEREST_API_ERROR";
     ErrorCode["INSTAGRAM_API_ERROR"] = "INSTAGRAM_API_ERROR";
+    ErrorCode["FACEBOOK_API_ERROR"] = "FACEBOOK_API_ERROR";
     // Configuration Errors
     ErrorCode["MISSING_CONFIG"] = "MISSING_CONFIG";
     ErrorCode["INVALID_CONFIG"] = "INVALID_CONFIG";

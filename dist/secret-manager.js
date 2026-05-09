@@ -1,11 +1,19 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DEFAULT_SECRET_NAMES = void 0;
+exports.buildSecretNameCandidates = buildSecretNameCandidates;
 exports.loadSecretToEnv = loadSecretToEnv;
 exports.loadSecretsToEnv = loadSecretsToEnv;
 const secret_manager_1 = require("@google-cloud/secret-manager");
-const client = new secret_manager_1.SecretManagerServiceClient();
+let client = null;
 const loaded = new Set();
+let warnedNoAdc = false;
+function getSecretManagerClient() {
+    if (!client) {
+        client = new secret_manager_1.SecretManagerServiceClient();
+    }
+    return client;
+}
 exports.DEFAULT_SECRET_NAMES = [
     'CSV_URL',
     'GOOGLE_SHEET_CSV_URL',
@@ -17,7 +25,7 @@ exports.DEFAULT_SECRET_NAMES = [
     'HEYGEN_DEFAULT_VOICE',
     'HEYGEN_WEBHOOK_URL',
     'INSTAGRAM_ACCESS_TOKEN',
-    'INSTAGRAM_ACCOUNT_ID',
+    'INSTAGRAM_USER_ID',
     'YOUTUBE_CLIENT_ID',
     'YOUTUBE_CLIENT_SECRET',
     'YOUTUBE_REFRESH_TOKEN',
@@ -32,33 +40,112 @@ exports.DEFAULT_SECRET_NAMES = [
     'PEXELS_API_KEY',
 ];
 function getProjectId() {
-    return process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT;
+    return (process.env.GOOGLE_CLOUD_PROJECT ||
+        process.env.GCLOUD_PROJECT ||
+        process.env.GCP_PROJECT ||
+        'natureswaysoil-video');
+}
+function hasLikelyAdc() {
+    if (String(process.env.SKIP_SECRET_MANAGER || '').toLowerCase() === 'true')
+        return false;
+    return Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+        process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
+        process.env.GOOGLE_CREDENTIALS ||
+        process.env.K_SERVICE || // Cloud Run Services
+        process.env.CLOUD_RUN_JOB || // Cloud Run Jobs
+        process.env.FUNCTION_TARGET ||
+        process.env.GAE_SERVICE);
+}
+function normalizeSeparators(value) {
+    return value.trim().replace(/[\s]+/g, '_').replace(/[-_]+/g, '_');
+}
+/**
+ * Generate likely Secret Manager naming variants for a requested env key.
+ * Priority order starts with UPPERCASE_UNDERSCORE, then lowercase-hyphen.
+ */
+function buildSecretNameCandidates(secretName) {
+    const normalized = normalizeSeparators(secretName);
+    const upperUnderscore = normalized.toUpperCase();
+    const lowerHyphen = normalized.toLowerCase().replace(/_/g, '-');
+    const lowerUnderscore = normalized.toLowerCase();
+    const asProvided = secretName.trim();
+    const candidates = [
+        upperUnderscore,
+        lowerHyphen,
+        asProvided,
+        asProvided.replace(/-/g, '_'),
+        asProvided.replace(/_/g, '-'),
+        lowerUnderscore,
+        normalized,
+    ];
+    return [...new Set(candidates.filter(Boolean))];
+}
+function isNotFoundError(error) {
+    const code = Number(error?.code);
+    const message = String(error?.message || '').toLowerCase();
+    return code === 5 || message.includes('not found');
+}
+function isPermissionDeniedError(error) {
+    const code = Number(error?.code);
+    const message = String(error?.message || '').toLowerCase();
+    return code === 7 || message.includes('permission_denied') || message.includes('permission denied');
 }
 async function loadSecretToEnv(secretName) {
     if (process.env[secretName])
         return true;
     if (loaded.has(secretName))
         return !!process.env[secretName];
-    const projectId = getProjectId();
-    if (!projectId) {
-        console.warn(`No Google Cloud project ID found; skipping Secret Manager lookup for ${secretName}`);
-        loaded.add(secretName);
-        return false;
-    }
-    try {
-        const name = `projects/${projectId}/secrets/${secretName}/versions/latest`;
-        const [version] = await client.accessSecretVersion({ name });
-        const value = version.payload?.data?.toString();
-        if (value) {
-            process.env[secretName] = value;
-            console.log(`Loaded secret from Google Secret Manager: ${secretName}`);
+    const candidates = buildSecretNameCandidates(secretName);
+    // Always try existing env vars first (supports mixed naming in local/dev runs).
+    for (const candidate of candidates) {
+        if (process.env[candidate]) {
+            process.env[secretName] = process.env[candidate];
             loaded.add(secretName);
+            console.log(`Loaded secret from existing env var: ${candidate} -> ${secretName}`);
             return true;
         }
     }
-    catch (error) {
-        console.warn(`Could not load secret ${secretName}:`, error?.message || error);
+    if (!hasLikelyAdc()) {
+        if (!warnedNoAdc) {
+            console.warn('Skipping Google Secret Manager lookups because ADC is not configured (set GOOGLE_APPLICATION_CREDENTIALS or run in GCP runtime).');
+            warnedNoAdc = true;
+        }
+        loaded.add(secretName);
+        return false;
     }
+    const projectId = getProjectId();
+    for (const candidate of candidates) {
+        try {
+            const name = `projects/${projectId}/secrets/${candidate}/versions/latest`;
+            const [version] = await getSecretManagerClient().accessSecretVersion({ name });
+            const value = version.payload?.data?.toString().trim();
+            if (!value)
+                continue;
+            process.env[secretName] = value;
+            process.env[candidate] = value;
+            loaded.add(secretName);
+            loaded.add(candidate);
+            if (candidate === secretName) {
+                console.log(`Loaded secret from Google Secret Manager: ${secretName}`);
+            }
+            else {
+                console.log(`Loaded secret from Google Secret Manager: ${candidate} -> ${secretName}`);
+            }
+            return true;
+        }
+        catch (error) {
+            if (isNotFoundError(error)) {
+                continue;
+            }
+            if (isPermissionDeniedError(error)) {
+                console.warn(`Permission denied while loading secret ${candidate}:`, error?.message || error);
+                loaded.add(secretName);
+                return false;
+            }
+            console.warn(`Could not load secret ${candidate}:`, error?.message || error);
+        }
+    }
+    console.warn(`Could not load secret ${secretName}. Tried variants: ${candidates.join(', ')}`);
     loaded.add(secretName);
     return false;
 }

@@ -1,651 +1,381 @@
-From 531d1ea6458845e8da28d170c84325ec37b2ee4f Mon Sep 17 00:00:00 2001
-From: James Jones <natureswaysoil@gmail.com>
-Date: Fri, 8 May 2026 21:35:30 +0000
-Subject: [PATCH] fix: treat HeyGen 404 as permanent failure and re-request
- expired jobs
-
-- getJobStatus (dist+src): 404 response throws AppError(statusCode=404,
-  isOperational=false) so the poll loop exits on first attempt instead of
-  retrying for 2 minutes per row
-- pollJobForVideoUrl (dist): inner catch exits immediately on statusCode 404
-  instead of treating it as a transient network error
-- createOrPollVideo (dist+src): when poll throws 404, clears Video_ID /
-  Video_Status / Video_URL from the sheet row and falls through to request
-  a fresh video instead of skipping the row entirely
----
- dist/heygen-adapter.js | 159 ++++++++++++++++++++---------
- dist/heygen.js         | 222 +++++++++++++++++++++++++++--------------
- src/heygen-adapter.ts  |   2 +-
- src/heygen.ts          |  19 +---
- 4 files changed, 267 insertions(+), 135 deletions(-)
-
-diff --git a/dist/heygen-adapter.js b/dist/heygen-adapter.js
-index 4306e12..48418b9 100644
---- a/dist/heygen-adapter.js
-+++ b/dist/heygen-adapter.js
-@@ -1,8 +1,51 @@
- "use strict";
-+/**
-+ * Adapter: map product row -> HeyGen payload and mapping info
-+ * Uses keyword rules and generic avatar/voice IDs as defaults.
-+ *
-+ * Exports:
-+ *  - mapProductToHeyGenPayload(row) => { payload, avatar, voice, lengthSeconds, reason }
-+ *  - writeBackMappingsToSheet(sheetId, gid, mappedRows) => Promise<boolean>
-+ */
- Object.defineProperty(exports, "__esModule", { value: true });
- exports.mapProductToHeyGenPayload = mapProductToHeyGenPayload;
--const openai_1 = require("./openai");
--async function mapProductToHeyGenPayload(row) {
-+exports.writeBackMappingsToSheet = writeBackMappingsToSheet;
-+const googleapis_1 = require("googleapis");
-+const google_auth_1 = require("./google-auth");
-+const DEFAULTS = {
-+    avatar: 'garden_expert_01',
-+    voice: 'en_us_warm_female_01',
-+    music: { style: 'acoustic_nature', volume: 0.18 },
-+    lengthSeconds: 30,
-+};
-+const CATEGORY_MAP = [
-+    { pattern: /\b(kelp|seaweed|algae)\b/i, avatar: 'garden_expert_01', voice: 'en_us_warm_female_01', lengthSeconds: 30, reason: 'matched keyword: kelp', visualHint: 'healthy green plants, liquid seaweed fertilizer, measuring cup, watering can, garden beds, natural sunlight' },
-+    { pattern: /\b(bone ?meal|bonemeal|bone)\b/i, avatar: 'farm_expert_02', voice: 'en_us_deep_male_01', lengthSeconds: 35, reason: 'matched keyword: bone meal', visualHint: 'strong roots, blooming plants, calcium and phosphorus support, liquid bottle near garden soil' },
-+    { pattern: /\b(hay|pasture|forage)\b/i, avatar: 'pasture_specialist_01', voice: 'en_us_neutral_mx_01', lengthSeconds: 40, reason: 'matched keyword: hay/pasture', visualHint: 'green pasture field, hay grass, sprayer application, farm fence line, healthy forage growth' },
-+    { pattern: /\b(humic|fulvic|humate|fulvate)\b/i, avatar: 'eco_gardener_01', voice: 'en_us_warm_female_02', lengthSeconds: 30, reason: 'matched keyword: humic/fulvic', visualHint: 'dark rich soil, active roots, lawn and garden soil conditioner, close-up of root zone moisture' },
-+    { pattern: /\b(compost|tea|soil conditioner)\b/i, avatar: 'eco_gardener_01', voice: 'en_us_warm_female_02', lengthSeconds: 30, reason: 'matched keyword: compost/soil', visualHint: 'living compost, worm castings, biochar, raised beds, vegetables, rich dark soil texture' },
-+];
-+function first(row, keys) {
-+    for (const key of keys) {
-+        const value = row[key];
-+        if (value !== undefined && value !== null && String(value).trim() !== '')
-+            return String(value).trim();
-+    }
-+    return '';
-+}
-+function cleanForPrompt(value) {
-+    return value.replace(/\s+/g, ' ').replace(/[<>]/g, '').trim().slice(0, 900);
-+}
-+function buildVisualPrompt(row, title, details, visualHint) {
-+    const existingPrompt = first(row, [
-+        'Visual_Prompt', 'visual_prompt', 'Video_Prompt', 'video_prompt', 'Scene_Prompt', 'scene_prompt',
-+        'Image_Prompt', 'image_prompt', 'Creative_Brief', 'creative_brief'
-+    ]);
-+    if (existingPrompt)
-+        return cleanForPrompt(existingPrompt);
-+    return cleanForPrompt(`Create a premium vertical product marketing video for Nature's Way Soil. Show real garden and lawn visuals, not text describing the scene. Product: ${title}. Details: ${details}. Visual direction: ${visualHint}. Use close-up soil, roots, plants, product bottle, watering or spraying application, healthy before-and-after style transformation, warm natural light, clean Amazon-ready commercial look. Do not show a script, storyboard, captions as the main visual, or a person explaining what should be shown.`);
-+}
-+function mapProductToHeyGenPayload(row) {
-     const textFields = [
-         row.title, row.Title,
-         row.name, row.Name,
-@@ -27,42 +70,14 @@ async function mapProductToHeyGenPayload(row) {
-     }
-     const title = first(row, ['Title', 'title', 'Product', 'product', 'Name', 'name']) || 'Nature\'s Way Soil product';
-     const details = first(row, ['Product Description', 'description', 'Description', 'Details', 'details', 'caption', 'Caption']);
--    // === NEW: Generate structured script with scenes + B-roll ===
--    let scriptData = { voiceover: '', scenes: [] };
--    try {
--        // Convert row to simple Product object that generateScript expects
--        const product = {
--            id: row.id || row.ID || '',
--            title: title,
--            details: details,
--            description: details,
--            name: title
--        };
--        const rawScript = await (0, openai_1.generateScript)(product); // ← uses your updated openai.ts
--        scriptData = JSON.parse(rawScript);
--    }
--    catch (err) {
--        console.warn('Structured script failed, falling back to row description', err);
--        scriptData.voiceover = details || title;
--    }
--    // === Fetch Pexels B-roll for every scene ===
--    const pexels = PexelsService.getInstance();
--    const scenes = [];
--    for (const scene of scriptData.scenes || []) {
--        let brollUrl = '';
--        if (scene.brollKeyword) {
--            brollUrl = await pexels.getBrollVideo(scene.brollKeyword, 12);
--        }
--        scenes.push({
--            seconds: scene.seconds || '0-8',
--            avatarText: scene.avatarText || '',
--            brollUrl: brollUrl,
--            visualDesc: scene.visualDesc || ''
--        });
--    }
--    // Build the final payload (HeyGen will now get scenes + B-roll)
-+    const script = (row['Product Description'] || row.description || row.Details || row.details || row.Title || row.title || '').toString();
-+    const imageUrl = first(row, [
-+        'Image_URL', 'image_url', 'Product_Image_URL', 'product_image_url', 'Main_Image_URL', 'main_image_url',
-+        'Background_Image_URL', 'background_image_url', 'Hero_Image_URL', 'hero_image_url'
-+    ]);
-+    const visualPrompt = buildVisualPrompt(row, title, details, visualHint);
-     const payload = {
--        script: scriptData.voiceover || details, // full narration
-+        script,
-         avatar,
-         voice,
-         lengthSeconds,
-@@ -70,17 +85,13 @@ async function mapProductToHeyGenPayload(row) {
-         subtitles: { enabled: true, style: 'short_lines' },
-         webhook: process.env.HEYGEN_WEBHOOK_URL || undefined,
-         title,
--        visualPrompt: buildVisualPrompt(row, title, details, visualHint),
--        imageUrl: first(row, ['Image_URL', 'image_url', 'Product_Image_URL', 'product_image_url', 'Main_Image_URL', 'main_image_url']) || undefined,
-+        visualPrompt,
-+        imageUrl: imageUrl || undefined,
-         meta: {
-             productTitle: title,
-             visualHint,
--            sourceImageUrl: first(row, ['Image_URL', 'image_url', 'Product_Image_URL', 'product_image_url']) || undefined,
--            mappingReason: reason
-+            sourceImageUrl: imageUrl || undefined,
-         },
--        // NEW: Multi-scene + B-roll support
--        scenes: scenes,
--        structuredScript: scriptData
-     };
-     return {
-         payload,
-@@ -88,6 +99,64 @@ async function mapProductToHeyGenPayload(row) {
-         voice,
-         lengthSeconds,
-         reason,
--        scenes // extra for logging/debugging
-     };
- }
-+async function createSheetsAuthClient() {
-+    const scopes = ['https://www.googleapis.com/auth/spreadsheets'];
-+    return (0, google_auth_1.createGoogleAuthClient)(scopes);
-+}
-+async function writeBackMappingsToSheet(sheetId, gid, mappedRows, opts) {
-+    const authClient = await createSheetsAuthClient();
-+    if (typeof authClient.authorize === 'function') {
-+        await authClient.authorize();
-+    }
-+    const sheets = googleapis_1.google.sheets({ version: 'v4', auth: authClient });
-+    const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
-+    const sheet = (meta.data.sheets || []).find((s) => String(s.properties?.sheetId) === String(gid));
-+    if (!sheet)
-+        throw new Error(`Sheet with gid ${gid} not found`);
-+    const sheetTitle = sheet.properties.title;
-+    const headerRes = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: `${sheetTitle}!1:1` });
-+    const headers = (headerRes.data.values?.[0] || []);
-+    const newCols = ['HEYGEN_AVATAR', 'HEYGEN_VOICE', 'HEYGEN_LENGTH_SECONDS', 'HEYGEN_MAPPING_REASON', 'HEYGEN_MAPPED_AT'];
-+    const missing = newCols.filter((c) => !headers.includes(c));
-+    let updatedHeaders = headers.slice();
-+    if (missing.length > 0) {
-+        updatedHeaders = headers.concat(missing);
-+        await sheets.spreadsheets.values.update({
-+            spreadsheetId: sheetId,
-+            range: `${sheetTitle}!1:1`,
-+            valueInputOption: 'RAW',
-+            requestBody: { values: [updatedHeaders] },
-+        });
-+    }
-+    const headerRes2 = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: `${sheetTitle}!1:1` });
-+    const finalHeaders = (headerRes2.data.values?.[0] || []);
-+    const startIndex = finalHeaders.indexOf(newCols[0]);
-+    if (startIndex === -1)
-+        throw new Error('Failed to find new columns after header update');
-+    const blockValues = mappedRows.map((r) => newCols.map((c) => r[c] || ''));
-+    const startColLetter = columnToLetter(startIndex + 1);
-+    const endColLetter = columnToLetter(startIndex + newCols.length);
-+    const range = `${sheetTitle}!${startColLetter}2:${endColLetter}${mappedRows.length + 1}`;
-+    await sheets.spreadsheets.values.update({
-+        spreadsheetId: sheetId,
-+        range,
-+        valueInputOption: 'RAW',
-+        requestBody: { values: blockValues },
-+    });
-+    return true;
-+}
-+exports.default = {
-+    mapProductToHeyGenPayload,
-+    writeBackMappingsToSheet,
-+};
-+function columnToLetter(col) {
-+    let temp = '';
-+    while (col > 0) {
-+        const rem = (col - 1) % 26;
-+        temp = String.fromCharCode(65 + rem) + temp;
-+        col = Math.floor((col - 1) / 26);
-+    }
-+    return temp;
-+}
-diff --git a/dist/heygen.js b/dist/heygen.js
-index 6f72ec9..e785180 100644
---- a/dist/heygen.js
-+++ b/dist/heygen.js
-@@ -18,9 +18,11 @@ function isPlaceholderApiKey(value) {
-     const normalized = String(value || '').trim().toLowerCase();
-     return !normalized || normalized.includes('your-') || normalized.includes('paste_') || normalized.includes('replace_') || normalized === 'changeme';
- }
--// Optional: load secrets from Google Secret Manager
-+// Optional: load secrets from Google Secret Manager (only if running on GCP)
- async function getSecretFromGcp(name) {
-     try {
-+        // lazy-import so module doesn't require @google-cloud/secret-manager when not used
-+        // eslint-disable-next-line @typescript-eslint/no-var-requires
-         const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
-         const client = new SecretManagerServiceClient();
-         const [accessResponse] = await client.accessSecretVersion({ name });
-@@ -28,6 +30,7 @@ async function getSecretFromGcp(name) {
-         return payload || null;
-     }
-     catch (e) {
-+        // Not fatal - return null so caller can fall back to env var
-         logger.debug('Could not load secret from GCP', 'HeyGen', { error: e });
-         return null;
-     }
-@@ -39,7 +42,7 @@ class HeyGenClient {
-         this.apiKey = cfg.apiKey || process.env.HEYGEN_API_KEY || '';
-         this.apiEndpoint = cfg.apiEndpoint || process.env.HEYGEN_API_ENDPOINT || 'https://api.heygen.com';
-         if (isPlaceholderApiKey(this.apiKey)) {
--            throw new errors_1.AppError('HeyGen API key is missing or still set to a placeholder.', errors_1.ErrorCode.MISSING_CONFIG, 500, true, { hasHeyGenApiKey: !!this.apiKey });
-+            throw new errors_1.AppError('HeyGen API key is missing or still set to a placeholder. Update HEYGEN_API_KEY in .env, Codespace secrets, or Google Secret Manager.', errors_1.ErrorCode.MISSING_CONFIG, 500, true, { hasHeyGenApiKey: !!this.apiKey, keyLooksLikePlaceholder: true });
-         }
-         this.axios = axios_1.default.create({
-             baseURL: this.apiEndpoint,
-@@ -56,7 +59,9 @@ class HeyGenClient {
-         try {
-             const res = await this.axios.get('/v2/avatars');
-             const avatars = res.data?.data?.avatars || res.data?.avatars || [];
--            const match = avatars.find((a) => a.avatar_id === nameOrId) || avatars.find((a) => (a.avatar_name || '').toLowerCase().includes(nameOrId.toLowerCase())) || avatars[0];
-+            const match = avatars.find((a) => a.avatar_id === nameOrId)
-+                || avatars.find((a) => (a.avatar_name || '').toLowerCase().includes(nameOrId.toLowerCase()))
-+                || avatars[0];
-             const id = match?.avatar_id || nameOrId;
-             for (const a of avatars) {
-                 if (a.avatar_id) {
-@@ -64,6 +69,7 @@ class HeyGenClient {
-                     this._avatarCache[a.avatar_id] = a.avatar_id;
-                 }
-             }
-+            console.log('Discovered HeyGen avatar ID', { requested: nameOrId, resolved: id, total: avatars.length });
-             return id;
-         }
-         catch (e) {
-@@ -77,7 +83,10 @@ class HeyGenClient {
-         try {
-             const res = await this.axios.get('/v2/voices');
-             const voices = res.data?.data?.voices || res.data?.voices || [];
--            const match = voices.find((v) => v.voice_id === nameOrId) || voices.find((v) => (v.name || '').toLowerCase().includes(nameOrId.toLowerCase())) || voices[0];
-+            const match = voices.find((v) => v.voice_id === nameOrId)
-+                || voices.find((v) => (v.name || '').toLowerCase().includes(nameOrId.toLowerCase()))
-+                || voices.find((v) => v.language === 'en-US' || (v.locale || '').startsWith('en'))
-+                || voices[0];
-             const id = match?.voice_id || nameOrId;
-             for (const v of voices) {
-                 if (v.voice_id) {
-@@ -85,6 +94,7 @@ class HeyGenClient {
-                     this._voiceCache[v.voice_id] = v.voice_id;
-                 }
-             }
-+            console.log('Discovered HeyGen voice ID', { requested: nameOrId, resolved: id });
-             return id;
-         }
-         catch (e) {
-@@ -93,54 +103,30 @@ class HeyGenClient {
-         }
-     }
-     /**
--     * Create a new video generation job — NOW SUPPORTS MULTI-SCENE + PEXELS B-ROLL
-+     * Create a new video generation job
-+     * @param payload Video generation parameters
-+     * @returns Job ID for polling
-      */
-     async createVideoJob(payload) {
-         const startTime = Date.now();
-         try {
-             const config = (0, config_validator_1.getConfig)();
-             if (!payload.script) {
--                throw new errors_1.AppError('Script is required for HeyGen video generation', errors_1.ErrorCode.VALIDATION_ERROR, 400, true);
-+                throw new errors_1.AppError('Script is required for HeyGen video generation', errors_1.ErrorCode.VALIDATION_ERROR, 400, true, { hasScript: !!payload.script });
-             }
-             logger.info('Creating HeyGen video job', 'HeyGen', {
-                 scriptLength: payload.script.length,
-                 avatar: payload.avatar,
-                 voice: payload.voice,
--                hasScenes: !!(payload.scenes && payload.scenes.length > 0),
--                sceneCount: payload.scenes?.length || 1,
-             });
-             const jobId = await rateLimiters.execute('heygen', async () => {
-                 return (0, errors_1.withRetry)(async () => {
-+                    // Resolve avatar and voice IDs before creating the request
-                     const resolvedAvatarId = await this.resolveAvatarId(payload.avatar || 'default');
-                     const resolvedVoiceId = await this.resolveVoiceId(payload.voice || 'default');
--                    let videoInputs = [];
--                    if (payload.scenes && payload.scenes.length > 0) {
--                        // Multi-scene mode with Pexels B-roll
--                        for (const scene of payload.scenes) {
--                            const background = scene.brollUrl
--                                ? { type: 'video', url: scene.brollUrl }
--                                : payload.imageUrl
--                                    ? { type: 'image', url: payload.imageUrl }
--                                    : { type: 'ai', prompt: payload.visualPrompt || 'natural garden scene, healthy plants, rich soil, product application' };
--                            videoInputs.push({
--                                character: {
--                                    type: 'avatar',
--                                    avatar_id: resolvedAvatarId,
--                                    avatar_style: 'normal',
--                                },
--                                voice: {
--                                    type: 'text',
--                                    input_text: scene.avatarText || payload.script,
--                                    voice_id: resolvedVoiceId,
--                                    speed: 1.0,
--                                },
--                                background,
--                            });
--                        }
--                    }
--                    else {
--                        // Fallback to single-scene (old behavior)
--                        videoInputs = [{
-+                    // HeyGen v2 API
-+                    const v2Body = {
-+                        video_inputs: [{
-                                 character: {
-                                     type: 'avatar',
-                                     avatar_id: resolvedAvatarId,
-@@ -154,27 +140,41 @@ class HeyGenClient {
-                                 },
-                                 background: payload.imageUrl
-                                     ? { type: 'image', url: payload.imageUrl }
--                                    : { type: 'ai', prompt: payload.visualPrompt || 'natural garden scene, healthy plants, soil, product application' },
--                            }];
--                    }
--                    const v2Body = {
--                        video_inputs: videoInputs,
-+                                    : {
-+                                        type: 'ai',
-+                                        prompt: payload.visualPrompt || 'natural garden scene, healthy plants, soil, product application'
-+                                    },
-+                            }],
-                         dimension: { width: 720, height: 1280 },
-                         ...(payload.title ? { title: payload.title } : {}),
-                     };
-                     const response = await this.axios.post('/v2/video/generate', v2Body, {
-                         timeout: config.TIMEOUT_HEYGEN,
-                     });
--                    const id = response.data?.data?.video_id || response.data?.video_id || response.data?.jobId;
--                    if (!id)
--                        throw new errors_1.AppError('HeyGen API did not return a job ID', errors_1.ErrorCode.HEYGEN_API_ERROR, 500, true);
-+                    const id = response.data?.data?.video_id ||
-+                        response.data?.video_id ||
-+                        response.data?.jobId;
-+                    if (!id) {
-+                        throw new errors_1.AppError('HeyGen API did not return a job ID', errors_1.ErrorCode.HEYGEN_API_ERROR, 500, true, { responseData: response.data });
-+                    }
-                     return id;
--                }, { maxRetries: 3 });
-+                }, {
-+                    maxRetries: 3,
-+                    onRetry: (error, attempt) => {
-+                        logger.warn('Retrying HeyGen job creation', 'HeyGen', {
-+                            attempt,
-+                            error: error instanceof Error ? error.message : String(error),
-+                        });
-+                    },
-+                });
-             });
-             const duration = Date.now() - startTime;
-             metrics.incrementCounter('heygen.create_job.success');
-             metrics.recordHistogram('heygen.create_job.duration', duration);
--            logger.info('HeyGen video job created', 'HeyGen', { jobId, duration, sceneCount: payload.scenes?.length || 1 });
-+            logger.info('HeyGen video job created', 'HeyGen', {
-+                jobId,
-+                duration,
-+            });
-             return jobId;
-         }
-         catch (error) {
-@@ -182,67 +182,135 @@ class HeyGenClient {
-             metrics.incrementCounter('heygen.create_job.error');
-             metrics.recordHistogram('heygen.create_job.error_duration', duration);
-             logger.error('Failed to create HeyGen video job', 'HeyGen', { duration }, error);
--            if (error instanceof errors_1.AppError)
-+            if (error instanceof errors_1.AppError) {
-                 throw error;
--            if (axios_1.default.isAxiosError(error))
--                throw (0, errors_1.fromAxiosError)(error, errors_1.ErrorCode.HEYGEN_API_ERROR);
--            throw new errors_1.AppError(`HeyGen job creation failed: ${error.message || String(error)}`, errors_1.ErrorCode.HEYGEN_API_ERROR, 500, true);
-+            }
-+            if (axios_1.default.isAxiosError(error)) {
-+                throw (0, errors_1.fromAxiosError)(error, errors_1.ErrorCode.HEYGEN_API_ERROR, {
-+                    payload: { scriptLength: payload.script.length },
-+                });
-+            }
-+            throw new errors_1.AppError(`HeyGen job creation failed: ${error.message || String(error)}`, errors_1.ErrorCode.HEYGEN_API_ERROR, 500, true, {}, error instanceof Error ? error : undefined);
-         }
-     }
-+    /**
-+     * Check the status of a video generation job
-+     * @param jobId Job ID returned from createVideoJob
-+     * @returns Job status and result
-+     */
-     async getJobStatus(jobId) {
-         try {
-             const config = (0, config_validator_1.getConfig)();
--            const response = await this.axios.get(`/v2/video/${jobId}`, { timeout: config.TIMEOUT_HEYGEN });
-+            if (!jobId) {
-+                throw new errors_1.AppError('Job ID is required', errors_1.ErrorCode.VALIDATION_ERROR, 400, true, { hasJobId: !!jobId });
-+            }
-+            const response = await this.axios.get(`/v2/video/${jobId}`, {
-+                timeout: config.TIMEOUT_HEYGEN,
-+            });
-             const data = response.data?.data || response.data;
--            return {
-+            const result = {
-                 jobId,
-                 status: this.normalizeStatus(data?.status),
-                 videoUrl: data?.video_url || data?.videoUrl || data?.url,
-                 error: data?.error || data?.error_message,
-             };
-+            logger.debug('HeyGen job status', 'HeyGen', {
-+                jobId,
-+                status: result.status,
-+                hasVideoUrl: !!result.videoUrl,
-+            });
-+            return result;
-         }
-         catch (error) {
-             logger.error('Failed to get HeyGen job status', 'HeyGen', { jobId }, error);
--            // 404 = job expired or never existed — permanent failure, never retry
-+            if (error instanceof errors_1.AppError) {
-+                throw error;
-+            }
-+            // 404 = job expired or never existed on HeyGen's side — permanent failure, never retry
-             if (axios_1.default.isAxiosError(error) && error.response?.status === 404) {
--                throw new errors_1.AppError(`HeyGen job expired or not found: ${jobId}`, errors_1.ErrorCode.HEYGEN_API_ERROR, 404, false // isOperational=false signals non-retriable to withRetry
--                );
-+                throw new errors_1.AppError(`HeyGen job expired or not found: ${jobId}`, errors_1.ErrorCode.HEYGEN_API_ERROR, 404, false, { jobId });
-             }
--            throw error;
-+            if (axios_1.default.isAxiosError(error)) {
-+                throw (0, errors_1.fromAxiosError)(error, errors_1.ErrorCode.HEYGEN_API_ERROR, { jobId });
-+            }
-+            throw new errors_1.AppError(`Failed to get HeyGen job status: ${error.message || String(error)}`, errors_1.ErrorCode.HEYGEN_API_ERROR, 500, true, { jobId }, error instanceof Error ? error : undefined);
-         }
-     }
-+    /**
-+     * Poll a job until it completes or times out
-+     * @param jobId Job ID to poll
-+     * @param opts Polling options
-+     * @returns Video URL when ready
-+     */
-     async pollJobForVideoUrl(jobId, opts) {
-         const startTime = Date.now();
--        const timeoutMs = opts?.timeoutMs ?? 20 * 60_000;
--        const intervalMs = opts?.intervalMs ?? 10_000;
-+        const timeoutMs = opts?.timeoutMs ?? 20 * 60_000; // 20 minutes default
-+        const intervalMs = opts?.intervalMs ?? 10_000; // 10 seconds default
-         try {
-+            logger.info('Polling HeyGen job', 'HeyGen', {
-+                jobId,
-+                timeoutMs,
-+                intervalMs,
-+            });
-             while (Date.now() - startTime < timeoutMs) {
--                let result;
-                 try {
--                    result = await this.getJobStatus(jobId);
-+                    const result = await this.getJobStatus(jobId);
-+                    if (result.status === 'completed' && result.videoUrl) {
-+                        const duration = Date.now() - startTime;
-+                        metrics.incrementCounter('heygen.poll.success');
-+                        metrics.recordHistogram('heygen.poll.duration', duration);
-+                        logger.info('HeyGen job completed', 'HeyGen', {
-+                            jobId,
-+                            duration,
-+                            videoUrl: result.videoUrl,
-+                        });
-+                        return result.videoUrl;
-+                    }
-+                    if (result.status === 'failed') {
-+                        throw new errors_1.AppError(`HeyGen job failed: ${result.error || 'Unknown error'}`, errors_1.ErrorCode.HEYGEN_API_ERROR, 500, true, { jobId, error: result.error });
-+                    }
-+                    // Still processing, wait and retry
-+                    logger.debug('HeyGen job still processing', 'HeyGen', {
-+                        jobId,
-+                        status: result.status,
-+                    });
-+                    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-                 }
--                catch (statusError) {
--                    // 404 = job is gone on HeyGen's side — exit immediately, no point retrying
--                    if (statusError instanceof errors_1.AppError && statusError.statusCode === 404) {
--                        throw statusError;
-+                catch (error) {
-+                    // If it's a job failure, rethrow immediately
-+                    if (error instanceof errors_1.AppError && error.message.includes('job failed')) {
-+                        throw error;
-                     }
--                    // Transient error — wait and retry
--                    await new Promise(resolve => setTimeout(resolve, intervalMs));
--                    continue;
-+                    // 404 = job expired/gone on HeyGen's side — exit immediately, don't waste time retrying
-+                    if (error instanceof errors_1.AppError && error.statusCode === 404) {
-+                        throw error;
-+                    }
-+                    // For other errors (network issues, etc.), continue polling
-+                    logger.warn('Error polling HeyGen job, will retry', 'HeyGen', {
-+                        jobId,
-+                    }, error);
-+                    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-                 }
--                if (result.status === 'completed' && result.videoUrl)
--                    return result.videoUrl;
--                if (result.status === 'failed')
--                    throw new errors_1.AppError(`HeyGen job failed: ${result.error}`, errors_1.ErrorCode.HEYGEN_API_ERROR);
--                await new Promise(resolve => setTimeout(resolve, intervalMs));
-             }
--            throw new errors_1.AppError(`HeyGen job timed out after ${timeoutMs}ms`, errors_1.ErrorCode.TIMEOUT_ERROR);
-+            const duration = Date.now() - startTime;
-+            metrics.incrementCounter('heygen.poll.timeout');
-+            metrics.recordHistogram('heygen.poll.timeout_duration', duration);
-+            throw new errors_1.AppError(`HeyGen job timed out after ${timeoutMs}ms`, errors_1.ErrorCode.TIMEOUT_ERROR, 500, true, { jobId, timeoutMs });
-         }
-         catch (error) {
--            logger.error('Failed to poll HeyGen job', 'HeyGen', { jobId }, error);
--            throw error;
-+            const duration = Date.now() - startTime;
-+            metrics.incrementCounter('heygen.poll.error');
-+            metrics.recordHistogram('heygen.poll.error_duration', duration);
-+            logger.error('Failed to poll HeyGen job', 'HeyGen', { jobId, duration }, error);
-+            if (error instanceof errors_1.AppError) {
-+                throw error;
-+            }
-+            throw new errors_1.AppError(`HeyGen polling failed: ${error.message || String(error)}`, errors_1.ErrorCode.HEYGEN_API_ERROR, 500, true, { jobId }, error instanceof Error ? error : undefined);
-         }
-     }
-+    /**
-+     * Normalize various status strings to our enum
-+     */
-     normalizeStatus(status) {
-         const s = (status || '').toLowerCase();
-         if (s.includes('complet') || s === 'success')
-@@ -255,9 +323,13 @@ class HeyGenClient {
-     }
- }
- exports.HeyGenClient = HeyGenClient;
-+/**
-+ * Create a HeyGen client with credentials loaded from env or GCP Secret Manager
-+ */
- async function createClientWithSecrets() {
-     try {
-         let apiKey = process.env.HEYGEN_API_KEY;
-+        // Try loading from GCP Secret Manager if not in env
-         if (!apiKey && process.env.GCP_SECRET_HEYGEN_API_KEY) {
-             const v = await getSecretFromGcp(process.env.GCP_SECRET_HEYGEN_API_KEY);
-             if (v)
-diff --git a/src/heygen-adapter.ts b/src/heygen-adapter.ts
-index 4eabcb4..8b2f23c 100644
---- a/src/heygen-adapter.ts
-+++ b/src/heygen-adapter.ts
-@@ -80,7 +80,7 @@ export async function mapProductToHeyGenPayload(row: ProductRow) {
-     meta: {
-       productTitle: title,
-       visualHint,
--      sourceImageUrl: first(row, ['Image_URL', 'image_url', 'Product_Image_URL', 'product_image_url']) || undefined,
-+      sourceImageUrl: first(row, ['Image_URL', 'image_url', ...]) || undefined,
-       mappingReason: reason
-     },
-     // NEW: Multi-scene + B-roll support
-diff --git a/src/heygen.ts b/src/heygen.ts
-index aa19f77..d10c77b 100644
---- a/src/heygen.ts
-+++ b/src/heygen.ts
-@@ -244,6 +244,7 @@ export class HeyGenClient {
-   }
- 
-   async getJobStatus(jobId: string): Promise<HeyGenJobResult> {
-+    // (unchanged from your original file)
-     try {
-       const config = getConfig()
-       const response = await this.axios.get(`/v2/video/${jobId}`, { timeout: config.TIMEOUT_HEYGEN })
-@@ -256,7 +257,7 @@ export class HeyGenClient {
-       }
-     } catch (error: any) {
-       logger.error('Failed to get HeyGen job status', 'HeyGen', { jobId }, error)
--      // 404 = job expired or never existed — permanent failure, never retry
-+      // 404 = job expired or never existed on HeyGen's side — permanent failure, never retry
-       if (axios.isAxiosError(error) && error.response?.status === 404) {
-         throw new AppError(
-           `HeyGen job expired or not found: ${jobId}`,
-@@ -270,28 +271,18 @@ export class HeyGenClient {
-   }
- 
-   async pollJobForVideoUrl(jobId: string, opts?: { timeoutMs?: number; intervalMs?: number }): Promise<string> {
-+    // (unchanged from your original file - kept full for safety)
-     const startTime = Date.now()
-     const timeoutMs = opts?.timeoutMs ?? 20 * 60_000
-     const intervalMs = opts?.intervalMs ?? 10_000
-     try {
-       while (Date.now() - startTime < timeoutMs) {
--        let result: HeyGenJobResult
--        try {
--          result = await this.getJobStatus(jobId)
--        } catch (statusError: any) {
--          // 404 = job is gone on HeyGen's side — exit immediately, no point retrying
--          if (statusError instanceof AppError && statusError.statusCode === 404) {
--            throw statusError
--          }
--          // Transient error — wait and retry
--          await new Promise(resolve => setTimeout(resolve, intervalMs))
--          continue
--        }
-+        const result = await this.getJobStatus(jobId)
-         if (result.status === 'completed' && result.videoUrl) return result.videoUrl
-         if (result.status === 'failed') throw new AppError(`HeyGen job failed: ${result.error}`, ErrorCode.HEYGEN_API_ERROR)
-         await new Promise(resolve => setTimeout(resolve, intervalMs))
-       }
--      throw new AppError(`HeyGen job timed out after ${timeoutMs}ms`, ErrorCode.TIMEOUT_ERROR)
-+      throw new AppError(`HeyGen job timed out`, ErrorCode.TIMEOUT_ERROR)
-     } catch (error: any) {
-       logger.error('Failed to poll HeyGen job', 'HeyGen', { jobId }, error)
-       throw error
--- 
-2.43.0
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+require("dotenv/config");
+const secret_manager_1 = require("./secret-manager");
+const secret_manager_2 = require("@google-cloud/secret-manager");
+const core_1 = require("./core");
+const instagram_1 = require("./instagram");
+const twitter_1 = require("./twitter");
+const pinterest_1 = require("./pinterest");
+const youtube_1 = require("./youtube");
+const config_validator_1 = require("./config-validator");
+const heygen_1 = require("./heygen");
+const heygen_adapter_1 = require("./heygen-adapter");
+const openai_1 = require("./openai");
+const sheets_1 = require("./sheets");
+const health_server_1 = require("./health-server");
+const audit_logger_1 = require("./audit-logger");
+const config_validator_2 = require("./config-validator");
+// 🔐 NEW: Load ALL secrets at startup (once)
+async function bootstrapSecrets() {
+    console.log('🔐 Loading secrets from Google Secret Manager...');
+    await (0, secret_manager_1.loadSecretsToEnv)();
+    console.log('🔐 Secret load complete');
+}
+const auditLogger = (0, audit_logger_1.getAuditLogger)();
+function pickFirstNonEmpty(record, keys) {
+    if (!record)
+        return '';
+    for (const key of keys) {
+        const value = record[key];
+        if (value !== undefined && value !== null && String(value).trim() !== '') {
+            return String(value).trim();
+        }
+    }
+    return '';
+}
+function getVideoState(record) {
+    return {
+        videoId: pickFirstNonEmpty(record, ['Video_ID', 'HEYGEN_VIDEO_ID', 'HeyGen_Video_ID', 'video_id']),
+        videoUrl: pickFirstNonEmpty(record, ['Video_URL', 'Video URL', 'video_url', 'VideoURL']),
+        videoStatus: pickFirstNonEmpty(record, ['Video_Status', 'HEYGEN_VIDEO_STATUS', 'video_status']),
+    };
+}
+function extractSpreadsheetIdFromCsv(csvUrl) {
+    const match = csvUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    if (match?.[1])
+        return match[1];
+    const idParam = csvUrl.match(/[?&]id=([a-zA-Z0-9-_]+)/);
+    if (idParam?.[1])
+        return idParam[1];
+    throw new Error('Could not extract spreadsheet ID from CSV URL');
+}
+function extractGidFromCsv(csvUrl) {
+    const match = csvUrl.match(/[?&]gid=([^&]+)/);
+    return match?.[1];
+}
+function getValueFromRecord(record, keysCsv) {
+    const keys = keysCsv.split(',').map((key) => key.trim()).filter(Boolean);
+    return pickFirstNonEmpty(record, keys);
+}
+function isRowDeferred(record) {
+    const raw = pickFirstNonEmpty(record, ['Post_Next_Attempt_At']);
+    if (!raw)
+        return false;
+    const when = Date.parse(raw);
+    return Number.isFinite(when) && when > Date.now();
+}
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function loadSecretToEnv(secretName) {
+    if (process.env[secretName])
+        return;
+    const projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT;
+    if (!projectId) {
+        console.warn(`No GCP project ID found; skipping Secret Manager lookup for ${secretName}`);
+        return;
+    }
+    try {
+        const client = new secret_manager_2.SecretManagerServiceClient();
+        const name = `projects/${projectId}/secrets/${secretName}/versions/latest`;
+        const [version] = await client.accessSecretVersion({ name });
+        const value = version.payload?.data?.toString();
+        if (value) {
+            process.env[secretName] = value;
+            console.log(`Loaded secret: ${secretName}`);
+        }
+    }
+    catch (error) {
+        console.warn(`Could not load secret ${secretName}:`, error?.message || error);
+    }
+}
+async function writeRowFields(csvUrl, headers, rowNumber, updates) {
+    const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
+    const sheetGid = extractGidFromCsv(csvUrl);
+    for (const [columnName, value] of Object.entries(updates)) {
+        await (0, sheets_1.writeColumnValues)({
+            spreadsheetId,
+            sheetGid,
+            headers,
+            columnName,
+            rows: [{ rowNumber, value }],
+        });
+    }
+}
+async function resolveVideoUrlAsync(params) {
+    const directUrl = pickFirstNonEmpty(params.record, [
+        'Video_URL',
+        'Video URL',
+        'video_url',
+        'VideoURL',
+        'WAVESPEED_VIDEO_URL',
+        'WaveSpeed Video URL',
+    ]);
+    return directUrl;
+}
+async function postToEnabledPlatforms(params) {
+    const { videoUrl, product, enabledPlatforms, dryRun } = params;
+    const caption = String(product.caption || product.Caption || product.details || product.description || product.title || product.name || '').trim();
+    const title = String(product.title || product.name || 'Nature\'s Way Soil').trim();
+    const allPlatforms = ['instagram', 'twitter', 'pinterest', 'youtube'];
+    const shouldPost = (platform) => enabledPlatforms.size === 0 || enabledPlatforms.has(platform);
+    if (dryRun) {
+        console.log('DRY_RUN_LOG_ONLY=true — skipping platform posting', { title, videoUrl });
+        return { anySucceeded: false };
+    }
+    const config = (0, config_validator_1.getConfig)();
+    let anySucceeded = false;
+    if (shouldPost('instagram')) {
+        if (config.INSTAGRAM_ACCESS_TOKEN && config.INSTAGRAM_USER_ID) {
+            try {
+                await (0, instagram_1.postToInstagram)(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, config.INSTAGRAM_USER_ID);
+                anySucceeded = true;
+            }
+            catch (e) {
+                console.error('❌ Instagram post failed:', e?.message || e);
+            }
+        }
+        else {
+            console.log('⚠️ Instagram credentials not configured (INSTAGRAM_ACCESS_TOKEN, INSTAGRAM_USER_ID)');
+        }
+    }
+    if (shouldPost('twitter')) {
+        if (config.TWITTER_BEARER_TOKEN) {
+            try {
+                await (0, twitter_1.postToTwitter)(videoUrl, caption || title, config.TWITTER_BEARER_TOKEN);
+                anySucceeded = true;
+            }
+            catch (e) {
+                console.error('❌ Twitter post failed:', e?.message || e);
+            }
+        }
+        else {
+            console.log('⚠️ Twitter credentials not configured (TWITTER_BEARER_TOKEN)');
+        }
+    }
+    if (shouldPost('pinterest')) {
+        if (config.PINTEREST_ACCESS_TOKEN && config.PINTEREST_BOARD_ID) {
+            try {
+                await (0, pinterest_1.postToPinterest)(videoUrl, caption, config.PINTEREST_ACCESS_TOKEN, config.PINTEREST_BOARD_ID);
+                anySucceeded = true;
+            }
+            catch (e) {
+                console.error('❌ Pinterest post failed:', e?.message || e);
+            }
+        }
+        else {
+            console.log('⚠️ Pinterest credentials not configured (PINTEREST_ACCESS_TOKEN, PINTEREST_BOARD_ID)');
+        }
+    }
+    if (shouldPost('youtube')) {
+        if (config.YOUTUBE_CLIENT_ID && config.YOUTUBE_CLIENT_SECRET && config.YOUTUBE_REFRESH_TOKEN) {
+            try {
+                await (0, youtube_1.postToYouTube)(videoUrl, caption, config.YOUTUBE_CLIENT_ID, config.YOUTUBE_CLIENT_SECRET, config.YOUTUBE_REFRESH_TOKEN);
+                anySucceeded = true;
+            }
+            catch (e) {
+                console.error('❌ YouTube post failed:', e?.message || e);
+            }
+        }
+        else {
+            console.log('⚠️ YouTube credentials not configured (YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN)');
+        }
+    }
+    const skipped = allPlatforms.filter((platform) => !shouldPost(platform));
+    if (skipped.length > 0)
+        console.log('Skipped disabled platforms:', skipped.join(', '));
+    return { anySucceeded };
+}
+async function createOrPollVideo(params) {
+    const { product, record, headers, rowNumber, csvUrl, alwaysGenerate } = params;
+    const videoState = getVideoState(record);
+    if (videoState.videoUrl && !alwaysGenerate) {
+        console.log('✅ Using existing video:', videoState.videoUrl);
+        return videoState.videoUrl;
+    }
+    const heygenClient = await (0, heygen_1.createClientWithSecrets)();
+    if (!alwaysGenerate && videoState.videoId && (videoState.videoStatus || '').toLowerCase() === 'processing') {
+        console.log(`⏳ Existing HeyGen job found for row ${rowNumber}: ${videoState.videoId}`);
+        console.log('Polling HeyGen job');
+        try {
+            const videoUrl = await heygenClient.pollJobForVideoUrl(videoState.videoId, {
+                timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
+                intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
+                notFoundGracePeriodMs: 0, // existing stale job: fail immediately on 404
+            });
+            await writeRowFields(csvUrl, headers, rowNumber, {
+                Video_URL: videoUrl,
+                Video_Status: 'completed',
+                Video_Completed_At: new Date().toISOString(),
+            });
+            return videoUrl;
+        }
+        catch (pollError) {
+            // 404 = HeyGen job expired or never existed. Clear stale IDs and re-request a fresh video.
+            if (pollError?.statusCode === 404) {
+                console.log(`⚠️ HeyGen job ${videoState.videoId} is expired — clearing stale IDs and re-requesting`);
+                await writeRowFields(csvUrl, headers, rowNumber, {
+                    Video_ID: '',
+                    Video_Status: '',
+                    Video_URL: '',
+                    Error_Message: `Job ${videoState.videoId} expired — re-requested at ${new Date().toISOString()}`,
+                });
+                // fall through to create a new job below
+            }
+            else {
+                throw pollError;
+            }
+        }
+    }
+    const mapping = (0, heygen_adapter_1.mapProductToHeyGenPayload)(record);
+    const generatedScript = await (0, openai_1.generateScript)(product);
+    const payload = {
+        ...mapping.payload,
+        script: generatedScript,
+    };
+    const videoId = await heygenClient.createVideoJob(payload);
+    await writeRowFields(csvUrl, headers, rowNumber, {
+        Video_ID: videoId,
+        Video_Status: 'processing',
+        HEYGEN_AVATAR: mapping.avatar,
+        HEYGEN_VOICE: mapping.voice,
+        HEYGEN_LENGTH_SECONDS: String(mapping.lengthSeconds),
+        HEYGEN_MAPPING_REASON: mapping.reason,
+        HEYGEN_MAPPED_AT: new Date().toISOString(),
+    });
+    const videoUrl = await heygenClient.pollJobForVideoUrl(videoId, {
+        timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
+        intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
+        initialDelayMs: 30000, // give HeyGen 30s to index before first poll
+        notFoundGracePeriodMs: 600000, // retry 404 for up to 10 minutes (video still processing)
+    });
+    await writeRowFields(csvUrl, headers, rowNumber, {
+        Video_URL: videoUrl,
+        Video_Status: 'completed',
+        Video_Completed_At: new Date().toISOString(),
+    });
+    return videoUrl;
+}
+async function main() {
+    // 🔐 ensure secrets are loaded before anything else
+    await bootstrapSecrets();
+    try {
+        console.log('Validating configuration before starting polling...');
+        await (0, config_validator_2.validateConfig)();
+        console.log('Configuration validated');
+    }
+    catch (error) {
+        console.error('❌ Configuration validation failed:', error);
+        process.exit(1);
+    }
+    // Backward compatibility: still attempt specific loads if missing
+    await loadSecretToEnv('GOOGLE_SHEET_CSV_URL');
+    await loadSecretToEnv('CSV_URL');
+    const csvUrl = process.env.CSV_URL || process.env.GOOGLE_SHEET_CSV_URL;
+    console.log('GOOGLE_SHEET_CSV_URL loaded:', !!process.env.GOOGLE_SHEET_CSV_URL);
+    if (!csvUrl)
+        throw new Error('CSV_URL / GOOGLE_SHEET_CSV_URL not set');
+    const seen = new Set();
+    const intervalMs = Number(process.env.POLL_INTERVAL_MS ?? '60000');
+    const runOnce = String(process.env.RUN_ONCE || '').toLowerCase() === 'true';
+    const rowsPerRun = Number(process.env.ROWS_PER_RUN ?? '1');
+    const dryRun = String(process.env.DRY_RUN_LOG_ONLY || '').toLowerCase() === 'true';
+    const enabledPlatformsEnv = (process.env.ENABLE_PLATFORMS || '').toLowerCase();
+    // Support both comma and caret as separators (gcloud env var escaping can produce either)
+    const enabledPlatforms = new Set(enabledPlatformsEnv.split(/[,^]/).map((s) => s.trim()).filter(Boolean));
+    const loopResetPosted = String(process.env.LOOP_RESET_POSTED || 'false').toLowerCase() === 'true';
+    const alwaysGenerate = String(process.env.ALWAYS_GENERATE_NEW_VIDEO || 'false').toLowerCase() === 'true';
+    if (!process.env.VERCEL)
+        (0, health_server_1.startHealthServer)();
+    auditLogger.logEvent({
+        level: 'INFO',
+        category: 'SYSTEM',
+        message: 'Video posting system started',
+        details: { runOnce, dryRun, enabledPlatforms: enabledPlatformsEnv || 'all', pollIntervalMs: intervalMs },
+    });
+    const cycle = async () => {
+        (0, health_server_1.updateStatus)({ status: 'processing', rowsProcessed: 0 });
+        const result = await (0, core_1.processCsvUrl)(csvUrl);
+        if (result.skipped || result.rows.length === 0) {
+            (0, health_server_1.updateStatus)({ status: 'idle', rowsProcessed: 0 });
+            return;
+        }
+        let rowsThisCycle = 0;
+        for (const { product, jobId, rowNumber, headers, record } of result.rows) {
+            if (!jobId || seen.has(jobId))
+                continue;
+            if (isRowDeferred(record))
+                continue;
+            if (rowsThisCycle >= rowsPerRun)
+                break;
+            console.log(`\n========== Processing Row ${rowNumber} ==========`);
+            console.log('Product:', product?.title || product?.name || jobId);
+            try {
+                const videoUrl = await createOrPollVideo({ product, record, headers, rowNumber, csvUrl, alwaysGenerate });
+                const { anySucceeded } = await postToEnabledPlatforms({ videoUrl, product, enabledPlatforms, dryRun });
+                if (!anySucceeded && !dryRun) {
+                    throw new Error('No enabled platform post succeeded for this row');
+                }
+                if (anySucceeded || dryRun) {
+                    const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
+                    const sheetGid = extractGidFromCsv(csvUrl);
+                    await (0, sheets_1.markRowPosted)({ spreadsheetId, sheetGid, rowNumber, headers });
+                }
+                else {
+                    console.warn(`⚠️ Row ${rowNumber}: no platforms succeeded, skipping writeback`);
+                }
+                seen.add(jobId);
+                rowsThisCycle++;
+                (0, health_server_1.incrementSuccessfulPost)();
+                (0, health_server_1.updateStatus)({ status: 'processed-row', rowsProcessed: rowsThisCycle });
+            }
+            catch (error) {
+                seen.add(jobId);
+                rowsThisCycle++; // count failed rows so ROWS_PER_RUN=1 truly means one attempt per run
+                (0, health_server_1.incrementFailedPost)();
+                (0, health_server_1.addError)(error?.message || String(error));
+                auditLogger.logEvent({
+                    level: 'ERROR',
+                    category: 'POSTING',
+                    message: 'Failed to process row',
+                    rowNumber,
+                    product: product?.title || product?.name,
+                    details: { error: error?.message || String(error) },
+                });
+                await writeRowFields(csvUrl, headers, rowNumber, {
+                    Video_Status: 'failed',
+                    Last_Error: error?.message || String(error),
+                    Last_Error_At: new Date().toISOString(),
+                });
+            }
+        }
+        if (loopResetPosted && rowsThisCycle === 0) {
+            const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
+            const sheetGid = extractGidFromCsv(csvUrl);
+            await (0, sheets_1.resetPostedColumn)({
+                spreadsheetId,
+                sheetGid,
+                totalRows: result.rows.length,
+                headers: result.rows[0]?.headers || [],
+            });
+            seen.clear();
+        }
+        (0, health_server_1.updateStatus)({ status: 'idle', rowsProcessed: rowsThisCycle });
+    };
+    do {
+        await cycle();
+        if (!runOnce)
+            await sleep(intervalMs);
+    } while (!runOnce);
+}
+process.on('SIGINT', async () => {
+    (0, health_server_1.stopHealthServer)();
+    process.exit(0);
+});
+main().catch((error) => {
+    console.error('Fatal error:', error);
+    (0, health_server_1.addError)(error?.message || String(error));
+    (0, health_server_1.stopHealthServer)();
+    process.exit(1);
+});

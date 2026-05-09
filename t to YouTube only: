@@ -1,0 +1,20 @@
+[33m1f56a035[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Merge branch 'feature/secret-variants-supabase-test-campaign'
+[33m5d927035[m[33m ([m[1;31morigin/feature/secret-variants-supabase-test-campaign[m[33m)[m Support flexible secret naming and switch test campaign hosting to Supabase
+[33m9d65a0ab[m Fix workflow ADC setup to mirror local Google credentials loading
+[33m8c541158[m[33m ([m[1;31morigin/fix/github-actions-gcp-auth[m[33m)[m Add GitHub Actions Google Cloud auth via GOOGLE_CREDENTIALS
+[33m6dd26dc7[m Fix video automation workflow to run test campaign mode
+[33ma35c44fe[m Add test campaign videos to repo for GitHub Actions
+[33m52bfbaa5[m Use Google Secret Manager for test campaign and disable Twitter
+[33m0fbd4ad0[m Configure 5x/day rotating test-video campaign automation
+[33m252e98c0[m Improve amazon video test resiliency and dog urine ASIN mapping
+[33m11841e4c[m Add ASIN landing URL overlays and branded end card rendering
+[33m63cd8e90[m Refactor CSV processing and HeyGen integration
+[33mfeff2ee9[m Implement video post logging to Google Sheets
+[33mfcf7676f[m Delete src/analytics-tracker.ts/a
+[33m4408641e[m Add logVideoPost function to track video posts
+[33m657d452d[m Enhance HeyGenClient with multi-scene and B-roll support
+[33m3360b1b0[m Import generateScript from openai in heygen-adapter
+[33m413347be[m Refactor HeyGen adapter for structured script and B-roll
+[33m13062647[m Add async function to generate video scripts
+[33m94fa7fe6[m Implement PexelsService for fetching B-roll videos
+[33mc20dae8f[m Add Video Enhancement Plan for HeyGen videos
