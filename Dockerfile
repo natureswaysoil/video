@@ -5,7 +5,9 @@ COPY package*.json ./
 RUN npm ci --no-audit --no-fund
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build || true
+# Do not hide TypeScript build failures. A bad build should fail here,
+# instead of deploying an image with missing files in /app/dist.
+RUN npm run build
 
 # Runtime stage
 FROM node:20-slim
