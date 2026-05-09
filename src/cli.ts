@@ -167,13 +167,15 @@ async function postToEnabledPlatforms(params: {
   let anySucceeded = false
 
   if (shouldPost('instagram')) {
-    if (config.INSTAGRAM_ACCESS_TOKEN && config.INSTAGRAM_IG_ID) {
+    if (config.INSTAGRAM_ACCESS_TOKEN && config.INSTAGRAM_USER_ID) {
       try {
-        await postToInstagram(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, config.INSTAGRAM_IG_ID)
+        await postToInstagram(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, config.INSTAGRAM_USER_ID)
         anySucceeded = true
       } catch (e: any) {
         console.error('❌ Instagram post failed:', e?.message || e)
       }
+    } else {
+      console.log('⚠️ Instagram credentials not configured (INSTAGRAM_ACCESS_TOKEN, INSTAGRAM_USER_ID)')
     }
   }
   if (shouldPost('twitter')) {
@@ -184,6 +186,8 @@ async function postToEnabledPlatforms(params: {
       } catch (e: any) {
         console.error('❌ Twitter post failed:', e?.message || e)
       }
+    } else {
+      console.log('⚠️ Twitter credentials not configured (TWITTER_BEARER_TOKEN)')
     }
   }
   if (shouldPost('pinterest')) {
@@ -194,16 +198,20 @@ async function postToEnabledPlatforms(params: {
       } catch (e: any) {
         console.error('❌ Pinterest post failed:', e?.message || e)
       }
+    } else {
+      console.log('⚠️ Pinterest credentials not configured (PINTEREST_ACCESS_TOKEN, PINTEREST_BOARD_ID)')
     }
   }
   if (shouldPost('youtube')) {
-    if (config.YT_CLIENT_ID && config.YT_CLIENT_SECRET && config.YT_REFRESH_TOKEN) {
+    if (config.YOUTUBE_CLIENT_ID && config.YOUTUBE_CLIENT_SECRET && config.YOUTUBE_REFRESH_TOKEN) {
       try {
-        await postToYouTube(videoUrl, caption, config.YT_CLIENT_ID, config.YT_CLIENT_SECRET, config.YT_REFRESH_TOKEN)
+        await postToYouTube(videoUrl, caption, config.YOUTUBE_CLIENT_ID, config.YOUTUBE_CLIENT_SECRET, config.YOUTUBE_REFRESH_TOKEN)
         anySucceeded = true
       } catch (e: any) {
         console.error('❌ YouTube post failed:', e?.message || e)
       }
+    } else {
+      console.log('⚠️ YouTube credentials not configured (YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN)')
     }
   }
 
