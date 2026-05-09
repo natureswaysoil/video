@@ -22,7 +22,7 @@ export const DEFAULT_SECRET_NAMES = [
   'HEYGEN_DEFAULT_VOICE',
   'HEYGEN_WEBHOOK_URL',
   'INSTAGRAM_ACCESS_TOKEN',
-  'INSTAGRAM_ACCOUNT_ID',
+  'INSTAGRAM_USER_ID',
   'YOUTUBE_CLIENT_ID',
   'YOUTUBE_CLIENT_SECRET',
   'YOUTUBE_REFRESH_TOKEN',
@@ -53,7 +53,8 @@ function hasLikelyAdc(): boolean {
     process.env.GOOGLE_APPLICATION_CREDENTIALS ||
       process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
       process.env.GOOGLE_CREDENTIALS ||
-      process.env.K_SERVICE ||
+      process.env.K_SERVICE ||          // Cloud Run Services
+      process.env.CLOUD_RUN_JOB ||      // Cloud Run Jobs
       process.env.FUNCTION_TARGET ||
       process.env.GAE_SERVICE
   )
