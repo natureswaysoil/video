@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/natureswaysoil/video/content/metadata/video_metadata.schema.json",
+  "title": "Nature's Way Soil Video Metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "productName",
+    "productSlug",
+    "targetBuyer",
+    "platform",
+    "campaign",
+    "cta",
+    "landingPageUrl",
+    "title",
+    "description",
+    "thumbnailText",
+    "tags",
+    "claimReviewStatus",
+    "captionStatus"
+  ],
+  "properties": {
+    "productName": { "type": "string", "minLength": 2 },
+    "productSlug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "sku": { "type": "string" },
+    "targetBuyer": {
+      "type": "string",
+      "enum": [
+        "homeowner",
+        "landscaper",
+        "municipal-parks",
+        "school-campus",
+        "golf-recreation",
+        "government-procurement",
+        "pet-area",
+        "amazon-shopper",
+        "website-shopper"
+      ]
+    },
+    "platform": {
+      "type": "string",
+      "enum": ["youtube", "youtube-shorts", "instagram", "facebook", "x", "pinterest", "linkedin", "website", "amazon"]
+    },
+    "campaign": { "type": "string" },
+    "videoLengthSeconds": { "type": "integer", "minimum": 5, "maximum": 180 },
+    "cta": {
+      "type": "string",
+      "enum": ["buy-now", "request-quote", "request-pilot", "book-call", "download-capability-statement", "learn-more"]
+    },
+    "landingPageUrl": { "type": "string", "format": "uri" },
+    "title": { "type": "string", "minLength": 5, "maxLength": 100 },
+    "description": { "type": "string", "minLength": 20, "maxLength": 5000 },
+    "thumbnailText": { "type": "string", "minLength": 3, "maxLength": 45 },
+    "tags": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 30,
+      "items": { "type": "string", "minLength": 2, "maxLength": 60 }
+    },
+    "claims": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 240 }
+    },
+    "claimReviewStatus": {
+      "type": "string",
+      "enum": ["needs-review", "approved", "rejected", "revised"]
+    },
+    "captionStatus": {
+      "type": "string",
+      "enum": ["not-started", "auto-generated", "human-reviewed", "uploaded"]
+    },
+    "transcriptPath": { "type": "string" },
+    "captionPath": { "type": "string" },
+    "publishedUrl": { "type": "string", "format": "uri" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "publishedAt": { "type": "string", "format": "date-time" }
+  }
+}
