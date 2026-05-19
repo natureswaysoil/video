@@ -1,0 +1,42 @@
+{
+  "productName": "Hay, Pasture & Lawn Recovery System with Liquid Biochar",
+  "productSlug": "hay-pasture-lawn-recovery-liquid-biochar",
+  "sku": "NWS-HPLR-LB",
+  "targetBuyer": "government-procurement",
+  "platform": "youtube",
+  "campaign": "b2b-grounds-recovery-pilot",
+  "videoLengthSeconds": 45,
+  "cta": "request-pilot",
+  "landingPageUrl": "https://natureswaysoil.com/government",
+  "title": "Liquid Biochar Lawn Recovery for Parks, Schools & Golf | Nature's Way Soil",
+  "description": "Nature's Way Soil helps public grounds teams, schools, campuses, golf facilities, and contractors improve stressed soil and turf with liquid biochar, humic and fulvic acids, kelp, yucca, and beneficial biology. Request pricing for pilot programs, recurring supply, or project-based orders.",
+  "thumbnailText": "Liquid Biochar for Public Grounds",
+  "tags": [
+    "liquid biochar",
+    "turf recovery",
+    "lawn recovery",
+    "soil health",
+    "humic acid",
+    "fulvic acid",
+    "kelp fertilizer",
+    "grounds maintenance",
+    "parks department",
+    "school grounds",
+    "golf course turf",
+    "HUBZone small business",
+    "public sector purchasing",
+    "biobased products",
+    "Nature's Way Soil"
+  ],
+  "claims": [
+    "Supports stronger roots",
+    "Supports better nutrient holding",
+    "Supports microbial activity in the root zone",
+    "Good fit for parks, schools, campuses, golf, recreation areas, housing common areas, and restoration projects"
+  ],
+  "claimReviewStatus": "needs-review",
+  "captionStatus": "not-started",
+  "transcriptPath": "content/transcripts/example_lawn_recovery_b2b.md",
+  "captionPath": "content/captions/example_lawn_recovery_b2b.vtt",
+  "createdAt": "2026-05-19T12:00:00-04:00"
+}
