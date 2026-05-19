@@ -1,4 +1,6 @@
 .env
+.env.*
+!.env.example
 node_modules/
 *.log
 .DS_Store
@@ -6,3 +8,28 @@ node_modules/
 __pycache__/
 *.pyc
 *.pyo
+
+# Build outputs and caches
+dist/
+build/
+.next/
+.cache/
+coverage/
+
+# Runtime outputs
+output/
+outputs/
+tmp/
+temp/
+*.tmp
+
+# Media renders should be stored in external storage or release artifacts
+*.mp4
+*.mov
+*.wav
+*.mp3
+*.webm
+
+# Local editor files
+.vscode/
+.idea/
