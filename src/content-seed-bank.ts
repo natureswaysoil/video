@@ -80,17 +80,8 @@ export const CONTENT_SEED_BANK: SeedVariation[] = [
   }
 ]
 
-export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
-  {
-    angle: 'pasture-revival-test',
-    title: 'Pasture Revival Soil Support',
-    productDescription: 'Bring tired pasture back to life with soil-first nutrition support designed for stronger root activity and more resilient forage growth.',
-    visualPrompt: 'Pasture grass before/after, product bottle hero shot, root-zone support visuals, and healthy green field recovery.',
-    websiteUrl: 'https://natureswaysoil.com/pasture-revival',
-    platform: 'youtube,instagram,twitter,pinterest',
-    videoFileName: 'pasture-revival-test.mp4',
-    hashtags: ['#PastureRevival', '#SoilHealth', '#RegenerativeAgriculture', '#NaturesWaySoil'],
-  },
+  // pasture-revival-test.mp4 is a Git LFS pointer with no valid LFS object in GitHub.
+  // Re-add this seed only after committing a real video file (non-LFS blob).
   {
     angle: 'dog-urine-neutralizer-test',
     title: 'Dog Urine Neutralizer Lawn Recovery',
