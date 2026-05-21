@@ -20,10 +20,16 @@ jobs:
       TEST_VIDEO_CAMPAIGN_MODE: 'true'
       TEST_VIDEOS_DIR: test-campaign-videos
       DEFAULT_GOOGLE_CLOUD_PROJECT: natureswaysoil-video
+      # Serve videos directly from the repo so the workflow never depends on Supabase storage.
+      # The four test-campaign .mp4 files are committed as regular git blobs (not LFS objects),
+      # so raw.githubusercontent.com returns actual video bytes for each one.
+      TEST_VIDEO_PUBLIC_BASE_URL: 'https://raw.githubusercontent.com/natureswaysoil/video/main/test-campaign-videos'
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Prepare Google ADC credentials (match local setup)
         env:
