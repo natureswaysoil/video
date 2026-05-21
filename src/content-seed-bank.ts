@@ -81,8 +81,16 @@ export const CONTENT_SEED_BANK: SeedVariation[] = [
 ]
 
 export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
-  // pasture-revival-test.mp4 removed: the file is a corrupt Git LFS pointer (132 bytes).
-  // Re-add this seed once a valid video is committed or replaced.
+  {
+    angle: 'pasture-revival-test',
+    title: 'Pasture Revival Soil Support',
+    productDescription: 'Bring tired pasture back to life with soil-first nutrition support designed for stronger root activity and more resilient forage growth.',
+    visualPrompt: 'Pasture grass before/after, product bottle hero shot, root-zone support visuals, and healthy green field recovery.',
+    websiteUrl: 'https://natureswaysoil.com/pasture-revival',
+    platform: 'youtube,instagram,twitter,pinterest',
+    videoFileName: 'pasture-revival-test.mp4',
+    hashtags: ['#PastureRevival', '#SoilHealth', '#RegenerativeAgriculture', '#NaturesWaySoil'],
+  },
   {
     angle: 'dog-urine-neutralizer-test',
     title: 'Dog Urine Neutralizer Lawn Recovery',
