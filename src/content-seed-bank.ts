@@ -80,8 +80,8 @@ export const CONTENT_SEED_BANK: SeedVariation[] = [
   }
 ]
 
+export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
   // pasture-revival-test.mp4 is a Git LFS pointer with no valid LFS object in GitHub.
-  // Re-add this seed only after committing a real video file (non-LFS blob).
   {
     angle: 'dog-urine-neutralizer-test',
     title: 'Dog Urine Neutralizer Lawn Recovery',
