@@ -31,7 +31,7 @@ export interface BlogArticle {
 export async function postBlogArticle(
   articleData: BlogArticleData,
   githubToken: string,
-  repo: string = 'natureswaysoil/coplit-built',
+  repo: string = 'natureswaysoil/best',
   branch: string = 'main'
 ): Promise<{ success: boolean; articleId: string; commitSha?: string }> {
   try {
@@ -159,7 +159,7 @@ function extractTags(productTitle: string): string[] {
 /**
  * Validate GitHub token has necessary permissions
  */
-export async function validateGitHubToken(token: string, repo: string = 'natureswaysoil/coplit-built'): Promise<boolean> {
+export async function validateGitHubToken(token: string, repo: string = 'natureswaysoil/best'): Promise<boolean> {
   try {
     const response = await axios.get(`https://api.github.com/repos/${repo}`, {
       headers: {
