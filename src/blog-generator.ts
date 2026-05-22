@@ -62,7 +62,7 @@ Topic: ${topic}
 Requirements:
 1. Title: Catchy, SEO-friendly (60-70 characters)
 2. Excerpt: Engaging summary (150-160 characters)
-3. Content: 800-1200 words, well-structured with headings
+3. Content: 1200-1800 words, well-structured with headings
 4. Include actionable tips and science-backed information
 5. Naturally mention Nature's Way Soil products where relevant
 6. Professional yet accessible tone
@@ -95,7 +95,7 @@ The content should use Markdown formatting with ## for headings.`
         }
       ],
       temperature: 0.8,
-      max_tokens: 2500,
+      max_tokens: 4000,
       response_format: { type: 'json_object' }
     })
 
@@ -460,7 +460,7 @@ export async function postBlogVideoToSocial(blogPost: BlogPost, videoUrl: string
  * to public/blog_articles.json on the configured GitHub repo.
  *
  * Gated by ENABLE_BLOG_POSTING=true and a valid GITHUB_TOKEN.
- * Defaults: repo=natureswaysoil/coplit-built, branch=main.
+ * Defaults: repo=natureswaysoil/best, branch=main.
  */
 export async function publishBlogToGitHub(
   blogPost: BlogPost,
@@ -476,7 +476,7 @@ export async function publishBlogToGitHub(
     return { success: false, skipped: true, reason: 'missing GITHUB_TOKEN' }
   }
 
-  const repo = process.env.GITHUB_REPO || 'natureswaysoil/coplit-built'
+  const repo = process.env.GITHUB_REPO || 'natureswaysoil/best'
   const branch = process.env.GITHUB_BRANCH || 'main'
   const filePath = process.env.GITHUB_BLOG_FILE || 'public/blog_articles.json'
   const fileUrl = `https://api.github.com/repos/${repo}/contents/${filePath}?ref=${branch}`
@@ -512,7 +512,7 @@ export async function publishBlogToGitHub(
       content: blogPost.content,
       publishDate: blogPost.publishDate,
       category: blogPost.category || 'Gardening Tips',
-      featuredImage: videoUrl ? videoUrl.replace(/\.mp4(\?.*)?$/i, '-thumbnail.jpg') : '',
+      featuredImage: 'https://natureswaysoil.com/images/blog/default-blog-thumbnail.jpg',
       author: "Nature's Way Soil Team",
       tags: blogPost.tags || [],
       metaDescription: blogPost.excerpt?.substring(0, 160) || '',
