@@ -322,36 +322,80 @@ async function main(): Promise<void> {
   }
 
   let anySucceeded = false
+  const platformResults: Record<string, string> = {}
 
-  if (isPlatformEnabled('instagram', enabledPlatforms) && config.INSTAGRAM_ACCESS_TOKEN && getInstagramAccountId()) {
-    await postToInstagram(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, getInstagramAccountId())
-    anySucceeded = true
-    console.log('✅ Posted to Instagram')
+  if (isPlatformEnabled('instagram', enabledPlatforms)) {
+    if (config.INSTAGRAM_ACCESS_TOKEN && getInstagramAccountId()) {
+      try {
+        await postToInstagram(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, getInstagramAccountId())
+        anySucceeded = true
+        platformResults.instagram = 'success'
+        console.log('✅ Posted to Instagram')
+      } catch (e: any) {
+        platformResults.instagram = e?.message || String(e)
+        console.error('❌ Instagram post failed:', platformResults.instagram)
+      }
+    } else {
+      platformResults.instagram = 'skipped (no credentials)'
+    }
   }
 
-  if (isPlatformEnabled('pinterest', enabledPlatforms) && config.PINTEREST_ACCESS_TOKEN && config.PINTEREST_BOARD_ID) {
-    await postToPinterest(videoUrl, caption, config.PINTEREST_ACCESS_TOKEN, config.PINTEREST_BOARD_ID)
-    anySucceeded = true
-    console.log('✅ Posted to Pinterest')
+  if (isPlatformEnabled('pinterest', enabledPlatforms)) {
+    if (config.PINTEREST_ACCESS_TOKEN && config.PINTEREST_BOARD_ID) {
+      try {
+        await postToPinterest(videoUrl, caption, config.PINTEREST_ACCESS_TOKEN, config.PINTEREST_BOARD_ID)
+        anySucceeded = true
+        platformResults.pinterest = 'success'
+        console.log('✅ Posted to Pinterest')
+      } catch (e: any) {
+        platformResults.pinterest = e?.message || String(e)
+        console.error('❌ Pinterest post failed:', platformResults.pinterest)
+      }
+    } else {
+      platformResults.pinterest = 'skipped (no credentials)'
+    }
   }
 
   const youtubeCreds = getYouTubeCredentials()
-  if (isPlatformEnabled('youtube', enabledPlatforms) && youtubeCreds.clientId && youtubeCreds.clientSecret && youtubeCreds.refreshToken) {
-    await postToYouTube(
-      videoUrl,
-      caption,
-      youtubeCreds.clientId,
-      youtubeCreds.clientSecret,
-      youtubeCreds.refreshToken,
-      (process.env.YT_PRIVACY_STATUS as 'public' | 'unlisted' | 'private') || 'unlisted'
-    )
-    anySucceeded = true
-    console.log('✅ Posted to YouTube')
+  if (isPlatformEnabled('youtube', enabledPlatforms)) {
+    if (youtubeCreds.clientId && youtubeCreds.clientSecret && youtubeCreds.refreshToken) {
+      try {
+        await postToYouTube(
+          videoUrl,
+          caption,
+          youtubeCreds.clientId,
+          youtubeCreds.clientSecret,
+          youtubeCreds.refreshToken,
+          (process.env.YT_PRIVACY_STATUS as 'public' | 'unlisted' | 'private') || 'unlisted'
+        )
+        anySucceeded = true
+        platformResults.youtube = 'success'
+        console.log('✅ Posted to YouTube')
+      } catch (e: any) {
+        platformResults.youtube = e?.message || String(e)
+        console.error('❌ YouTube post failed:', platformResults.youtube)
+      }
+    } else {
+      platformResults.youtube = 'skipped (no credentials: missing ' + [
+        !youtubeCreds.clientId && 'clientId',
+        !youtubeCreds.clientSecret && 'clientSecret',
+        !youtubeCreds.refreshToken && 'refreshToken',
+      ].filter(Boolean).join(', ') + ')'
+    }
   }
 
+  console.log('📊 Platform results:', platformResults)
+
   if (!anySucceeded) {
+    const skippedAll = Object.values(platformResults).every((r) => r.startsWith('skipped'))
+    if (skippedAll) {
+      throw new Error(
+        'No platform had valid credentials. Ensure required secrets exist in Google Secret Manager and the service account has secretmanager.secretVersions.access. Twitter/X is disabled. Results: ' +
+          JSON.stringify(platformResults)
+      )
+    }
     throw new Error(
-      'No enabled platform had valid credentials. Configure ENABLE_PLATFORMS for instagram/pinterest/youtube and ensure required secrets exist in Google Secret Manager. Twitter/X is disabled.'
+      'All platform posts failed. Check individual errors above. Results: ' + JSON.stringify(platformResults)
     )
   }
 

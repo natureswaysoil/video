@@ -240,8 +240,33 @@ async function createOrPollVideo(params: {
   const videoState = getVideoState(record)
 
   if (videoState.videoUrl && !alwaysGenerate) {
-    console.log('✅ Using existing video:', videoState.videoUrl)
-    return videoState.videoUrl
+    if (!isVideoUrlExpired(videoState.videoUrl)) {
+      console.log('✅ Using existing video:', videoState.videoUrl)
+      return videoState.videoUrl
+    }
+    console.log(`⚠️ Stored video URL has expired for row ${rowNumber} — attempting to refresh`)
+    if (videoState.videoId) {
+      try {
+        const refreshClient = await createHeyGenClient()
+        const result = await refreshClient.getJobStatus(videoState.videoId)
+        if (result.status === 'completed' && result.videoUrl && !isVideoUrlExpired(result.videoUrl)) {
+          console.log('✅ Refreshed video URL from HeyGen API')
+          await writeRowFields(csvUrl, headers, rowNumber, {
+            Video_URL: result.videoUrl,
+            Video_Completed_At: new Date().toISOString(),
+          })
+          return result.videoUrl
+        }
+      } catch (refreshError) {
+        console.log(`⚠️ Could not refresh URL from HeyGen: ${refreshError?.message || refreshError}`)
+      }
+    }
+    console.log(`📹 Regenerating video for row ${rowNumber} (URL expired, refresh unavailable)`)
+    await writeRowFields(csvUrl, headers, rowNumber, {
+      Video_URL: '',
+      Video_ID: '',
+      Video_Status: '',
+    })
   }
 
   const heygenClient = await createHeyGenClient()
