@@ -87,6 +87,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function isVideoUrlExpired(url: string): boolean {
+  const match = url.match(/[?&]Expires=(\d+)/)
+  if (!match) return false
+  const expiresEpochSec = parseInt(match[1], 10)
+  return Number.isFinite(expiresEpochSec) && Date.now() >= expiresEpochSec * 1000
+}
+
 async function loadSecretToEnv(secretName: string): Promise<void> {
   if (process.env[secretName]) return
 
