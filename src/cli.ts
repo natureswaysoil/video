@@ -39,6 +39,10 @@ type VideoState = {
 
 type Platform = 'instagram' | 'twitter' | 'pinterest' | 'youtube'
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 function pickFirstNonEmpty(record: Record<string, any> | undefined, keys: string[]): string {
   if (!record) return ''
   for (const key of keys) {
@@ -258,7 +262,7 @@ async function createOrPollVideo(params: {
           return result.videoUrl
         }
       } catch (refreshError) {
-        console.log(`⚠️ Could not refresh URL from HeyGen: ${refreshError?.message || refreshError}`)
+        console.log(`⚠️ Could not refresh URL from HeyGen: ${getErrorMessage(refreshError)}`)
       }
     }
     console.log(`📹 Regenerating video for row ${rowNumber} (URL expired, refresh unavailable)`)
