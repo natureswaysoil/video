@@ -21,7 +21,8 @@
     "test:platforms": "ts-node scripts/test-all-platforms.ts",
     "test:e2e": "ts-node scripts/test-e2e-integration.ts",
     "test:e2e:dry": "DRY_RUN=true ts-node scripts/test-e2e-integration.ts",
-    "test:all": "npm run test:csv && npm run test:openai && npm run test:e2e:dry"
+    "test:all": "npm run test:csv && npm run test:openai && npm run test:e2e:dry",
+    "generate:test-videos": "ts-node scripts/generate-test-campaign-videos.ts"
   },
   "dependencies": {
     "@google-cloud/secret-manager": "^6.1.1",
