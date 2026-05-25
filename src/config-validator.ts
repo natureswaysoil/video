@@ -1,4 +1,3 @@
-
 /**
  * Configuration validation using Zod
  * Phase 1.4: Add configuration validation
@@ -101,6 +100,14 @@ export type AppConfig = ValidatedConfig
 let cachedConfig: ValidatedConfig | null = null
 
 /**
+ * Clear the parsed config cache after dotenv or Secret Manager loads new values.
+ * This prevents getConfig() from holding an older snapshot where OPENAI_API_KEY was missing.
+ */
+export function resetConfigCache(): void {
+  cachedConfig = null
+}
+
+/**
  * Helper function to parse and validate environment variables
  * Throws a formatted error if validation fails
  */
@@ -120,8 +127,8 @@ function parseAndValidateEnv(): InferredConfig {
 /**
  * Validate and parse environment variables
  */
-export async function validateConfig(): Promise<ValidatedConfig> {
-  if (cachedConfig && cachedConfig.__validated) {
+export async function validateConfig(options?: { force?: boolean }): Promise<ValidatedConfig> {
+  if (!options?.force && cachedConfig && cachedConfig.__validated) {
     return cachedConfig
   }
 
