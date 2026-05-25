@@ -25,6 +25,7 @@ export type DidVideoPayload = {
 
 export type DidJobResult = {
   jobId: string
+  mode?: 'talks' | 'clips'
   status: string
   videoUrl?: string
   error?: string
@@ -100,28 +101,44 @@ export class DidClient {
     return jobId
   }
 
-  async getJobStatus(jobId: string): Promise<DidJobResult> {
-    const mode = process.env.DID_PRESENTER_ID ? 'clips' : 'talks'
+  async getJobStatus(jobId: string, modeHint?: 'talks' | 'clips'): Promise<DidJobResult> {
+    const modesToTry: Array<'talks' | 'clips'> = modeHint ? [modeHint] : ['talks', 'clips']
+    let lastError: unknown = null
 
-    const response = await this.axios.get(`/${mode}/${jobId}`)
+    for (const mode of modesToTry) {
+      try {
+        const response = await this.axios.get(`/${mode}/${jobId}`)
+        const data = response.data || {}
 
-    const data = response.data || {}
-
-    return {
-      jobId,
-      status: String(data.status || '').toLowerCase(),
-      videoUrl: data.result_url || data.video_url || data.url,
-      error: data.error?.message || data.error,
+        return {
+          jobId,
+          mode,
+          status: String(data.status || '').toLowerCase(),
+          videoUrl: data.result_url || data.video_url || data.url,
+          error: data.error?.message || data.error,
+        }
+      } catch (error) {
+        lastError = error
+      }
     }
+
+    if (axios.isAxiosError(lastError)) {
+      throw fromAxiosError(lastError, ErrorCode.HEYGEN_API_ERROR, { jobId, modeHint })
+    }
+
+    throw new AppError(`Failed to fetch D-ID job status: ${String(lastError)}`, ErrorCode.HEYGEN_API_ERROR, 500)
   }
 
-  async pollJobForVideoUrl(jobId: string, opts?: { timeoutMs?: number; intervalMs?: number }): Promise<string> {
+  async pollJobForVideoUrl(
+    jobId: string,
+    opts?: { timeoutMs?: number; intervalMs?: number; modeHint?: 'talks' | 'clips' }
+  ): Promise<string> {
     const timeoutMs = opts?.timeoutMs || 20 * 60 * 1000
     const intervalMs = opts?.intervalMs || 15000
     const start = Date.now()
 
     while (Date.now() - start < timeoutMs) {
-      const result = await this.getJobStatus(jobId)
+      const result = await this.getJobStatus(jobId, opts?.modeHint)
 
       if (result.status.includes('done') || result.status.includes('complete')) {
         if (result.videoUrl) return result.videoUrl
