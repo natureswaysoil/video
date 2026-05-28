@@ -208,7 +208,9 @@ async function main(): Promise<void> {
   console.log('Secrets loaded')
 
   const pexelsApiKey = process.env.PEXELS_API_KEY?.trim()
-  if (!pexelsApiKey) throw new Error('PEXELS_API_KEY not found in Google Secret Manager or .env')
+  if (!pexelsApiKey && VIDEO_PROVIDER !== 'did') {
+    throw new Error('PEXELS_API_KEY not found in Google Secret Manager or .env')
+  }
 
   const dryRun = String(process.env.DRY_RUN || '').toLowerCase() === 'true'
   if (dryRun) console.log('DRY_RUN=true - HeyGen jobs will NOT be submitted')
