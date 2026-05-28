@@ -6,25 +6,25 @@ import fetch from 'node-fetch'
 import { loadSecretsToEnv } from '../src/secret-manager'
 import { getTestVideoCampaignSeeds } from '../src/content-seed-bank'
 import { createClientWithSecrets as createHeyGenClient } from '../src/heygen'
-import { createDIDClientWithSecrets } from '../src/did'
+import { createClientWithSecrets as createDIDClientWithSecrets } from '../src/did'
 import { generateScript } from '../src/openai'
 
-// VIDEO_PROVIDER=did  → D-ID talking head (single scene, no b-roll)
-// VIDEO_PROVIDER=heygen (default) → HeyGen multi-scene with Pexels b-roll
-const VIDEO_PROVIDER = (process.env.VIDEO_PROVIDER || 'heygen').toLowerCase()
+// VIDEO_PROVIDER=did (default) → D-ID talking head (single scene, no b-roll)
+// VIDEO_PROVIDER=heygen → HeyGen multi-scene with Pexels b-roll
+const VIDEO_PROVIDER = (process.env.VIDEO_PROVIDER || 'did').toLowerCase()
 
 const SECRETS_TO_LOAD = [
-  // HeyGen
-  'HEYGEN_API_KEY',
-  'HEYGEN_DEFAULT_AVATAR',
-  'HEYGEN_DEFAULT_VOICE',
   // D-ID
   'DID_API_KEY',
   'DiD',
   // Shared
-  'PEXELS_API_KEY',
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
+  // HeyGen (only needed when VIDEO_PROVIDER=heygen)
+  'HEYGEN_API_KEY',
+  'HEYGEN_DEFAULT_AVATAR',
+  'HEYGEN_DEFAULT_VOICE',
+  'PEXELS_API_KEY',
 ]
 
 const SCENE_SECONDS = ['6', '7', '8', '7', '6'] // hook, context, solution, proof, cta
