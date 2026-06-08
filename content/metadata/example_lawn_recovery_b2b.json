@@ -36,7 +36,7 @@
   ],
   "claimReviewStatus": "needs-review",
   "captionStatus": "not-started",
-  "transcriptPath": "content/transcripts/example_lawn_recovery_b2b.md",
-  "captionPath": "content/captions/example_lawn_recovery_b2b.vtt",
+  "transcriptPath": "",
+  "captionPath": "",
   "createdAt": "2026-05-19T12:00:00-04:00"
 }

@@ -14,11 +14,10 @@ Auto-posts to Instagram, X, Pinterest & YouTube with configurable scheduling, in
 
 ### Run and deploy
 
-- [Test Video Campaign Guide (5 posts/day)](TEST_VIDEO_CAMPAIGN_GUIDE.md)
 - [Video Enhancement Plan – Fix Bland Videos](docs/guides/VIDEO_ENHANCEMENT_PLAN.md)
-- [Deployment Guide](docs/deployment/GCLOUD_DEPLOYMENT.md)
-- [Operations Runbook](docs/operations/OPERATIONS_RUNBOOK.md)
-- [Testing Guide](docs/development/TESTING_GUIDE.md)
+- [Deployment Guide](PRODUCTION_DEPLOYMENT.md)
+- [Operations Runbook](OPERATIONS_RUNBOOK.md)
+- [Testing Guide](TESTING_GUIDE.md)
 
 ### Quality control and commercialization
 
