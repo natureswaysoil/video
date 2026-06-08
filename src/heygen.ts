@@ -56,6 +56,7 @@ export type HeyGenVideoPayload = {
     seconds: string
     avatarText: string
     brollUrl?: string
+    imageUrl?: string  // per-scene product/image background (overrides payload.imageUrl)
     visualDesc?: string
   }>
 }
@@ -170,9 +171,9 @@ export class HeyGenClient {
               for (const scene of payload.scenes) {
                 const background = scene.brollUrl
                   ? { type: 'video', url: scene.brollUrl }
-                  : payload.imageUrl
-                    ? { type: 'image', url: payload.imageUrl }
-                    : { type: 'ai', prompt: payload.visualPrompt || 'natural garden scene, healthy plants, rich soil, product application' }
+                  : (scene.imageUrl || payload.imageUrl)
+                    ? { type: 'image', url: scene.imageUrl || payload.imageUrl }
+                    : { type: 'color', value: '#1a3a1a' }
 
                 videoInputs.push({
                   character: {
@@ -205,7 +206,7 @@ export class HeyGenClient {
                 },
                 background: payload.imageUrl
                   ? { type: 'image', url: payload.imageUrl }
-                  : { type: 'ai', prompt: payload.visualPrompt || 'natural garden scene, healthy plants, soil, product application' },
+                  : { type: 'color', value: '#1a3a1a' },
               }]
             }
 
@@ -213,6 +214,13 @@ export class HeyGenClient {
               video_inputs: videoInputs,
               dimension: { width: 720, height: 1280 },
               ...(payload.title ? { title: payload.title } : {}),
+              // Burn captions into the video for silent viewing
+              ...(payload.subtitles?.enabled ? {
+                caption_option: {
+                  position: 'bottom_center',
+                  display_option: 'word_by_word',
+                },
+              } : {}),
             }
 
             const response = await this.axios.post('/v2/video/generate', v2Body, {
@@ -236,7 +244,7 @@ export class HeyGenClient {
       const duration = Date.now() - startTime
       metrics.incrementCounter('heygen.create_job.error')
       metrics.recordHistogram('heygen.create_job.error_duration', duration)
-      logger.error('Failed to create HeyGen video job', 'HeyGen', { duration }, error)
+      logger.error('Failed to create HeyGen video job', 'HeyGen', { duration, heygenError: error?.response?.data }, error)
       if (error instanceof AppError) throw error
       if (axios.isAxiosError(error)) throw fromAxiosError(error, ErrorCode.HEYGEN_API_ERROR)
       throw new AppError(`HeyGen job creation failed: ${error.message || String(error)}`, ErrorCode.HEYGEN_API_ERROR, 500, true)
@@ -244,11 +252,21 @@ export class HeyGenClient {
   }
 
   async getJobStatus(jobId: string): Promise<HeyGenJobResult> {
-    // (unchanged from your original file)
     try {
       const config = getConfig()
-      const response = await this.axios.get(`/v2/video/${jobId}`, { timeout: config.TIMEOUT_HEYGEN })
+      // v1/video_status.get is the correct endpoint for checking async generation status.
+      // GET /v2/video/{id} is for accessing completed library videos and 404s on in-progress jobs.
+      const response = await this.axios.get(`/v1/video_status.get?video_id=${jobId}`, { timeout: config.TIMEOUT_HEYGEN })
       const data = response.data?.data || response.data
+      // v1 can return 200 with an error code meaning "not found"
+      if (response.data?.code && response.data.code !== 100) {
+        throw new AppError(
+          `HeyGen job expired or not found: ${jobId}`,
+          ErrorCode.HEYGEN_API_ERROR,
+          404,
+          false
+        )
+      }
       return {
         jobId,
         status: this.normalizeStatus(data?.status),
@@ -256,19 +274,55 @@ export class HeyGenClient {
         error: data?.error || data?.error_message,
       }
     } catch (error: any) {
-      logger.error('Failed to get HeyGen job status', 'HeyGen', { jobId }, error)
+      if (error instanceof AppError) throw error
+      logger.error('Failed to get HeyGen job status', 'HeyGen', { jobId, heygenError: (error as any)?.response?.data }, error)
+      // 404 = job expired or never existed — permanent failure, never retry
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        throw new AppError(
+          `HeyGen job expired or not found: ${jobId}`,
+          ErrorCode.HEYGEN_API_ERROR,
+          404,
+          false
+        )
+      }
       throw error
     }
   }
 
-  async pollJobForVideoUrl(jobId: string, opts?: { timeoutMs?: number; intervalMs?: number }): Promise<string> {
-    // (unchanged from your original file - kept full for safety)
+  async pollJobForVideoUrl(jobId: string, opts?: { timeoutMs?: number; intervalMs?: number; initialDelayMs?: number; notFoundGracePeriodMs?: number }): Promise<string> {
     const startTime = Date.now()
     const timeoutMs = opts?.timeoutMs ?? 20 * 60_000
-    const intervalMs = opts?.intervalMs ?? 10_000
+    const intervalMs = opts?.intervalMs ?? 15_000
+    const initialDelayMs = opts?.initialDelayMs ?? 0
+    // How long to keep retrying 404s before treating as permanent (0 = fail immediately on first 404)
+    const notFoundGracePeriodMs = opts?.notFoundGracePeriodMs ?? 0
+
+    if (initialDelayMs > 0) {
+      logger.info(`Waiting ${initialDelayMs}ms before first poll`, 'HeyGen', { jobId })
+      await new Promise(resolve => setTimeout(resolve, initialDelayMs))
+    }
+
     try {
       while (Date.now() - startTime < timeoutMs) {
-        const result = await this.getJobStatus(jobId)
+        let result: HeyGenJobResult
+        try {
+          result = await this.getJobStatus(jobId)
+        } catch (statusError: any) {
+          if (statusError instanceof AppError && statusError.statusCode === 404) {
+            const elapsed = Date.now() - startTime
+            if (elapsed < notFoundGracePeriodMs) {
+              // Still in grace period — job is likely still indexing on HeyGen's side
+              logger.info(`Job ${jobId} not found yet (${Math.round(elapsed/1000)}s elapsed), retrying...`, 'HeyGen', { jobId, elapsed })
+              await new Promise(resolve => setTimeout(resolve, intervalMs))
+              continue
+            }
+            // Grace period expired — treat as permanent failure
+            throw statusError
+          }
+          // Transient error — wait and retry
+          await new Promise(resolve => setTimeout(resolve, intervalMs))
+          continue
+        }
         if (result.status === 'completed' && result.videoUrl) return result.videoUrl
         if (result.status === 'failed') throw new AppError(`HeyGen job failed: ${result.error}`, ErrorCode.HEYGEN_API_ERROR)
         await new Promise(resolve => setTimeout(resolve, intervalMs))

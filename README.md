@@ -8,7 +8,7 @@ Turns your Google Sheet product catalog into scroll-stopping videos using:
 - **Pexels API** (B-roll)
 - Real farm footage
 
-Auto-posts to Instagram, X, Pinterest & YouTube. Runs twice daily on Google Cloud Run.
+Auto-posts to Instagram, X, Pinterest & YouTube with configurable scheduling, including campaign mode.
 
 ## Quick Links
 

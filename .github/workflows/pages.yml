@@ -31,10 +31,59 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Build static Pages artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf pages-site
+          mkdir -p pages-site/docs
+
+          # Prevent Jekyll from processing Markdown/front matter unexpectedly.
+          touch pages-site/.nojekyll
+
+          # Keep the published site lightweight and predictable.
+          if [ -d docs ]; then
+            cp -R docs/. pages-site/docs/
+          fi
+
+          cat > pages-site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <title>Nature's Way Soil Video Dashboard</title>
+              <style>
+                body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 2rem; line-height: 1.5; color: #1f2937; background: #f9fafb; }
+                main { max-width: 900px; margin: 0 auto; background: white; border-radius: 16px; padding: 2rem; box-shadow: 0 10px 30px rgba(0,0,0,0.08); }
+                h1 { margin-top: 0; color: #14532d; }
+                a { color: #166534; font-weight: 600; }
+                ul { padding-left: 1.25rem; }
+                .note { background: #ecfdf5; border: 1px solid #bbf7d0; border-radius: 12px; padding: 1rem; }
+              </style>
+            </head>
+            <body>
+              <main>
+                <h1>Nature's Way Soil Video Dashboard</h1>
+                <p class="note">This GitHub Pages site publishes the operational documentation for the automated video marketing engine.</p>
+                <h2>Key documents</h2>
+                <ul>
+                  <li><a href="docs/qa/PUBLISHING_QA_CHECKLIST.md">Publishing QA Checklist</a></li>
+                  <li><a href="docs/qa/CAPTION_AND_TRANSCRIPT_WORKFLOW.md">Caption and Transcript Workflow</a></li>
+                  <li><a href="docs/marketing/B2B_VIDEO_OFFER_PLAN.md">B2B Video Offer Plan</a></li>
+                  <li><a href="docs/guides/VIDEO_ENHANCEMENT_PLAN.md">Video Enhancement Plan</a></li>
+                  <li><a href="docs/deployment/GCLOUD_DEPLOYMENT.md">Google Cloud Deployment Guide</a></li>
+                  <li><a href="docs/operations/OPERATIONS_RUNBOOK.md">Operations Runbook</a></li>
+                </ul>
+              </main>
+            </body>
+          </html>
+          HTML
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./docs
+          path: ./pages-site
 
       - name: Deploy
         id: deployment

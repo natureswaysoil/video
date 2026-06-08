@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CONTENT_SEED_BANK = void 0;
+exports.TEST_VIDEO_CAMPAIGN_SEEDS = exports.CONTENT_SEED_BANK = void 0;
+exports.getTestVideoCampaignSeeds = getTestVideoCampaignSeeds;
 exports.getDailySeeds = getDailySeeds;
 function cinematic(base) {
     return `${base} Create a premium vertical 9:16 direct-response product ad with motion in every shot. Use 5 fast scenes: 1) scroll-stopping problem close-up, 2) product bottle hero shot, 3) mixing or spraying application, 4) soil/root/grass/tree benefit close-up, 5) healthier result with product bottle and call-to-action mood. Use realistic outdoor footage style, shallow depth of field, camera push-in, handheld natural movement, sunlight, close-ups, before-and-after style contrast. Avoid a plain talking head. Avoid static backgrounds. Avoid showing a script, storyboard, or large text blocks as the main visual.`;
@@ -71,6 +72,61 @@ exports.CONTENT_SEED_BANK = [
         platform: 'youtube,instagram,facebook',
     }
 ];
+exports.TEST_VIDEO_CAMPAIGN_SEEDS = [
+    {
+        angle: 'pasture-revival-test',
+        title: 'Pasture Revival Soil Support',
+        productDescription: 'Bring tired pasture back to life with soil-first nutrition support designed for stronger root activity and more resilient forage growth.',
+        visualPrompt: 'Pasture grass before/after, product bottle hero shot, root-zone support visuals, and healthy green field recovery.',
+        websiteUrl: 'https://natureswaysoil.com/pasture-revival',
+        platform: 'youtube,instagram,twitter,pinterest',
+        videoFileName: 'pasture-revival-test.mp4',
+        hashtags: ['#PastureRevival', '#SoilHealth', '#RegenerativeAgriculture', '#NaturesWaySoil'],
+    },
+    {
+        angle: 'dog-urine-neutralizer-test',
+        title: 'Dog Urine Neutralizer Lawn Recovery',
+        productDescription: 'Treat yellow dog spots at the soil level with a cleaner lawn recovery approach that supports healthier, greener regrowth over time.',
+        visualPrompt: 'Dog spot close-up, spray application, root-zone support, and greener lawn recovery.',
+        websiteUrl: 'https://natureswaysoil.com/dog-urine-neutralizer',
+        platform: 'youtube,instagram,twitter,pinterest',
+        videoFileName: 'dog-urine-neutralizer-test.mp4',
+        hashtags: ['#DogUrineNeutralizer', '#LawnCare', '#SoilFirst', '#NaturesWaySoil'],
+    },
+    {
+        angle: 'garden-mix-test',
+        title: 'Garden Mix Nutrient Boost',
+        productDescription: 'Help vegetables and flowers establish stronger roots and balanced growth with a biologically friendly garden mix routine.',
+        visualPrompt: 'Raised bed visuals, mixing and watering sequence, healthy plants and blooms.',
+        websiteUrl: 'https://natureswaysoil.com/garden-mix',
+        platform: 'youtube,instagram,twitter,pinterest',
+        videoFileName: 'garden-mix-test.mp4',
+        hashtags: ['#GardenMix', '#OrganicGardening', '#HealthySoil', '#NaturesWaySoil'],
+    },
+    {
+        angle: 'hydroponic-nutrients-test',
+        title: 'Hydroponic Nutrient Performance',
+        productDescription: 'Support cleaner hydroponic nutrient uptake and stronger plant vitality with a formulation built for indoor and greenhouse growers.',
+        visualPrompt: 'Hydroponic reservoir prep, nutrient mixing, root and canopy growth progression.',
+        websiteUrl: 'https://natureswaysoil.com/hydroponic-nutrients',
+        platform: 'youtube,instagram,twitter,pinterest',
+        videoFileName: 'hydroponic-nutrients-test.mp4',
+        hashtags: ['#Hydroponics', '#HydroponicNutrients', '#IndoorGrowing', '#NaturesWaySoil'],
+    },
+    {
+        angle: 'fruit-tree-fertilizer-test',
+        title: 'Fruit Tree Fertilizer Seasonal Support',
+        productDescription: 'Feed fruit trees for stronger bloom cycles, healthier root zones, and improved seasonal fruit development with a soil-first program.',
+        visualPrompt: 'Backyard orchard shots, tree feeding around drip line, blooms and fruit set progression.',
+        websiteUrl: 'https://natureswaysoil.com/fruit-tree-fertilizer',
+        platform: 'youtube,instagram,twitter,pinterest',
+        videoFileName: 'fruit-tree-fertilizer-test.mp4',
+        hashtags: ['#FruitTreeFertilizer', '#BackyardOrchard', '#TreeCare', '#NaturesWaySoil'],
+    },
+];
+function getTestVideoCampaignSeeds() {
+    return exports.TEST_VIDEO_CAMPAIGN_SEEDS;
+}
 function getDailySeeds(count, date = new Date()) {
     const start = Math.floor(date.getTime() / 86400000) % exports.CONTENT_SEED_BANK.length;
     const rows = [];

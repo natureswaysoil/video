@@ -3,6 +3,7 @@ import fetch from 'node-fetch'
 import path from 'path'
 import { loadSecretsToEnv } from '../src/secret-manager'
 import { processCsvUrl } from '../src/core'
+import { getProductLandingConfigByAsin } from '../src/product-assets'
 
 const fs: any = require('fs')
 const { execFileSync }: any = require('child_process')
@@ -33,6 +34,10 @@ function slugify(value: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 60) || 'video'
+}
+
+function findAsin(record: Record<string, any> | undefined): string {
+  return pick(record, ['ASIN', 'asin', 'Parent_ASIN', 'parent_asin', 'SKU', 'sku']).toUpperCase()
 }
 
 function productDefaults(title: string) {
@@ -149,28 +154,74 @@ function fileExists(value: string): boolean {
   return !!value && fs.existsSync(value)
 }
 
+function buildFallbackClip(clipPath: string, query: string, clipIndex: number): void {
+  const fallbackSource = path.join(process.cwd(), 'amazon-video-final.mp4')
+
+  if (fileExists(fallbackSource)) {
+    try {
+      const startSeconds = String(clipIndex * 5)
+      runFfmpeg([
+        '-y',
+        '-ss', startSeconds,
+        '-t', '6',
+        '-i', fallbackSource,
+        '-vf', 'scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720',
+        '-an',
+        '-r', '30',
+        '-pix_fmt', 'yuv420p',
+        clipPath,
+      ])
+      return
+    } catch (error: any) {
+      console.warn(`Fallback source video unusable; switching to synthetic clip: ${error?.message || error}`)
+    }
+  }
+
+  runFfmpeg([
+    '-y',
+    '-f', 'lavfi',
+    '-i', 'testsrc2=s=1280x720:r=30:d=6',
+    '-vf', `drawbox=x=120:y=575:w=1040:h=92:color=black@0.55:t=fill,drawtext=text='Fallback clip - ${safeText(query, 42)}':fontcolor=white:fontsize=36:x=(w-text_w)/2:y=605`,
+    '-an',
+    '-r', '30',
+    '-pix_fmt', 'yuv420p',
+    clipPath,
+  ])
+}
+
 async function main(): Promise<void> {
-  await loadSecretsToEnv(['CSV_URL', 'GOOGLE_SHEET_CSV_URL', 'PEXELS_API_KEY'])
+  if (process.env.SKIP_SECRET_MANAGER !== 'true') {
+    try {
+      await loadSecretsToEnv(['CSV_URL', 'GOOGLE_SHEET_CSV_URL', 'PEXELS_API_KEY'])
+    } catch (error: any) {
+      console.warn(`Secret loading failed; continuing with environment/default values: ${error?.message || error}`)
+    }
+  }
 
   const csvUrl = process.env.CSV_URL || process.env.GOOGLE_SHEET_CSV_URL || DEFAULT_SHEET_CSV_URL
   const result = await processCsvUrl(csvUrl)
 
-  const targetAsin = process.env.ASIN
+  const targetAsin = String(process.env.ASIN || '').trim().toUpperCase()
   const row = targetAsin
-    ? (result.rows.find((r: any) => [r.record?.ASIN, r.record?.Parent_ASIN, r.record?.asin].includes(targetAsin)) ?? result.rows[0])
+    ? (result.rows.find((r: any) => [r.record?.ASIN, r.record?.Parent_ASIN, r.record?.asin].map((value: string) => String(value || '').toUpperCase()).includes(targetAsin)) ?? result.rows[0])
     : result.rows[0]
   if (!row) throw new Error('No ready/unposted product rows found')
 
   const record = row.record
+  const asin = findAsin(record)
+  const mappedLanding = getProductLandingConfigByAsin(asin)
+
   const title = pick(record, ['Title', 'title', 'Product_Name', 'Product', 'name']) || row.product?.title || row.product?.name || "Nature's Way Soil"
   const defaults = productDefaults(title)
   const hook = pick(record, ['Amazon_Hook', 'Hook', 'Video_Hook']) || defaults.hook
   const benefit1 = pick(record, ['Benefit_1']) || defaults.benefit1
   const benefit2 = pick(record, ['Benefit_2']) || defaults.benefit2
   const benefit3 = pick(record, ['Benefit_3']) || defaults.benefit3
-  const cta = pick(record, ['CTA', 'Call_To_Action']) || defaults.cta
-  const landingUrl = pick(record, ['Landing_URL', 'Landing Page', 'URL', 'Product_URL']) || defaults.landingUrl
+  const cta = pick(record, ['CTA', 'Call_To_Action']) || mappedLanding?.cta || defaults.cta
+  const landingUrl = mappedLanding?.url || pick(record, ['Landing_URL', 'Landing Page', 'URL', 'Product_URL']) || defaults.landingUrl
   const productImage = pick(record, ['Product_Image', 'Product_Image_Path', 'Image_Path'])
+  const logoPath = process.env.BRAND_LOGO_PATH || '/home/ubuntu/Uploads/top of label.png'
+  const bottomThirdText = `Shop now: ${landingUrl}`
 
   const queries = [
     pick(record, ['Broll_Query_1', 'Broll_Query', 'Pexels_Query']) || defaults.queries[0],
@@ -184,20 +235,31 @@ async function main(): Promise<void> {
   fs.mkdirSync(outDir, { recursive: true })
 
   console.log(`Building Amazon-style video for row ${row.rowNumber}: ${title}`)
+  if (asin) console.log(`ASIN: ${asin}`)
+  if (mappedLanding) console.log(`Mapped landing page: ${mappedLanding.url}`)
   console.log(`Landing URL: ${landingUrl}`)
   if (!fileExists(productImage)) console.warn('No product image found. Add Product_Image_Path in the sheet for bottle overlay.')
+  if (!fileExists(logoPath)) console.warn(`Brand logo not found at ${logoPath}. End card will render without logo.`)
 
   const clipPaths: string[] = []
   for (let i = 0; i < queries.length; i++) {
-    console.log(`Searching Pexels: ${queries[i]}`)
-    const clipUrl = await findPexelsClip(queries[i])
     const clipPath = path.join(outDir, `clip-${i + 1}.mp4`)
-    console.log(`Downloading clip ${i + 1}`)
-    await downloadFile(clipUrl, clipPath)
+
+    try {
+      console.log(`Searching Pexels: ${queries[i]}`)
+      const clipUrl = await findPexelsClip(queries[i])
+      console.log(`Downloading clip ${i + 1}`)
+      await downloadFile(clipUrl, clipPath)
+    } catch (error: any) {
+      console.warn(`Pexels clip retrieval failed for scene ${i + 1}; using fallback clip.`, error?.message || error)
+      buildFallbackClip(clipPath, queries[i], i)
+    }
+
     clipPaths.push(clipPath)
   }
 
   const textLines = [hook, benefit1, benefit2, benefit3, cta]
+  const safeBottomThird = safeText(bottomThirdText, 72)
   const processedClips: string[] = []
 
   for (let i = 0; i < clipPaths.length; i++) {
@@ -206,8 +268,8 @@ async function main(): Promise<void> {
     const duration = i === 0 ? '5' : '4.5'
     const fontSize = i === 0 ? '54' : '44'
     const overlay = fileExists(productImage)
-      ? `[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,eq=contrast=1.06:saturation=1.10[bg];[1:v]scale=260:-1[prod];[bg][prod]overlay=W-w-60:H-h-70,drawbox=x=55:y=500:color=black@0.50:width=790:height=105:t=fill,drawtext=text='${text}':fontcolor=white:fontsize=${fontSize}:x=85:y=532`
-      : `scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,eq=contrast=1.06:saturation=1.10,drawbox=x=55:y=500:color=black@0.50:width=1170:height=105:t=fill,drawtext=text='${text}':fontcolor=white:fontsize=${fontSize}:x=(w-text_w)/2:y=532`
+      ? `[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,eq=contrast=1.06:saturation=1.10[bg];[1:v]scale=260:-1[prod];[bg][prod]overlay=W-w-60:H-h-92,drawbox=x=55:y=490:color=black@0.52:width=790:height=105:t=fill,drawtext=text='${text}':fontcolor=white:fontsize=${fontSize}:x=85:y=522,drawbox=x=0:y=650:w=iw:h=70:color=0x122a1e@0.78:t=fill,drawtext=text='${safeBottomThird}':fontcolor=white:fontsize=30:x=(w-text_w)/2:y=670`
+      : `scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,eq=contrast=1.06:saturation=1.10,drawbox=x=55:y=490:color=black@0.52:width=1170:height=105:t=fill,drawtext=text='${text}':fontcolor=white:fontsize=${fontSize}:x=(w-text_w)/2:y=522,drawbox=x=0:y=650:w=iw:h=70:color=0x122a1e@0.78:t=fill,drawtext=text='${safeBottomThird}':fontcolor=white:fontsize=30:x=(w-text_w)/2:y=670`
 
     const args = ['-y', '-i', clipPaths[i]]
     if (fileExists(productImage)) args.push('-i', productImage)
@@ -217,12 +279,27 @@ async function main(): Promise<void> {
   }
 
   const endCard = path.join(outDir, 'end-card.mp4')
-  runFfmpeg([
-    '-y', '-f', 'lavfi',
-    '-i', 'color=c=0x1f3d2b:s=1280x720:d=5',
-    '-vf', `drawtext=text='${safeText(cta, 55)}':fontcolor=white:fontsize=52:x=(w-text_w)/2:y=250,drawtext=text='${safeText(landingUrl, 60)}':fontcolor=0x90ee90:fontsize=40:x=(w-text_w)/2:y=340,drawtext=text='Shop Now':fontcolor=white@0.82:fontsize=28:x=(w-text_w)/2:y=430`,
-    '-r', '30', '-pix_fmt', 'yuv420p', endCard,
-  ])
+  const endCardDuration = String(Number(process.env.END_CARD_DURATION_SECONDS || '4'))
+  const endCardUrl = safeText(landingUrl, 68)
+  const endCardCta = safeText(cta, 52)
+
+  if (fileExists(logoPath)) {
+    runFfmpeg([
+      '-y', '-f', 'lavfi',
+      '-i', `color=c=0x123423:s=1280x720:d=${endCardDuration}`,
+      '-i', logoPath,
+      '-filter_complex', `[1:v]scale=640:-1[logo];[0:v][logo]overlay=(W-w)/2:45:format=auto,drawbox=x=150:y=420:w=980:h=170:color=0x0f2518@0.86:t=fill,drawtext=text='${endCardCta}':fontcolor=white:fontsize=56:x=(w-text_w)/2:y=455,drawtext=text='${endCardUrl}':fontcolor=0xb4ff8a:fontsize=42:x=(w-text_w)/2:y=535,drawtext=text='Nature\'s Way Soil':fontcolor=white@0.80:fontsize=28:x=(w-text_w)/2:y=640`,
+      '-r', '30', '-pix_fmt', 'yuv420p', endCard,
+    ])
+  } else {
+    runFfmpeg([
+      '-y', '-f', 'lavfi',
+      '-i', `color=c=0x123423:s=1280x720:d=${endCardDuration}`,
+      '-vf', `drawbox=x=150:y=270:w=980:h=320:color=0x0f2518@0.86:t=fill,drawtext=text='Nature\'s Way Soil':fontcolor=white:fontsize=58:x=(w-text_w)/2:y=315,drawtext=text='${endCardCta}':fontcolor=white:fontsize=50:x=(w-text_w)/2:y=410,drawtext=text='${endCardUrl}':fontcolor=0xb4ff8a:fontsize=40:x=(w-text_w)/2:y=500`,
+      '-r', '30', '-pix_fmt', 'yuv420p', endCard,
+    ])
+  }
+
   processedClips.push(endCard)
 
   const listFile = path.join(outDir, 'clips-with-endcard.txt')

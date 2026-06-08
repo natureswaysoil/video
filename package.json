@@ -13,6 +13,7 @@
     "generate:rows": "ts-node scripts/generate-rows.ts",
     "build:broll": "ts-node scripts/build-broll-ad.ts",
     "run:once": "ts-node scripts/run-once.ts",
+    "run:test-campaign": "ts-node scripts/run-test-video-campaign.ts",
     "validate": "ts-node scripts/validate-system.ts",
     "test:csv": "ts-node scripts/test-csv-processing.ts",
     "test:openai": "ts-node scripts/test-openai-script.ts",
@@ -20,7 +21,8 @@
     "test:platforms": "ts-node scripts/test-all-platforms.ts",
     "test:e2e": "ts-node scripts/test-e2e-integration.ts",
     "test:e2e:dry": "DRY_RUN=true ts-node scripts/test-e2e-integration.ts",
-    "test:all": "npm run test:csv && npm run test:openai && npm run test:e2e:dry"
+    "test:all": "npm run test:csv && npm run test:openai && npm run test:e2e:dry",
+    "generate:test-videos": "ts-node scripts/generate-test-campaign-videos.ts"
   },
   "dependencies": {
     "@google-cloud/secret-manager": "^6.1.1",
@@ -30,6 +32,7 @@
     "cloudinary": "^2.9.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
+    "form-data": "^4.0.5",
     "google-auth-library": "^10.6.2",
     "googleapis": "^171.4.0",
     "node-cache": "^5.1.2",

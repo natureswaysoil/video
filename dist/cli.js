@@ -127,14 +127,17 @@ async function postToEnabledPlatforms(params) {
     const config = (0, config_validator_1.getConfig)();
     let anySucceeded = false;
     if (shouldPost('instagram')) {
-        if (config.INSTAGRAM_ACCESS_TOKEN && config.INSTAGRAM_IG_ID) {
+        if (config.INSTAGRAM_ACCESS_TOKEN && config.INSTAGRAM_USER_ID) {
             try {
-                await (0, instagram_1.postToInstagram)(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, config.INSTAGRAM_IG_ID);
+                await (0, instagram_1.postToInstagram)(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, config.INSTAGRAM_USER_ID);
                 anySucceeded = true;
             }
             catch (e) {
                 console.error('❌ Instagram post failed:', e?.message || e);
             }
+        }
+        else {
+            console.log('⚠️ Instagram credentials not configured (INSTAGRAM_ACCESS_TOKEN, INSTAGRAM_USER_ID)');
         }
     }
     if (shouldPost('twitter')) {
@@ -147,6 +150,9 @@ async function postToEnabledPlatforms(params) {
                 console.error('❌ Twitter post failed:', e?.message || e);
             }
         }
+        else {
+            console.log('⚠️ Twitter credentials not configured (TWITTER_BEARER_TOKEN)');
+        }
     }
     if (shouldPost('pinterest')) {
         if (config.PINTEREST_ACCESS_TOKEN && config.PINTEREST_BOARD_ID) {
@@ -158,16 +164,22 @@ async function postToEnabledPlatforms(params) {
                 console.error('❌ Pinterest post failed:', e?.message || e);
             }
         }
+        else {
+            console.log('⚠️ Pinterest credentials not configured (PINTEREST_ACCESS_TOKEN, PINTEREST_BOARD_ID)');
+        }
     }
     if (shouldPost('youtube')) {
-        if (config.YT_CLIENT_ID && config.YT_CLIENT_SECRET && config.YT_REFRESH_TOKEN) {
+        if (config.YOUTUBE_CLIENT_ID && config.YOUTUBE_CLIENT_SECRET && config.YOUTUBE_REFRESH_TOKEN) {
             try {
-                await (0, youtube_1.postToYouTube)(videoUrl, caption, config.YT_CLIENT_ID, config.YT_CLIENT_SECRET, config.YT_REFRESH_TOKEN);
+                await (0, youtube_1.postToYouTube)(videoUrl, caption, config.YOUTUBE_CLIENT_ID, config.YOUTUBE_CLIENT_SECRET, config.YOUTUBE_REFRESH_TOKEN);
                 anySucceeded = true;
             }
             catch (e) {
                 console.error('❌ YouTube post failed:', e?.message || e);
             }
+        }
+        else {
+            console.log('⚠️ YouTube credentials not configured (YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN)');
         }
     }
     const skipped = allPlatforms.filter((platform) => !shouldPost(platform));
@@ -184,17 +196,37 @@ async function createOrPollVideo(params) {
     }
     const heygenClient = await (0, heygen_1.createClientWithSecrets)();
     if (!alwaysGenerate && videoState.videoId && (videoState.videoStatus || '').toLowerCase() === 'processing') {
-        console.log(`⏳ Polling existing HeyGen job for row ${rowNumber}: ${videoState.videoId}`);
-        const videoUrl = await heygenClient.pollJobForVideoUrl(videoState.videoId, {
-            timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
-            intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
-        });
-        await writeRowFields(csvUrl, headers, rowNumber, {
-            Video_URL: videoUrl,
-            Video_Status: 'completed',
-            Video_Completed_At: new Date().toISOString(),
-        });
-        return videoUrl;
+        console.log(`⏳ Existing HeyGen job found for row ${rowNumber}: ${videoState.videoId}`);
+        console.log('Polling HeyGen job');
+        try {
+            const videoUrl = await heygenClient.pollJobForVideoUrl(videoState.videoId, {
+                timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
+                intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
+                notFoundGracePeriodMs: 0, // existing stale job: fail immediately on 404
+            });
+            await writeRowFields(csvUrl, headers, rowNumber, {
+                Video_URL: videoUrl,
+                Video_Status: 'completed',
+                Video_Completed_At: new Date().toISOString(),
+            });
+            return videoUrl;
+        }
+        catch (pollError) {
+            // 404 = HeyGen job expired or never existed. Clear stale IDs and re-request a fresh video.
+            if (pollError?.statusCode === 404) {
+                console.log(`⚠️ HeyGen job ${videoState.videoId} is expired — clearing stale IDs and re-requesting`);
+                await writeRowFields(csvUrl, headers, rowNumber, {
+                    Video_ID: '',
+                    Video_Status: '',
+                    Video_URL: '',
+                    Error_Message: `Job ${videoState.videoId} expired — re-requested at ${new Date().toISOString()}`,
+                });
+                // fall through to create a new job below
+            }
+            else {
+                throw pollError;
+            }
+        }
     }
     const mapping = (0, heygen_adapter_1.mapProductToHeyGenPayload)(record);
     const generatedScript = await (0, openai_1.generateScript)(product);
@@ -215,6 +247,8 @@ async function createOrPollVideo(params) {
     const videoUrl = await heygenClient.pollJobForVideoUrl(videoId, {
         timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
         intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
+        initialDelayMs: 30000, // give HeyGen 30s to index before first poll
+        notFoundGracePeriodMs: 600000, // retry 404 for up to 10 minutes (video still processing)
     });
     await writeRowFields(csvUrl, headers, rowNumber, {
         Video_URL: videoUrl,
@@ -248,7 +282,8 @@ async function main() {
     const rowsPerRun = Number(process.env.ROWS_PER_RUN ?? '1');
     const dryRun = String(process.env.DRY_RUN_LOG_ONLY || '').toLowerCase() === 'true';
     const enabledPlatformsEnv = (process.env.ENABLE_PLATFORMS || '').toLowerCase();
-    const enabledPlatforms = new Set(enabledPlatformsEnv.split(',').map((s) => s.trim()).filter(Boolean));
+    // Support both comma and caret as separators (gcloud env var escaping can produce either)
+    const enabledPlatforms = new Set(enabledPlatformsEnv.split(/[,^]/).map((s) => s.trim()).filter(Boolean));
     const loopResetPosted = String(process.env.LOOP_RESET_POSTED || 'false').toLowerCase() === 'true';
     const alwaysGenerate = String(process.env.ALWAYS_GENERATE_NEW_VIDEO || 'false').toLowerCase() === 'true';
     if (!process.env.VERCEL)
@@ -296,8 +331,8 @@ async function main() {
                 (0, health_server_1.updateStatus)({ status: 'processed-row', rowsProcessed: rowsThisCycle });
             }
             catch (error) {
-                // Add to seen so the same row is not retried every cycle on persistent errors
                 seen.add(jobId);
+                rowsThisCycle++; // count failed rows so ROWS_PER_RUN=1 truly means one attempt per run
                 (0, health_server_1.incrementFailedPost)();
                 (0, health_server_1.addError)(error?.message || String(error));
                 auditLogger.logEvent({

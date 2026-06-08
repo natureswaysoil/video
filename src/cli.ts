@@ -7,8 +7,8 @@ import { postToTwitter } from './twitter'
 import { postToPinterest } from './pinterest'
 import { postToYouTube } from './youtube'
 import { getConfig } from './config-validator'
-import { createClientWithSecrets as createHeyGenClient } from './heygen'
-import { mapProductToHeyGenPayload } from './heygen-adapter'
+import { createClientWithSecrets as createDidClient } from './did'
+import { mapProductToDidPayload } from './did-adapter'
 import { generateScript } from './openai'
 import { markRowPosted, writeColumnValues, resetPostedColumn } from './sheets'
 import {
@@ -22,7 +22,6 @@ import {
 import { getAuditLogger } from './audit-logger'
 import { validateConfig } from './config-validator'
 
-// 🔐 NEW: Load ALL secrets at startup (once)
 async function bootstrapSecrets() {
   console.log('🔐 Loading secrets from Google Secret Manager...')
   await loadSecretsToEnv()
@@ -39,6 +38,10 @@ type VideoState = {
 
 type Platform = 'instagram' | 'twitter' | 'pinterest' | 'youtube'
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 function pickFirstNonEmpty(record: Record<string, any> | undefined, keys: string[]): string {
   if (!record) return ''
   for (const key of keys) {
@@ -52,9 +55,9 @@ function pickFirstNonEmpty(record: Record<string, any> | undefined, keys: string
 
 function getVideoState(record: Record<string, any> | undefined): VideoState {
   return {
-    videoId: pickFirstNonEmpty(record, ['Video_ID', 'HEYGEN_VIDEO_ID', 'HeyGen_Video_ID', 'video_id']),
+    videoId: pickFirstNonEmpty(record, ['Video_ID', 'DID_VIDEO_ID', 'D_ID_VIDEO_ID', 'HEYGEN_VIDEO_ID', 'HeyGen_Video_ID', 'video_id']),
     videoUrl: pickFirstNonEmpty(record, ['Video_URL', 'Video URL', 'video_url', 'VideoURL']),
-    videoStatus: pickFirstNonEmpty(record, ['Video_Status', 'HEYGEN_VIDEO_STATUS', 'video_status']),
+    videoStatus: pickFirstNonEmpty(record, ['Video_Status', 'DID_VIDEO_STATUS', 'D_ID_VIDEO_STATUS', 'HEYGEN_VIDEO_STATUS', 'video_status']),
   }
 }
 
@@ -71,11 +74,6 @@ function extractGidFromCsv(csvUrl: string): string | undefined {
   return match?.[1]
 }
 
-function getValueFromRecord(record: Record<string, any> | undefined, keysCsv: string): string {
-  const keys = keysCsv.split(',').map((key) => key.trim()).filter(Boolean)
-  return pickFirstNonEmpty(record, keys)
-}
-
 function isRowDeferred(record: Record<string, any> | undefined): boolean {
   const raw = pickFirstNonEmpty(record, ['Post_Next_Attempt_At'])
   if (!raw) return false
@@ -85,6 +83,13 @@ function isRowDeferred(record: Record<string, any> | undefined): boolean {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isVideoUrlExpired(url: string): boolean {
+  const match = url.match(/[?&]Expires=(\d+)/)
+  if (!match) return false
+  const expiresEpochSec = parseInt(match[1], 10)
+  return Number.isFinite(expiresEpochSec) && Date.now() >= expiresEpochSec * 1000
 }
 
 async function loadSecretToEnv(secretName: string): Promise<void> {
@@ -130,21 +135,6 @@ async function writeRowFields(
   }
 }
 
-async function resolveVideoUrlAsync(params: {
-  jobId: string
-  record: Record<string, any> | undefined
-}): Promise<string> {
-  const directUrl = pickFirstNonEmpty(params.record, [
-    'Video_URL',
-    'Video URL',
-    'video_url',
-    'VideoURL',
-    'WAVESPEED_VIDEO_URL',
-    'WaveSpeed Video URL',
-  ])
-  return directUrl
-}
-
 async function postToEnabledPlatforms(params: {
   videoUrl: string
   product: Record<string, any>
@@ -167,13 +157,15 @@ async function postToEnabledPlatforms(params: {
   let anySucceeded = false
 
   if (shouldPost('instagram')) {
-    if (config.INSTAGRAM_ACCESS_TOKEN && config.INSTAGRAM_IG_ID) {
+    if (config.INSTAGRAM_ACCESS_TOKEN && config.INSTAGRAM_USER_ID) {
       try {
-        await postToInstagram(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, config.INSTAGRAM_IG_ID)
+        await postToInstagram(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, config.INSTAGRAM_USER_ID)
         anySucceeded = true
       } catch (e: any) {
         console.error('❌ Instagram post failed:', e?.message || e)
       }
+    } else {
+      console.log('⚠️ Instagram credentials not configured (INSTAGRAM_ACCESS_TOKEN, INSTAGRAM_USER_ID)')
     }
   }
   if (shouldPost('twitter')) {
@@ -184,6 +176,8 @@ async function postToEnabledPlatforms(params: {
       } catch (e: any) {
         console.error('❌ Twitter post failed:', e?.message || e)
       }
+    } else {
+      console.log('⚠️ Twitter credentials not configured (TWITTER_BEARER_TOKEN)')
     }
   }
   if (shouldPost('pinterest')) {
@@ -194,16 +188,20 @@ async function postToEnabledPlatforms(params: {
       } catch (e: any) {
         console.error('❌ Pinterest post failed:', e?.message || e)
       }
+    } else {
+      console.log('⚠️ Pinterest credentials not configured (PINTEREST_ACCESS_TOKEN, PINTEREST_BOARD_ID)')
     }
   }
   if (shouldPost('youtube')) {
-    if (config.YT_CLIENT_ID && config.YT_CLIENT_SECRET && config.YT_REFRESH_TOKEN) {
+    if (config.YOUTUBE_CLIENT_ID && config.YOUTUBE_CLIENT_SECRET && config.YOUTUBE_REFRESH_TOKEN) {
       try {
-        await postToYouTube(videoUrl, caption, config.YT_CLIENT_ID, config.YT_CLIENT_SECRET, config.YT_REFRESH_TOKEN)
+        await postToYouTube(videoUrl, caption, config.YOUTUBE_CLIENT_ID, config.YOUTUBE_CLIENT_SECRET, config.YOUTUBE_REFRESH_TOKEN)
         anySucceeded = true
       } catch (e: any) {
         console.error('❌ YouTube post failed:', e?.message || e)
       }
+    } else {
+      console.log('⚠️ YouTube credentials not configured (YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN)')
     }
   }
 
@@ -225,17 +223,43 @@ async function createOrPollVideo(params: {
   const videoState = getVideoState(record)
 
   if (videoState.videoUrl && !alwaysGenerate) {
-    console.log('✅ Using existing video:', videoState.videoUrl)
-    return videoState.videoUrl
+    if (!isVideoUrlExpired(videoState.videoUrl)) {
+      console.log('✅ Using existing video:', videoState.videoUrl)
+      return videoState.videoUrl
+    }
+    console.log(`⚠️ Stored video URL has expired for row ${rowNumber} — attempting to refresh`)
+    if (videoState.videoId) {
+      try {
+        const refreshClient = await createDidClient()
+        const result = await refreshClient.getJobStatus(videoState.videoId)
+        if ((result.status.includes('done') || result.status.includes('complete')) && result.videoUrl && !isVideoUrlExpired(result.videoUrl)) {
+          console.log('✅ Refreshed video URL from D-ID API')
+          await writeRowFields(csvUrl, headers, rowNumber, {
+            Video_URL: result.videoUrl,
+            Video_Completed_At: new Date().toISOString(),
+          })
+          return result.videoUrl
+        }
+      } catch (refreshError) {
+        console.log(`⚠️ Could not refresh URL from D-ID: ${getErrorMessage(refreshError)}`)
+      }
+    }
+    console.log(`📹 Regenerating video for row ${rowNumber} (URL expired, refresh unavailable)`)
+    await writeRowFields(csvUrl, headers, rowNumber, {
+      Video_URL: '',
+      Video_ID: '',
+      Video_Status: '',
+    })
   }
 
-  const heygenClient = await createHeyGenClient()
+  const didClient = await createDidClient()
 
   if (!alwaysGenerate && videoState.videoId && (videoState.videoStatus || '').toLowerCase() === 'processing') {
-    console.log(`⏳ Polling existing HeyGen job for row ${rowNumber}: ${videoState.videoId}`)
-    const videoUrl = await heygenClient.pollJobForVideoUrl(videoState.videoId, {
-      timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
-      intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
+    console.log(`⏳ Existing D-ID job found for row ${rowNumber}: ${videoState.videoId}`)
+    console.log('Polling D-ID job')
+    const videoUrl = await didClient.pollJobForVideoUrl(videoState.videoId, {
+      timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000),
+      intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000),
     })
     await writeRowFields(csvUrl, headers, rowNumber, {
       Video_URL: videoUrl,
@@ -245,27 +269,27 @@ async function createOrPollVideo(params: {
     return videoUrl
   }
 
-  const mapping = mapProductToHeyGenPayload(record)
+  const mapping = mapProductToDidPayload(record)
   const generatedScript = await generateScript(product)
   const payload = {
     ...mapping.payload,
     script: generatedScript,
   }
 
-  const videoId = await heygenClient.createVideoJob(payload)
+  const videoId = await didClient.createVideoJob(payload)
   await writeRowFields(csvUrl, headers, rowNumber, {
     Video_ID: videoId,
     Video_Status: 'processing',
-    HEYGEN_AVATAR: mapping.avatar,
-    HEYGEN_VOICE: mapping.voice,
-    HEYGEN_LENGTH_SECONDS: String(mapping.lengthSeconds),
-    HEYGEN_MAPPING_REASON: mapping.reason,
-    HEYGEN_MAPPED_AT: new Date().toISOString(),
+    DID_AVATAR: mapping.avatar,
+    DID_VOICE: mapping.voice,
+    DID_LENGTH_SECONDS: String(mapping.lengthSeconds),
+    DID_MAPPING_REASON: mapping.reason,
+    DID_MAPPED_AT: new Date().toISOString(),
   })
 
-  const videoUrl = await heygenClient.pollJobForVideoUrl(videoId, {
-    timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
-    intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
+  const videoUrl = await didClient.pollJobForVideoUrl(videoId, {
+    timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000),
+    intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000),
   })
 
   await writeRowFields(csvUrl, headers, rowNumber, {
@@ -278,7 +302,6 @@ async function createOrPollVideo(params: {
 }
 
 async function main(): Promise<void> {
-  // 🔐 ensure secrets are loaded before anything else
   await bootstrapSecrets()
 
   try {
@@ -290,7 +313,6 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  // Backward compatibility: still attempt specific loads if missing
   await loadSecretToEnv('GOOGLE_SHEET_CSV_URL')
   await loadSecretToEnv('CSV_URL')
 
@@ -305,7 +327,7 @@ async function main(): Promise<void> {
   const rowsPerRun = Number(process.env.ROWS_PER_RUN ?? '1')
   const dryRun = String(process.env.DRY_RUN_LOG_ONLY || '').toLowerCase() === 'true'
   const enabledPlatformsEnv = (process.env.ENABLE_PLATFORMS || '').toLowerCase()
-  const enabledPlatforms = new Set(enabledPlatformsEnv.split(',').map((s) => s.trim()).filter(Boolean))
+  const enabledPlatforms = new Set(enabledPlatformsEnv.split(/[,^]/).map((s) => s.trim()).filter(Boolean))
   const loopResetPosted = String(process.env.LOOP_RESET_POSTED || 'false').toLowerCase() === 'true'
   const alwaysGenerate = String(process.env.ALWAYS_GENERATE_NEW_VIDEO || 'false').toLowerCase() === 'true'
 
@@ -358,8 +380,8 @@ async function main(): Promise<void> {
         incrementSuccessfulPost()
         updateStatus({ status: 'processed-row', rowsProcessed: rowsThisCycle })
       } catch (error: any) {
-        // Add to seen so the same row is not retried every cycle on persistent errors
         seen.add(jobId)
+        rowsThisCycle++
         incrementFailedPost()
         addError(error?.message || String(error))
         auditLogger.logEvent({

@@ -3,48 +3,45 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+// @ts-nocheck
 const node_cron_1 = __importDefault(require("node-cron"));
 const child_process_1 = require("child_process");
-function runPipeline() {
-    console.log('🚀 Running video pipeline...');
-    (0, child_process_1.exec)('npm run run:once', (error, stdout, stderr) => {
+function runCommand(label, command) {
+    console.log(`🚀 ${label}... (${command})`);
+    (0, child_process_1.exec)(command, (error, stdout, stderr) => {
         if (error) {
-            console.error('❌ Pipeline error:', error.message);
+            console.error(`❌ ${label} error:`, error.message);
             return;
         }
         if (stderr) {
-            console.error('⚠️ Pipeline stderr:', stderr);
+            console.error(`⚠️ ${label} stderr:`, stderr);
         }
-        console.log('✅ Pipeline output:', stdout);
+        console.log(`✅ ${label} output:`, stdout);
     });
+}
+function runPipeline() {
+    const pipelineCommand = process.env.SCHEDULER_PIPELINE_COMMAND || 'npm run run:once';
+    runCommand('Running pipeline', pipelineCommand);
 }
 function generateRows() {
-    console.log('🧠 Generating new content rows...');
-    (0, child_process_1.exec)('npm run generate:rows', (error, stdout, stderr) => {
-        if (error) {
-            console.error('❌ Row generation error:', error.message);
-            return;
-        }
-        if (stderr) {
-            console.error('⚠️ Row generation stderr:', stderr);
-        }
-        console.log('✅ Rows generated:', stdout);
+    const generateRowsCommand = process.env.SCHEDULER_GENERATE_ROWS_COMMAND || 'npm run generate:rows';
+    runCommand('Generating new content rows', generateRowsCommand);
+}
+const schedule = (process.env.SCHEDULER_POST_TIMES || '15 8 * * *,30 11 * * *,0 13 * * *,15 18 * * *,30 19 * * *')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+const isTestVideoMode = String(process.env.TEST_VIDEO_CAMPAIGN_MODE || 'false').toLowerCase() === 'true';
+if (!isTestVideoMode) {
+    const rowGenerationCron = process.env.SCHEDULER_ROW_GENERATION_CRON || '0 7 * * *';
+    node_cron_1.default.schedule(rowGenerationCron, () => {
+        console.log('🌅 Morning row generation triggered');
+        generateRows();
     });
 }
-// 🧠 NEW: Generate fresh rows every morning at 7:00 AM
-node_cron_1.default.schedule('0 7 * * *', () => {
-    console.log('🌅 Morning row generation triggered');
-    generateRows();
-});
-// Existing posting schedule
-const schedule = [
-    '15 8 * * *', // YouTube AM
-    '30 11 * * *', // Instagram AM
-    '0 13 * * *', // Facebook
-    '15 18 * * *', // Instagram PM
-    '30 19 * * *', // YouTube PM
-];
 console.log('⏰ Scheduler started...');
+console.log('Schedule:', schedule);
+console.log('TEST_VIDEO_CAMPAIGN_MODE:', isTestVideoMode);
 schedule.forEach((time) => {
     node_cron_1.default.schedule(time, () => {
         console.log(`⏱ Running scheduled job at ${time}`);

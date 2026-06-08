@@ -9,6 +9,7 @@ import { getConfig } from './config-validator'
 const logger = getLogger()
 const metrics = getMetrics()
 const rateLimiters = getRateLimiters()
+const SCRIPT_CTA = 'Visit natureswaysoil.com for more info'
 
 function looksLikeMetaNarration(text: string): boolean {
   const bannedPatterns = [
@@ -31,8 +32,15 @@ function looksLikeMetaNarration(text: string): boolean {
   return bannedPatterns.some((pattern) => pattern.test(text))
 }
 
+function normalizeScriptCta(text: string): string {
+  const escapedCta = SCRIPT_CTA.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const ctaPattern = new RegExp(`(?:\\s*[.!?]?\\s*${escapedCta}\\.?)+\\s*$`, 'i')
+  const withoutTrailingCtas = text.trim().replace(ctaPattern, '').trim().replace(/[.\s]*$/, '')
+  return `${withoutTrailingCtas}. ${SCRIPT_CTA}`.trim()
+}
+
 function buildFallbackScript(title: string): string {
-  return `Tired of guessing what your soil needs? ${title} helps feed the soil so your plants, lawn, or garden can perform better from the roots up. Use it as part of your regular care routine for stronger growth, better vigor, and healthier-looking results. Give your soil the support it has been missing. Visit natureswaysoil.com for more info`
+  return `Tired of guessing what your soil needs? ${title} helps feed the soil so your plants, lawn, or garden can perform better from the roots up. Use it as part of your regular care routine for stronger growth, better vigor, and healthier-looking results. Give your soil the support it has been missing. ${SCRIPT_CTA}`
 }
 
 export async function generateScript(product: Product, opts?: {
@@ -68,7 +76,7 @@ Conversion structure:
 3. Introduce the product as the simple solution.
 4. Give 2-3 concrete benefits.
 5. Add one trust or usage cue.
-6. Close with exactly: "Visit natureswaysoil.com for more info"
+6. Close with exactly: "${SCRIPT_CTA}"
 
 Rules:
 - 75 to 95 words total.
@@ -113,7 +121,7 @@ Important:
 - do NOT give numbered steps
 - do NOT overpromise
 
-End with exactly: "Visit natureswaysoil.com for more info".`
+End with exactly: "${SCRIPT_CTA}".`
 
     const title = String(product.title || product.name || product.id || '').trim()
     const details = String(product.details || product.description || product.Description || product.caption || '').trim()
@@ -175,11 +183,7 @@ End with exactly: "Visit natureswaysoil.com for more info".`
             )
           }
 
-          if (!content.endsWith('Visit natureswaysoil.com for more info')) {
-            return `${content.replace(/[.\s]*$/, '')}. Visit natureswaysoil.com for more info`
-          }
-
-          return content
+          return normalizeScriptCta(content)
         },
         {
           maxRetries: 3,

@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
   schedule:
     # GitHub Actions uses UTC time.
-    - cron: '0 11 * * *'   # 7:00 AM ET during daylight time: generate rows + run pipeline
-    - cron: '15 12 * * *'  # 8:15 AM ET
-    - cron: '30 15 * * *'  # 11:30 AM ET
-    - cron: '0 17 * * *'   # 1:00 PM ET
-    - cron: '15 22 * * *'  # 6:15 PM ET
-    - cron: '30 23 * * *'  # 7:30 PM ET
+    # Five daily posting slots (~ET): 7:00 AM, 8:15 AM, 11:30 AM, 1:00 PM, 6:15 PM
+    - cron: '0 11 * * *'
+    - cron: '15 12 * * *'
+    - cron: '30 15 * * *'
+    - cron: '0 17 * * *'
+    - cron: '15 22 * * *'
 
 jobs:
   video-automation:
@@ -17,18 +17,56 @@ jobs:
     timeout-minutes: 45
 
     env:
-      RUN_ONCE: 'true'
-      ROWS_PER_RUN: '1'
-      ALWAYS_GENERATE_NEW_VIDEO: 'true'
-      ENABLE_PLATFORMS: 'youtube,instagram,facebook'
-      GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT || 'natureswaysoil-video' }}
-      GCLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT || 'natureswaysoil-video' }}
-      GCP_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT || 'natureswaysoil-video' }}
-      GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/gcp-service-account.json
+      TEST_VIDEO_CAMPAIGN_MODE: 'true'
+      TEST_VIDEOS_DIR: test-campaign-videos
+      DEFAULT_GOOGLE_CLOUD_PROJECT: natureswaysoil-video
+      # Serve videos directly from the repo so the workflow never depends on Supabase storage.
+      # The four test-campaign .mp4 files are committed as regular git blobs (not LFS objects),
+      # so raw.githubusercontent.com returns actual video bytes for each one.
+      TEST_VIDEO_PUBLIC_BASE_URL: 'https://raw.githubusercontent.com/natureswaysoil/video/main/test-campaign-videos'
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Prepare Google ADC credentials (match local setup)
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_CLOUD_PROJECT_SECRET: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+        run: |
+          set -euo pipefail
+
+          CREDS_JSON="${GOOGLE_CREDENTIALS:-}"
+          if [ -z "$CREDS_JSON" ]; then
+            CREDS_JSON="${GOOGLE_SERVICE_ACCOUNT_JSON:-}"
+          fi
+
+          if [ -z "$CREDS_JSON" ]; then
+            echo "::error::Missing Google service account secret. Set GOOGLE_CREDENTIALS (preferred) or GOOGLE_SERVICE_ACCOUNT_JSON."
+            exit 1
+          fi
+
+          CREDS_PATH="$RUNNER_TEMP/gcp-service-account.json"
+          printf '%s' "$CREDS_JSON" > "$CREDS_PATH"
+          chmod 600 "$CREDS_PATH"
+
+          PROJECT_FROM_JSON="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("project_id", ""))' "$CREDS_PATH" || true)"
+          EFFECTIVE_PROJECT="${GOOGLE_CLOUD_PROJECT_SECRET:-$PROJECT_FROM_JSON}"
+          if [ -z "$EFFECTIVE_PROJECT" ]; then
+            EFFECTIVE_PROJECT="$DEFAULT_GOOGLE_CLOUD_PROJECT"
+          fi
+
+          {
+            echo "GOOGLE_APPLICATION_CREDENTIALS=$CREDS_PATH"
+            echo "GOOGLE_CLOUD_PROJECT=$EFFECTIVE_PROJECT"
+            echo "GCLOUD_PROJECT=$EFFECTIVE_PROJECT"
+            echo "GCP_PROJECT=$EFFECTIVE_PROJECT"
+          } >> "$GITHUB_ENV"
+
+          echo "Using Google Cloud project: $EFFECTIVE_PROJECT"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -36,17 +74,13 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Write Google credentials
-        run: |
-          echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > "$GOOGLE_APPLICATION_CREDENTIALS"
-          chmod 600 "$GOOGLE_APPLICATION_CREDENTIALS"
-
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate daily rows at morning window
-        if: github.event.schedule == '0 11 * * *' || github.event_name == 'workflow_dispatch'
-        run: npm run generate:rows
+      - name: Verify bundled test campaign videos exist
+        run: |
+          test -d "$TEST_VIDEOS_DIR"
+          ls -1 "$TEST_VIDEOS_DIR"/*.mp4
 
-      - name: Run video pipeline once
-        run: npm run run:once
+      - name: Run test-video campaign (rotation mode)
+        run: npm run run:test-campaign

@@ -62,7 +62,7 @@ Topic: ${topic}
 Requirements:
 1. Title: Catchy, SEO-friendly (60-70 characters)
 2. Excerpt: Engaging summary (150-160 characters)
-3. Content: 800-1200 words, well-structured with headings
+3. Content: 1200-1800 words, well-structured with headings
 4. Include actionable tips and science-backed information
 5. Naturally mention Nature's Way Soil products where relevant
 6. Professional yet accessible tone
@@ -83,7 +83,7 @@ The content should use Markdown formatting with ## for headings.`
 
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4-turbo-preview',
+      model: process.env.OPENAI_BLOG_MODEL || 'gpt-4o',
       messages: [
         {
           role: 'system',
@@ -95,7 +95,7 @@ The content should use Markdown formatting with ## for headings.`
         }
       ],
       temperature: 0.8,
-      max_tokens: 2500,
+      max_tokens: 4000,
       response_format: { type: 'json_object' }
     })
 
@@ -456,6 +456,105 @@ export async function postBlogVideoToSocial(blogPost: BlogPost, videoUrl: string
 }
 
 /**
+ * Publish the blog post to the Nature's Way Soil website by committing it
+ * to public/blog_articles.json on the configured GitHub repo.
+ *
+ * Gated by ENABLE_BLOG_POSTING=true and a valid GITHUB_TOKEN.
+ * Defaults: repo=natureswaysoil/best, branch=main.
+ */
+export async function publishBlogToGitHub(
+  blogPost: BlogPost,
+  videoUrl: string | null
+): Promise<{ success: boolean; commitSha?: string; skipped?: boolean; reason?: string; error?: string }> {
+  if (process.env.ENABLE_BLOG_POSTING !== 'true') {
+    console.log('⏭️  Skipping GitHub blog publish - ENABLE_BLOG_POSTING is not true')
+    return { success: false, skipped: true, reason: 'ENABLE_BLOG_POSTING!=true' }
+  }
+  const githubToken = process.env.GITHUB_TOKEN
+  if (!githubToken) {
+    console.log('⏭️  Skipping GitHub blog publish - GITHUB_TOKEN not set')
+    return { success: false, skipped: true, reason: 'missing GITHUB_TOKEN' }
+  }
+
+  const repo = process.env.GITHUB_REPO || 'natureswaysoil/best'
+  const branch = process.env.GITHUB_BRANCH || 'main'
+  const filePath = process.env.GITHUB_BLOG_FILE || 'public/blog_articles.json'
+  const fileUrl = `https://api.github.com/repos/${repo}/contents/${filePath}?ref=${branch}`
+
+  try {
+    console.log(`\n📰 Publishing blog to GitHub: ${repo}@${branch}:${filePath}`)
+
+    // Fetch current articles file
+    const fileResponse = await axios.get(fileUrl, {
+      headers: {
+        Authorization: `Bearer ${githubToken}`,
+        Accept: 'application/vnd.github.v3+json',
+      },
+    })
+
+    const currentContent = Buffer.from(fileResponse.data.content, 'base64').toString('utf-8')
+    const currentArticles: any[] = JSON.parse(currentContent)
+
+    // Skip if a post with the same title or slug already exists
+    const existingSlugs = new Set(currentArticles.map((a: any) => a.slug))
+    const existingTitles = new Set(currentArticles.map((a: any) => String(a.title || '').toLowerCase()))
+    if (existingTitles.has(blogPost.title.toLowerCase())) {
+      console.log(`⚠️  Blog article "${blogPost.title}" already exists on GitHub - skipping duplicate`)
+      return { success: true, skipped: true, reason: 'duplicate-title' }
+    }
+    const slug = existingSlugs.has(blogPost.slug) ? `${blogPost.slug}-${Date.now()}` : blogPost.slug
+
+    const newArticle = {
+      id: `article_${Date.now()}`,
+      slug,
+      title: blogPost.title,
+      excerpt: blogPost.excerpt,
+      content: blogPost.content,
+      publishDate: blogPost.publishDate,
+      category: blogPost.category || 'Gardening Tips',
+      featuredImage: 'https://natureswaysoil.com/images/blog/default-blog-thumbnail.jpg',
+      author: "Nature's Way Soil Team",
+      tags: blogPost.tags || [],
+      metaDescription: blogPost.excerpt?.substring(0, 160) || '',
+      featuredPost: false,
+      videoUrl: videoUrl || undefined,
+      seoKeywords: blogPost.seoKeywords || [],
+    }
+
+    // Prepend so newest appears first
+    currentArticles.unshift(newArticle)
+
+    const updatedContent = JSON.stringify(currentArticles, null, 2)
+    const updateResponse = await axios.put(
+      fileUrl,
+      {
+        message: `Add blog article: ${newArticle.title}`,
+        content: Buffer.from(updatedContent).toString('base64'),
+        sha: fileResponse.data.sha,
+        branch,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${githubToken}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      }
+    )
+
+    const commitSha = updateResponse.data?.commit?.sha
+    console.log('✅ Blog published to GitHub')
+    console.log(`   Slug: ${newArticle.slug}`)
+    console.log(`   Commit: ${commitSha}`)
+    console.log(`   URL:  https://natureswaysoil.com/blog/${newArticle.slug}`)
+    return { success: true, commitSha }
+  } catch (error: any) {
+    const message = error?.response?.data?.message || error?.message || String(error)
+    console.error('❌ Failed to publish blog to GitHub:', message)
+    return { success: false, error: message }
+  }
+}
+
+/**
  * Main execution function
  */
 export async function runBlogGeneration() {
@@ -473,8 +572,11 @@ export async function runBlogGeneration() {
     
     // Step 3: Save blog post
     await saveBlogPost(blogPost, videoUrl)
-    
-    // Step 4: Post to social media (if video was generated)
+
+    // Step 4: Publish blog to website via GitHub (gated by ENABLE_BLOG_POSTING)
+    const githubResult = await publishBlogToGitHub(blogPost, videoUrl)
+
+    // Step 5: Post to social media (if video was generated)
     let socialResults: any = {}
     if (videoUrl) {
       socialResults = await postBlogVideoToSocial(blogPost, videoUrl)
@@ -488,6 +590,7 @@ export async function runBlogGeneration() {
     console.log(`Title: ${blogPost.title}`)
     console.log(`Slug: ${blogPost.slug}`)
     console.log(`Video: ${videoUrl || 'Not generated'}`)
+    console.log(`GitHub Blog: ${githubResult.success ? (githubResult.skipped ? '⏭️  skipped (' + githubResult.reason + ')' : '✅ ' + (githubResult.commitSha || 'committed')) : '❌ ' + (githubResult.error || 'failed')}`)
     console.log(`Social Media:`)
     console.log(`  YouTube:   ${socialResults.youtube?.success   ? '✅' : socialResults.youtube   ? '❌' : '⏭️  skipped'}`)
     console.log(`  Instagram: ${socialResults.instagram?.success ? '✅' : socialResults.instagram ? '❌' : '⏭️  skipped'}`)

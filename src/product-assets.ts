@@ -1,3 +1,73 @@
+export type ProductLandingConfig = {
+  asin: string
+  slug: string
+  url: string
+  cta: string
+}
+
+const BASE_DOMAIN = 'natureswaysoil.com'
+
+const PRODUCT_LANDING_CONFIGS: Record<string, ProductLandingConfig> = {
+  B0DJ1JNQW4: {
+    asin: 'B0DJ1JNQW4',
+    slug: 'pasture-revival',
+    url: `${BASE_DOMAIN}/pasture-revival`,
+    cta: 'Revive your pasture naturally',
+  },
+  B0FG38PQQX: {
+    asin: 'B0FG38PQQX',
+    slug: 'dog-urine-neutralizer',
+    url: `${BASE_DOMAIN}/dog-urine-neutralizer`,
+    cta: 'Fix yellow pet spots fast',
+  },
+  B0DC9CSMWS: {
+    asin: 'B0DC9CSMWS',
+    slug: 'dog-urine-neutralizer',
+    url: `${BASE_DOMAIN}/dog-urine-neutralizer`,
+    cta: 'Fix yellow pet spots fast',
+  },
+  B0FG38YYJ5: {
+    asin: 'B0FG38YYJ5',
+    slug: 'dog-urine-neutralizer',
+    url: `${BASE_DOMAIN}/dog-urine-neutralizer`,
+    cta: 'Fix yellow pet spots fast',
+  },
+  B0GFC45K6T: {
+    asin: 'B0GFC45K6T',
+    slug: 'lawn-fertilizer',
+    url: `${BASE_DOMAIN}/lawn-fertilizer`,
+    cta: 'Feed your lawn for deeper green',
+  },
+  B0DDCPYLG1: {
+    asin: 'B0DDCPYLG1',
+    slug: 'garden-mix',
+    url: `${BASE_DOMAIN}/garden-mix`,
+    cta: 'Grow stronger, healthier gardens',
+  },
+  B0D9HT7ND8: {
+    asin: 'B0D9HT7ND8',
+    slug: 'hydroponic-nutrients',
+    url: `${BASE_DOMAIN}/hydroponic-nutrients`,
+    cta: 'Power clean hydroponic growth',
+  },
+  B0GTBZ7N56: {
+    asin: 'B0GTBZ7N56',
+    slug: 'fruit-tree-fertilizer',
+    url: `${BASE_DOMAIN}/fruit-tree-fertilizer`,
+    cta: 'Grow bigger, sweeter fruit',
+  },
+}
+
+function normalizeAsin(asin?: string): string {
+  return String(asin || '').trim().toUpperCase()
+}
+
+export function getProductLandingConfigByAsin(asin?: string): ProductLandingConfig | undefined {
+  const normalized = normalizeAsin(asin)
+  if (!normalized) return undefined
+  return PRODUCT_LANDING_CONFIGS[normalized]
+}
+
 export function getProductAssetPath(title: string): string | undefined {
   const lower = title.toLowerCase()
 

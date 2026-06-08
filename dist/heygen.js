@@ -18,11 +18,9 @@ function isPlaceholderApiKey(value) {
     const normalized = String(value || '').trim().toLowerCase();
     return !normalized || normalized.includes('your-') || normalized.includes('paste_') || normalized.includes('replace_') || normalized === 'changeme';
 }
-// Optional: load secrets from Google Secret Manager (only if running on GCP)
+// Optional: load secrets from Google Secret Manager
 async function getSecretFromGcp(name) {
     try {
-        // lazy-import so module doesn't require @google-cloud/secret-manager when not used
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
         const client = new SecretManagerServiceClient();
         const [accessResponse] = await client.accessSecretVersion({ name });
@@ -30,7 +28,6 @@ async function getSecretFromGcp(name) {
         return payload || null;
     }
     catch (e) {
-        // Not fatal - return null so caller can fall back to env var
         logger.debug('Could not load secret from GCP', 'HeyGen', { error: e });
         return null;
     }
@@ -42,7 +39,7 @@ class HeyGenClient {
         this.apiKey = cfg.apiKey || process.env.HEYGEN_API_KEY || '';
         this.apiEndpoint = cfg.apiEndpoint || process.env.HEYGEN_API_ENDPOINT || 'https://api.heygen.com';
         if (isPlaceholderApiKey(this.apiKey)) {
-            throw new errors_1.AppError('HeyGen API key is missing or still set to a placeholder. Update HEYGEN_API_KEY in .env, Codespace secrets, or Google Secret Manager.', errors_1.ErrorCode.MISSING_CONFIG, 500, true, { hasHeyGenApiKey: !!this.apiKey, keyLooksLikePlaceholder: true });
+            throw new errors_1.AppError('HeyGen API key is missing or still set to a placeholder.', errors_1.ErrorCode.MISSING_CONFIG, 500, true, { hasHeyGenApiKey: !!this.apiKey });
         }
         this.axios = axios_1.default.create({
             baseURL: this.apiEndpoint,
@@ -59,9 +56,7 @@ class HeyGenClient {
         try {
             const res = await this.axios.get('/v2/avatars');
             const avatars = res.data?.data?.avatars || res.data?.avatars || [];
-            const match = avatars.find((a) => a.avatar_id === nameOrId)
-                || avatars.find((a) => (a.avatar_name || '').toLowerCase().includes(nameOrId.toLowerCase()))
-                || avatars[0];
+            const match = avatars.find((a) => a.avatar_id === nameOrId) || avatars.find((a) => (a.avatar_name || '').toLowerCase().includes(nameOrId.toLowerCase())) || avatars[0];
             const id = match?.avatar_id || nameOrId;
             for (const a of avatars) {
                 if (a.avatar_id) {
@@ -69,7 +64,6 @@ class HeyGenClient {
                     this._avatarCache[a.avatar_id] = a.avatar_id;
                 }
             }
-            console.log('Discovered HeyGen avatar ID', { requested: nameOrId, resolved: id, total: avatars.length });
             return id;
         }
         catch (e) {
@@ -83,10 +77,7 @@ class HeyGenClient {
         try {
             const res = await this.axios.get('/v2/voices');
             const voices = res.data?.data?.voices || res.data?.voices || [];
-            const match = voices.find((v) => v.voice_id === nameOrId)
-                || voices.find((v) => (v.name || '').toLowerCase().includes(nameOrId.toLowerCase()))
-                || voices.find((v) => v.language === 'en-US' || (v.locale || '').startsWith('en'))
-                || voices[0];
+            const match = voices.find((v) => v.voice_id === nameOrId) || voices.find((v) => (v.name || '').toLowerCase().includes(nameOrId.toLowerCase())) || voices[0];
             const id = match?.voice_id || nameOrId;
             for (const v of voices) {
                 if (v.voice_id) {
@@ -94,7 +85,6 @@ class HeyGenClient {
                     this._voiceCache[v.voice_id] = v.voice_id;
                 }
             }
-            console.log('Discovered HeyGen voice ID', { requested: nameOrId, resolved: id });
             return id;
         }
         catch (e) {
@@ -103,30 +93,54 @@ class HeyGenClient {
         }
     }
     /**
-     * Create a new video generation job
-     * @param payload Video generation parameters
-     * @returns Job ID for polling
+     * Create a new video generation job — NOW SUPPORTS MULTI-SCENE + PEXELS B-ROLL
      */
     async createVideoJob(payload) {
         const startTime = Date.now();
         try {
             const config = (0, config_validator_1.getConfig)();
             if (!payload.script) {
-                throw new errors_1.AppError('Script is required for HeyGen video generation', errors_1.ErrorCode.VALIDATION_ERROR, 400, true, { hasScript: !!payload.script });
+                throw new errors_1.AppError('Script is required for HeyGen video generation', errors_1.ErrorCode.VALIDATION_ERROR, 400, true);
             }
             logger.info('Creating HeyGen video job', 'HeyGen', {
                 scriptLength: payload.script.length,
                 avatar: payload.avatar,
                 voice: payload.voice,
+                hasScenes: !!(payload.scenes && payload.scenes.length > 0),
+                sceneCount: payload.scenes?.length || 1,
             });
             const jobId = await rateLimiters.execute('heygen', async () => {
                 return (0, errors_1.withRetry)(async () => {
-                    // Resolve avatar and voice IDs before creating the request
                     const resolvedAvatarId = await this.resolveAvatarId(payload.avatar || 'default');
                     const resolvedVoiceId = await this.resolveVoiceId(payload.voice || 'default');
-                    // HeyGen v2 API
-                    const v2Body = {
-                        video_inputs: [{
+                    let videoInputs = [];
+                    if (payload.scenes && payload.scenes.length > 0) {
+                        // Multi-scene mode with Pexels B-roll
+                        for (const scene of payload.scenes) {
+                            const background = scene.brollUrl
+                                ? { type: 'video', url: scene.brollUrl }
+                                : payload.imageUrl
+                                    ? { type: 'image', url: payload.imageUrl }
+                                    : { type: 'color', value: '#1a3a1a' };
+                            videoInputs.push({
+                                character: {
+                                    type: 'avatar',
+                                    avatar_id: resolvedAvatarId,
+                                    avatar_style: 'normal',
+                                },
+                                voice: {
+                                    type: 'text',
+                                    input_text: scene.avatarText || payload.script,
+                                    voice_id: resolvedVoiceId,
+                                    speed: 1.0,
+                                },
+                                background,
+                            });
+                        }
+                    }
+                    else {
+                        // Fallback to single-scene (old behavior)
+                        videoInputs = [{
                                 character: {
                                     type: 'avatar',
                                     avatar_id: resolvedAvatarId,
@@ -140,169 +154,116 @@ class HeyGenClient {
                                 },
                                 background: payload.imageUrl
                                     ? { type: 'image', url: payload.imageUrl }
-                                    : {
-                                        type: 'ai',
-                                        prompt: payload.visualPrompt || 'natural garden scene, healthy plants, soil, product application'
-                                    },
-                            }],
+                                    : { type: 'color', value: '#1a3a1a' },
+                            }];
+                    }
+                    const v2Body = {
+                        video_inputs: videoInputs,
                         dimension: { width: 720, height: 1280 },
                         ...(payload.title ? { title: payload.title } : {}),
                     };
                     const response = await this.axios.post('/v2/video/generate', v2Body, {
                         timeout: config.TIMEOUT_HEYGEN,
                     });
-                    const id = response.data?.data?.video_id ||
-                        response.data?.video_id ||
-                        response.data?.jobId;
-                    if (!id) {
-                        throw new errors_1.AppError('HeyGen API did not return a job ID', errors_1.ErrorCode.HEYGEN_API_ERROR, 500, true, { responseData: response.data });
-                    }
+                    const id = response.data?.data?.video_id || response.data?.video_id || response.data?.jobId;
+                    if (!id)
+                        throw new errors_1.AppError('HeyGen API did not return a job ID', errors_1.ErrorCode.HEYGEN_API_ERROR, 500, true);
                     return id;
-                }, {
-                    maxRetries: 3,
-                    onRetry: (error, attempt) => {
-                        logger.warn('Retrying HeyGen job creation', 'HeyGen', {
-                            attempt,
-                            error: error instanceof Error ? error.message : String(error),
-                        });
-                    },
-                });
+                }, { maxRetries: 3 });
             });
             const duration = Date.now() - startTime;
             metrics.incrementCounter('heygen.create_job.success');
             metrics.recordHistogram('heygen.create_job.duration', duration);
-            logger.info('HeyGen video job created', 'HeyGen', {
-                jobId,
-                duration,
-            });
+            logger.info('HeyGen video job created', 'HeyGen', { jobId, duration, sceneCount: payload.scenes?.length || 1 });
             return jobId;
         }
         catch (error) {
             const duration = Date.now() - startTime;
             metrics.incrementCounter('heygen.create_job.error');
             metrics.recordHistogram('heygen.create_job.error_duration', duration);
-            logger.error('Failed to create HeyGen video job', 'HeyGen', { duration }, error);
-            if (error instanceof errors_1.AppError) {
+            logger.error('Failed to create HeyGen video job', 'HeyGen', { duration, heygenError: error?.response?.data }, error);
+            if (error instanceof errors_1.AppError)
                 throw error;
-            }
-            if (axios_1.default.isAxiosError(error)) {
-                throw (0, errors_1.fromAxiosError)(error, errors_1.ErrorCode.HEYGEN_API_ERROR, {
-                    payload: { scriptLength: payload.script.length },
-                });
-            }
-            throw new errors_1.AppError(`HeyGen job creation failed: ${error.message || String(error)}`, errors_1.ErrorCode.HEYGEN_API_ERROR, 500, true, {}, error instanceof Error ? error : undefined);
+            if (axios_1.default.isAxiosError(error))
+                throw (0, errors_1.fromAxiosError)(error, errors_1.ErrorCode.HEYGEN_API_ERROR);
+            throw new errors_1.AppError(`HeyGen job creation failed: ${error.message || String(error)}`, errors_1.ErrorCode.HEYGEN_API_ERROR, 500, true);
         }
     }
-    /**
-     * Check the status of a video generation job
-     * @param jobId Job ID returned from createVideoJob
-     * @returns Job status and result
-     */
     async getJobStatus(jobId) {
         try {
             const config = (0, config_validator_1.getConfig)();
-            if (!jobId) {
-                throw new errors_1.AppError('Job ID is required', errors_1.ErrorCode.VALIDATION_ERROR, 400, true, { hasJobId: !!jobId });
-            }
-            const response = await this.axios.get(`/v2/video/${jobId}`, {
-                timeout: config.TIMEOUT_HEYGEN,
-            });
+            // v1/video_status.get is the correct endpoint for checking async generation status.
+            // GET /v2/video/{id} is for accessing completed library videos and 404s on in-progress jobs.
+            const response = await this.axios.get(`/v1/video_status.get?video_id=${jobId}`, { timeout: config.TIMEOUT_HEYGEN });
             const data = response.data?.data || response.data;
-            const result = {
+            // v1 can return 200 with an error code meaning "not found"
+            if (response.data?.code && response.data.code !== 100) {
+                throw new errors_1.AppError(`HeyGen job expired or not found: ${jobId}`, errors_1.ErrorCode.HEYGEN_API_ERROR, 404, false);
+            }
+            return {
                 jobId,
                 status: this.normalizeStatus(data?.status),
                 videoUrl: data?.video_url || data?.videoUrl || data?.url,
                 error: data?.error || data?.error_message,
             };
-            logger.debug('HeyGen job status', 'HeyGen', {
-                jobId,
-                status: result.status,
-                hasVideoUrl: !!result.videoUrl,
-            });
-            return result;
         }
         catch (error) {
-            logger.error('Failed to get HeyGen job status', 'HeyGen', { jobId }, error);
-            if (error instanceof errors_1.AppError) {
+            if (error instanceof errors_1.AppError)
                 throw error;
+            logger.error('Failed to get HeyGen job status', 'HeyGen', { jobId, heygenError: error?.response?.data }, error);
+            // 404 = job expired or never existed — permanent failure, never retry
+            if (axios_1.default.isAxiosError(error) && error.response?.status === 404) {
+                throw new errors_1.AppError(`HeyGen job expired or not found: ${jobId}`, errors_1.ErrorCode.HEYGEN_API_ERROR, 404, false);
             }
-            if (axios_1.default.isAxiosError(error)) {
-                throw (0, errors_1.fromAxiosError)(error, errors_1.ErrorCode.HEYGEN_API_ERROR, { jobId });
-            }
-            throw new errors_1.AppError(`Failed to get HeyGen job status: ${error.message || String(error)}`, errors_1.ErrorCode.HEYGEN_API_ERROR, 500, true, { jobId }, error instanceof Error ? error : undefined);
+            throw error;
         }
     }
-    /**
-     * Poll a job until it completes or times out
-     * @param jobId Job ID to poll
-     * @param opts Polling options
-     * @returns Video URL when ready
-     */
     async pollJobForVideoUrl(jobId, opts) {
         const startTime = Date.now();
-        const timeoutMs = opts?.timeoutMs ?? 20 * 60_000; // 20 minutes default
-        const intervalMs = opts?.intervalMs ?? 10_000; // 10 seconds default
+        const timeoutMs = opts?.timeoutMs ?? 20 * 60_000;
+        const intervalMs = opts?.intervalMs ?? 15_000;
+        const initialDelayMs = opts?.initialDelayMs ?? 0;
+        // How long to keep retrying 404s before treating as permanent (0 = fail immediately on first 404)
+        const notFoundGracePeriodMs = opts?.notFoundGracePeriodMs ?? 0;
+        if (initialDelayMs > 0) {
+            logger.info(`Waiting ${initialDelayMs}ms before first poll`, 'HeyGen', { jobId });
+            await new Promise(resolve => setTimeout(resolve, initialDelayMs));
+        }
         try {
-            logger.info('Polling HeyGen job', 'HeyGen', {
-                jobId,
-                timeoutMs,
-                intervalMs,
-            });
             while (Date.now() - startTime < timeoutMs) {
+                let result;
                 try {
-                    const result = await this.getJobStatus(jobId);
-                    if (result.status === 'completed' && result.videoUrl) {
-                        const duration = Date.now() - startTime;
-                        metrics.incrementCounter('heygen.poll.success');
-                        metrics.recordHistogram('heygen.poll.duration', duration);
-                        logger.info('HeyGen job completed', 'HeyGen', {
-                            jobId,
-                            duration,
-                            videoUrl: result.videoUrl,
-                        });
-                        return result.videoUrl;
-                    }
-                    if (result.status === 'failed') {
-                        throw new errors_1.AppError(`HeyGen job failed: ${result.error || 'Unknown error'}`, errors_1.ErrorCode.HEYGEN_API_ERROR, 500, true, { jobId, error: result.error });
-                    }
-                    // Still processing, wait and retry
-                    logger.debug('HeyGen job still processing', 'HeyGen', {
-                        jobId,
-                        status: result.status,
-                    });
-                    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+                    result = await this.getJobStatus(jobId);
                 }
-                catch (error) {
-                    // If it's a job failure, rethrow immediately
-                    if (error instanceof errors_1.AppError && error.message.includes('job failed')) {
-                        throw error;
+                catch (statusError) {
+                    if (statusError instanceof errors_1.AppError && statusError.statusCode === 404) {
+                        const elapsed = Date.now() - startTime;
+                        if (elapsed < notFoundGracePeriodMs) {
+                            // Still in grace period — job is likely still indexing on HeyGen's side
+                            logger.info(`Job ${jobId} not found yet (${Math.round(elapsed / 1000)}s elapsed), retrying...`, 'HeyGen', { jobId, elapsed });
+                            await new Promise(resolve => setTimeout(resolve, intervalMs));
+                            continue;
+                        }
+                        // Grace period expired — treat as permanent failure
+                        throw statusError;
                     }
-                    // For other errors (network issues, etc.), continue polling
-                    logger.warn('Error polling HeyGen job, will retry', 'HeyGen', {
-                        jobId,
-                    }, error);
-                    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+                    // Transient error — wait and retry
+                    await new Promise(resolve => setTimeout(resolve, intervalMs));
+                    continue;
                 }
+                if (result.status === 'completed' && result.videoUrl)
+                    return result.videoUrl;
+                if (result.status === 'failed')
+                    throw new errors_1.AppError(`HeyGen job failed: ${result.error}`, errors_1.ErrorCode.HEYGEN_API_ERROR);
+                await new Promise(resolve => setTimeout(resolve, intervalMs));
             }
-            const duration = Date.now() - startTime;
-            metrics.incrementCounter('heygen.poll.timeout');
-            metrics.recordHistogram('heygen.poll.timeout_duration', duration);
-            throw new errors_1.AppError(`HeyGen job timed out after ${timeoutMs}ms`, errors_1.ErrorCode.TIMEOUT_ERROR, 500, true, { jobId, timeoutMs });
+            throw new errors_1.AppError(`HeyGen job timed out`, errors_1.ErrorCode.TIMEOUT_ERROR);
         }
         catch (error) {
-            const duration = Date.now() - startTime;
-            metrics.incrementCounter('heygen.poll.error');
-            metrics.recordHistogram('heygen.poll.error_duration', duration);
-            logger.error('Failed to poll HeyGen job', 'HeyGen', { jobId, duration }, error);
-            if (error instanceof errors_1.AppError) {
-                throw error;
-            }
-            throw new errors_1.AppError(`HeyGen polling failed: ${error.message || String(error)}`, errors_1.ErrorCode.HEYGEN_API_ERROR, 500, true, { jobId }, error instanceof Error ? error : undefined);
+            logger.error('Failed to poll HeyGen job', 'HeyGen', { jobId }, error);
+            throw error;
         }
     }
-    /**
-     * Normalize various status strings to our enum
-     */
     normalizeStatus(status) {
         const s = (status || '').toLowerCase();
         if (s.includes('complet') || s === 'success')
@@ -315,13 +276,9 @@ class HeyGenClient {
     }
 }
 exports.HeyGenClient = HeyGenClient;
-/**
- * Create a HeyGen client with credentials loaded from env or GCP Secret Manager
- */
 async function createClientWithSecrets() {
     try {
         let apiKey = process.env.HEYGEN_API_KEY;
-        // Try loading from GCP Secret Manager if not in env
         if (!apiKey && process.env.GCP_SECRET_HEYGEN_API_KEY) {
             const v = await getSecretFromGcp(process.env.GCP_SECRET_HEYGEN_API_KEY);
             if (v)

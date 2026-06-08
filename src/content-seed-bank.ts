@@ -5,6 +5,8 @@ export type SeedVariation = {
   visualPrompt: string
   websiteUrl: string
   platform: string
+  videoFileName?: string
+  hashtags?: string[]
 }
 
 function cinematic(base: string): string {
@@ -77,6 +79,54 @@ export const CONTENT_SEED_BANK: SeedVariation[] = [
     platform: 'youtube,instagram,facebook',
   }
 ]
+
+export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
+  // pasture-revival-test.mp4 is a Git LFS pointer with no valid LFS object in GitHub.
+  {
+    angle: 'dog-urine-neutralizer-test',
+    title: 'Dog Urine Neutralizer Lawn Recovery',
+    productDescription: 'Treat yellow dog spots at the soil level with a cleaner lawn recovery approach that supports healthier, greener regrowth over time.',
+    visualPrompt: 'Dog spot close-up, spray application, root-zone support, and greener lawn recovery.',
+    websiteUrl: 'https://natureswaysoil.com/dog-urine-neutralizer',
+    platform: 'youtube,instagram,twitter,pinterest',
+    videoFileName: 'dog-urine-neutralizer-test.mp4',
+    hashtags: ['#DogUrineNeutralizer', '#LawnCare', '#SoilFirst', '#NaturesWaySoil'],
+  },
+  {
+    angle: 'garden-mix-test',
+    title: 'Garden Mix Nutrient Boost',
+    productDescription: 'Help vegetables and flowers establish stronger roots and balanced growth with a biologically friendly garden mix routine.',
+    visualPrompt: 'Raised bed visuals, mixing and watering sequence, healthy plants and blooms.',
+    websiteUrl: 'https://natureswaysoil.com/garden-mix',
+    platform: 'youtube,instagram,twitter,pinterest',
+    videoFileName: 'garden-mix-test.mp4',
+    hashtags: ['#GardenMix', '#OrganicGardening', '#HealthySoil', '#NaturesWaySoil'],
+  },
+  {
+    angle: 'hydroponic-nutrients-test',
+    title: 'Hydroponic Nutrient Performance',
+    productDescription: 'Support cleaner hydroponic nutrient uptake and stronger plant vitality with a formulation built for indoor and greenhouse growers.',
+    visualPrompt: 'Hydroponic reservoir prep, nutrient mixing, root and canopy growth progression.',
+    websiteUrl: 'https://natureswaysoil.com/hydroponic-nutrients',
+    platform: 'youtube,instagram,twitter,pinterest',
+    videoFileName: 'hydroponic-nutrients-test.mp4',
+    hashtags: ['#Hydroponics', '#HydroponicNutrients', '#IndoorGrowing', '#NaturesWaySoil'],
+  },
+  {
+    angle: 'fruit-tree-fertilizer-test',
+    title: 'Fruit Tree Fertilizer Seasonal Support',
+    productDescription: 'Feed fruit trees for stronger bloom cycles, healthier root zones, and improved seasonal fruit development with a soil-first program.',
+    visualPrompt: 'Backyard orchard shots, tree feeding around drip line, blooms and fruit set progression.',
+    websiteUrl: 'https://natureswaysoil.com/fruit-tree-fertilizer',
+    platform: 'youtube,instagram,twitter,pinterest',
+    videoFileName: 'fruit-tree-fertilizer-test.mp4',
+    hashtags: ['#FruitTreeFertilizer', '#BackyardOrchard', '#TreeCare', '#NaturesWaySoil'],
+  },
+]
+
+export function getTestVideoCampaignSeeds(): SeedVariation[] {
+  return TEST_VIDEO_CAMPAIGN_SEEDS
+}
 
 export function getDailySeeds(count: number, date = new Date()): SeedVariation[] {
   const start = Math.floor(date.getTime() / 86400000) % CONTENT_SEED_BANK.length
