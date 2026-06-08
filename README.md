@@ -15,9 +15,9 @@ Auto-posts to Instagram, X, Pinterest & YouTube. Runs twice daily on Google Clou
 ### Run and deploy
 
 - [Video Enhancement Plan – Fix Bland Videos](docs/guides/VIDEO_ENHANCEMENT_PLAN.md)
-- [Deployment Guide](docs/deployment/GCLOUD_DEPLOYMENT.md)
-- [Operations Runbook](docs/operations/OPERATIONS_RUNBOOK.md)
-- [Testing Guide](docs/development/TESTING_GUIDE.md)
+- [Deployment Guide](PRODUCTION_DEPLOYMENT.md)
+- [Operations Runbook](OPERATIONS_RUNBOOK.md)
+- [Testing Guide](TESTING_GUIDE.md)
 
 ### Quality control and commercialization
 
