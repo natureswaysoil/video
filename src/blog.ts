@@ -1,5 +1,4 @@
 import axios from 'axios'
-import { generateBlogArticle } from './openai'
 
 export interface BlogArticleData {
   productTitle: string
@@ -24,6 +23,44 @@ export interface BlogArticle {
   videoUrl?: string
 }
 
+type GeneratedArticle = {
+  id?: string
+  title: string
+  excerpt: string
+  content: string
+  category?: string
+  featuredImage?: string
+  tags?: string[]
+  metaDescription?: string
+}
+
+function generateBlogArticle(articleData: BlogArticleData): GeneratedArticle {
+  const title = `${articleData.productTitle}: Product Spotlight`
+  const description = articleData.productDescription || `${articleData.productTitle} from Nature's Way Soil.`
+  const excerpt = `${articleData.productTitle} is designed for customers who want practical soil and plant support as part of a regular care routine.`
+  const content = [
+    `# ${title}`,
+    '',
+    description,
+    '',
+    `Nature's Way Soil focuses on practical products for lawns, gardens, landscapes, and small farms. ${articleData.productTitle} gives customers a simple way to support the soil and root zone while keeping application straightforward.`,
+    '',
+    articleData.productUrl ? `Learn more: ${articleData.productUrl}` : 'Learn more at natureswaysoil.com.',
+    articleData.videoUrl ? `Video: ${articleData.videoUrl}` : '',
+  ].filter(Boolean).join('\n')
+
+  return {
+    id: `article_${Date.now()}`,
+    title,
+    excerpt,
+    content,
+    category: 'Product Spotlight',
+    featuredImage: articleData.videoUrl.replace('.mp4', '-thumbnail.jpg'),
+    tags: extractTags(articleData.productTitle),
+    metaDescription: excerpt.substring(0, 160),
+  }
+}
+
 /**
  * Post a new blog article to the Nature's Way Soil website
  * Uses GitHub API to update blog_articles.json
@@ -36,11 +73,9 @@ export async function postBlogArticle(
 ): Promise<{ success: boolean; articleId: string; commitSha?: string }> {
   try {
     console.log('📝 Generating blog article for:', articleData.productTitle)
-    
-    // Step 1: Generate article content with OpenAI
-    const article = await generateBlogArticle(articleData)
-    
-    // Step 2: Fetch current blog_articles.json from GitHub
+
+    const article = generateBlogArticle(articleData)
+
     const fileUrl = `https://api.github.com/repos/${repo}/contents/public/blog_articles.json?ref=${branch}`
     const fileResponse = await axios.get(fileUrl, {
       headers: {
@@ -48,21 +83,18 @@ export async function postBlogArticle(
         Accept: 'application/vnd.github.v3+json'
       }
     })
-    
+
     const currentContent = Buffer.from(fileResponse.data.content, 'base64').toString('utf-8')
     const currentArticles: BlogArticle[] = JSON.parse(currentContent)
-    
-    // Step 3: Build slug from generated title (not product title) to avoid duplicates
+
     const baseSlug = article.title
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
 
-    // Check for duplicate slugs and append timestamp if needed
     const existingSlugs = new Set(currentArticles.map((a: BlogArticle) => a.slug))
     const slug = existingSlugs.has(baseSlug) ? `${baseSlug}-${Date.now()}` : baseSlug
 
-    // Also check for duplicate titles to avoid reposting same topic
     const existingTitles = new Set(currentArticles.map((a: BlogArticle) => a.title.toLowerCase()))
     if (existingTitles.has(article.title.toLowerCase())) {
       console.log(`⚠️ Blog article "${article.title}" already exists — skipping duplicate`)
@@ -86,8 +118,7 @@ export async function postBlogArticle(
     }
 
     currentArticles.unshift(newArticle)
-    
-    // Step 4: Update file on GitHub
+
     const updatedContent = JSON.stringify(currentArticles, null, 2)
     const updateResponse = await axios.put(
       fileUrl,
@@ -104,12 +135,12 @@ export async function postBlogArticle(
         }
       }
     )
-    
+
     console.log('✅ Blog article posted successfully')
     console.log('   Article ID:', newArticle.id)
     console.log('   Slug:', newArticle.slug)
     console.log('   Commit SHA:', updateResponse.data.commit.sha)
-    
+
     return {
       success: true,
       articleId: newArticle.id,
@@ -130,8 +161,7 @@ export async function postBlogArticle(
 function extractTags(productTitle: string): string[] {
   const tags = new Set<string>()
   const title = productTitle.toLowerCase()
-  
-  // Product type tags
+
   if (title.includes('fertilizer')) tags.add('fertilizer')
   if (title.includes('compost')) tags.add('compost')
   if (title.includes('biochar')) tags.add('biochar')
@@ -139,20 +169,18 @@ function extractTags(productTitle: string): string[] {
   if (title.includes('soil')) tags.add('soil amendment')
   if (title.includes('liquid')) tags.add('liquid fertilizer')
   if (title.includes('organic')) tags.add('organic')
-  
-  // Application tags
+
   if (title.includes('tomato')) tags.add('tomato')
   if (title.includes('lawn') || title.includes('grass')) tags.add('lawn care')
   if (title.includes('garden')) tags.add('gardening')
   if (title.includes('hydroponic')) tags.add('hydroponics')
   if (title.includes('orchid')) tags.add('orchids')
   if (title.includes('vegetable')) tags.add('vegetables')
-  
-  // Always include general tags
+
   tags.add('plant care')
   tags.add('soil health')
   tags.add('natural methods')
-  
+
   return Array.from(tags)
 }
 
