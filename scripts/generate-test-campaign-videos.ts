@@ -130,8 +130,6 @@ const PRODUCT_SCENE_QUERY_SETS: Record<string, string[][]> = {
     ['fruit harvest basket', 'apple picking orchard', 'fresh fruit garden harvest', 'orchard fruit picking'],
   ],
 }
-  ],
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
