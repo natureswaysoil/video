@@ -19,11 +19,11 @@ const SECRETS_TO_LOAD = [
   // Shared
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
+  'PEXELS_API_KEY',
   // HeyGen (only needed when VIDEO_PROVIDER=heygen)
   'HEYGEN_API_KEY',
   'HEYGEN_DEFAULT_AVATAR',
   'HEYGEN_DEFAULT_VOICE',
-  'PEXELS_API_KEY',
 ]
 
 const SCENE_SECONDS = ['6', '7', '8', '7', '6'] // hook, context, solution, proof, cta
@@ -131,6 +131,19 @@ const PRODUCT_SCENE_QUERIES: Record<string, string[]> = {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
+
+async function findPexelsPhotoUrl(query: string, apiKey: string): Promise<string> {
+  try {
+    const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&orientation=portrait&per_page=10`
+    const res = await fetch(url, { headers: { Authorization: apiKey } })
+    if (!res.ok) return ''
+    const data: any = await res.json()
+    const photo = (data.photos || [])[0]
+    return photo?.src?.portrait || photo?.src?.large || ''
+  } catch {
+    return ''
+  }
+}
 
 function extractAngleType(angle: string): string {
   const parts = angle.split('-')
@@ -264,12 +277,22 @@ async function main(): Promise<void> {
       let videoUrl: string
 
       if (VIDEO_PROVIDER === 'did') {
-        // ── D-ID: single talking-head video, no b-roll ─────────────────────
+        // ── D-ID: talking-head with Pexels photo background ────────────────
+        let backgroundImageUrl: string | undefined
+        if (pexelsApiKey) {
+          const hookQuery = HOOK_QUERIES[angleType]?.[productKey] || 'organic garden healthy plants'
+          console.log(`  Fetching Pexels background photo: "${hookQuery}"...`)
+          backgroundImageUrl = await findPexelsPhotoUrl(hookQuery, pexelsApiKey) || undefined
+          if (backgroundImageUrl) console.log('  Background photo found')
+          else console.log('  No background photo found, using default')
+        }
+
         const didPayload = {
           script,
-          voiceId:   process.env.DID_VOICE_ID || 'en-US-JennyNeural',
-          sourceUrl: process.env.DID_SOURCE_URL || undefined,
-          title:     seed.title,
+          voiceId:            process.env.DID_VOICE_ID || 'en-US-JennyNeural',
+          sourceUrl:          process.env.DID_SOURCE_URL || undefined,
+          backgroundImageUrl,
+          title:              seed.title,
         }
 
         if (dryRun) {
