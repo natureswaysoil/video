@@ -17,7 +17,6 @@
     "validate": "ts-node scripts/validate-system.ts",
     "test:csv": "ts-node scripts/test-csv-processing.ts",
     "test:openai": "ts-node scripts/test-openai-script.ts",
-    "test:heygen": "ts-node scripts/test-heygen-integration.ts",
     "test:platforms": "ts-node scripts/test-all-platforms.ts",
     "test:e2e": "ts-node scripts/test-e2e-integration.ts",
     "test:e2e:dry": "DRY_RUN=true ts-node scripts/test-e2e-integration.ts",
