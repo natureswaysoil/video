@@ -4,6 +4,7 @@
  * Phase 1.4: Add configuration validation
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.resetConfigCache = resetConfigCache;
 exports.validateConfig = validateConfig;
 exports.getConfig = getConfig;
 exports.hasCredentialsFor = hasCredentialsFor;
@@ -83,6 +84,13 @@ const envSchema = zod_1.z.object({
 });
 let cachedConfig = null;
 /**
+ * Clear the parsed config cache after dotenv or Secret Manager loads new values.
+ * This prevents getConfig() from holding an older snapshot where OPENAI_API_KEY was missing.
+ */
+function resetConfigCache() {
+    cachedConfig = null;
+}
+/**
  * Helper function to parse and validate environment variables
  * Throws a formatted error if validation fails
  */
@@ -102,8 +110,8 @@ function parseAndValidateEnv() {
 /**
  * Validate and parse environment variables
  */
-async function validateConfig() {
-    if (cachedConfig && cachedConfig.__validated) {
+async function validateConfig(options) {
+    if (!options?.force && cachedConfig && cachedConfig.__validated) {
         return cachedConfig;
     }
     const parsed = parseAndValidateEnv();
