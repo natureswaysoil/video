@@ -7,6 +7,7 @@
 export enum ErrorCode {
   // API Integration Errors
   OPENAI_API_ERROR = 'OPENAI_API_ERROR',
+  DID_API_ERROR = 'DID_API_ERROR',
   HEYGEN_API_ERROR = 'HEYGEN_API_ERROR',
   SHEETS_API_ERROR = 'SHEETS_API_ERROR',
   TWITTER_API_ERROR = 'TWITTER_API_ERROR',
@@ -73,30 +74,18 @@ export class AppError extends Error {
   }
 }
 
-/**
- * Result type for operations that can fail
- */
 export type Result<T, E = AppError> = 
   | { success: true; data: T }
   | { success: false; error: E }
 
-/**
- * Create a success result
- */
 export function ok<T>(data: T): Result<T> {
   return { success: true, data }
 }
 
-/**
- * Create an error result
- */
 export function err<E = AppError>(error: E): Result<never, E> {
   return { success: false, error }
 }
 
-/**
- * Wrap an async function to return Result instead of throwing
- */
 export function wrapAsync<T, Args extends any[]>(
   fn: (...args: Args) => Promise<T>
 ): (...args: Args) => Promise<Result<T>> {
@@ -105,9 +94,7 @@ export function wrapAsync<T, Args extends any[]>(
       const data = await fn(...args)
       return ok(data)
     } catch (error) {
-      if (error instanceof AppError) {
-        return err(error)
-      }
+      if (error instanceof AppError) return err(error)
       return err(new AppError(
         error instanceof Error ? error.message : String(error),
         ErrorCode.UNKNOWN_ERROR,
@@ -120,28 +107,16 @@ export function wrapAsync<T, Args extends any[]>(
   }
 }
 
-/**
- * Extract error message from various error types
- */
 export function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message
-  }
-  if (typeof error === 'string') {
-    return error
-  }
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
   if (error && typeof error === 'object') {
-    if ('message' in error && typeof error.message === 'string') {
-      return error.message
-    }
+    if ('message' in error && typeof error.message === 'string') return error.message
     return JSON.stringify(error)
   }
   return String(error)
 }
 
-/**
- * Check if an error is a network error
- */
 export function isNetworkError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
   const msg = getErrorMessage(error).toLowerCase()
@@ -155,9 +130,6 @@ export function isNetworkError(error: unknown): boolean {
   )
 }
 
-/**
- * Check if an error is a timeout error
- */
 export function isTimeoutError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
   const msg = getErrorMessage(error).toLowerCase()
@@ -168,9 +140,6 @@ export function isTimeoutError(error: unknown): boolean {
   )
 }
 
-/**
- * Check if an error is a rate limit error
- */
 export function isRateLimitError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
   const msg = getErrorMessage(error).toLowerCase()
@@ -182,17 +151,14 @@ export function isRateLimitError(error: unknown): boolean {
   )
 }
 
-/**
- * Create an error from an axios error
- */
 export function fromAxiosError(error: any, code: ErrorCode, context?: Record<string, any>): AppError {
   const message = error?.response?.data?.message 
     || error?.response?.data?.error
     || error?.message 
     || 'Unknown API error'
-  
+
   const statusCode = error?.response?.status || 500
-  
+
   return new AppError(
     message,
     code,
@@ -208,9 +174,6 @@ export function fromAxiosError(error: any, code: ErrorCode, context?: Record<str
   )
 }
 
-/**
- * Retry an async operation with exponential backoff
- */
 export async function withRetry<T>(
   operation: () => Promise<T>,
   options: {
@@ -232,24 +195,15 @@ export async function withRetry<T>(
   } = options
 
   let lastError: unknown
-  let delay = initialDelayMs
-
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await operation()
     } catch (error) {
       lastError = error
-      
-      if (attempt === maxRetries || !retryIf(error)) {
-        throw error
-      }
-
-      if (onRetry) {
-        onRetry(error, attempt + 1)
-      }
-
+      if (attempt === maxRetries || !retryIf(error)) throw error
+      onRetry?.(error, attempt + 1)
+      const delay = Math.min(initialDelayMs * Math.pow(backoffMultiplier, attempt), maxDelayMs)
       await new Promise(resolve => setTimeout(resolve, delay))
-      delay = Math.min(delay * backoffMultiplier, maxDelayMs)
     }
   }
 
