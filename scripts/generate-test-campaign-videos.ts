@@ -212,6 +212,95 @@ async function downloadVideo(url: string, destPath: string): Promise<void> {
   console.log(`  Saved ${sizeMb} MB -> ${path.basename(destPath)}`)
 }
 
+function getVideoDuration(videoPath: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const { spawn } = require('child_process')
+    const proc = spawn('ffprobe', [
+      '-v', 'error', '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1', videoPath
+    ])
+    let out = ''
+    proc.stdout.on('data', (d: Buffer) => { out += d.toString() })
+    proc.on('close', (code: number) => {
+      const dur = parseFloat(out.trim())
+      if (code === 0 && !isNaN(dur)) resolve(dur)
+      else reject(new Error(`ffprobe failed (code ${code})`))
+    })
+  })
+}
+
+function runFfmpeg(args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const { spawn } = require('child_process')
+    const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] })
+    let err = ''
+    proc.stderr.on('data', (d: Buffer) => { err += d.toString() })
+    proc.on('close', (code: number) => {
+      if (code === 0) resolve()
+      else reject(new Error(`ffmpeg failed (code ${code}): ${err.slice(-400)}`))
+    })
+  })
+}
+
+// Composite 4 Pexels clips as background scenes with D-ID presenter overlay.
+// Layout: b-roll fills the frame, presenter anchored at bottom-center.
+async function compositeMultiScene(
+  didVideoPath: string,
+  brollPaths: string[],  // 1-4 local clip paths (may be fewer if Pexels failed)
+  outputPath: string
+): Promise<void> {
+  if (brollPaths.length === 0) {
+    fs.copyFileSync(didVideoPath, outputPath)
+    return
+  }
+
+  const totalDur  = await getVideoDuration(didVideoPath)
+  const segDur    = totalDur / brollPaths.length
+
+  // Build ffmpeg inputs
+  const ffArgs: string[] = ['-y', '-i', didVideoPath]
+  for (const p of brollPaths) {
+    ffArgs.push('-stream_loop', '-1', '-i', p)
+  }
+
+  // Build filter_complex
+  const filterParts: string[] = []
+  const W = 720, H = 1280
+  const presenterW = 360  // presenter occupies bottom-center at half width
+
+  // Scale each b-roll clip to portrait, trim to segment duration
+  for (let i = 0; i < brollPaths.length; i++) {
+    filterParts.push(
+      `[${i + 1}:v]trim=duration=${segDur.toFixed(3)},setpts=PTS-STARTPTS,` +
+      `scale=${W}:${H}:flags=lanczos:force_original_aspect_ratio=increase,` +
+      `crop=${W}:${H},setsar=1[b${i}]`
+    )
+  }
+
+  // Concat b-roll segments into one background track
+  const concatLabels = brollPaths.map((_, i) => `[b${i}]`).join('')
+  filterParts.push(`${concatLabels}concat=n=${brollPaths.length}:v=1:a=0[bg]`)
+
+  // Scale D-ID presenter; anchor bottom-center with 20px margin
+  filterParts.push(`[0:v]scale=${presenterW}:-2:flags=lanczos[pres]`)
+  filterParts.push(`[bg][pres]overlay=(W-w)/2:H-h-20,format=yuv420p[v]`)
+
+  ffArgs.push(
+    '-filter_complex', filterParts.join(';'),
+    '-map', '[v]',
+    '-map', '0:a',
+    '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+    '-c:a', 'aac', '-b:a', '128k',
+    '-shortest',
+    outputPath
+  )
+
+  console.log(`  Compositing ${brollPaths.length} scenes with D-ID presenter...`)
+  await runFfmpeg(ffArgs)
+  const sizeMb = (fs.statSync(outputPath).size / 1024 / 1024).toFixed(1)
+  console.log(`  Composited video: ${sizeMb} MB`)
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -277,30 +366,33 @@ async function main(): Promise<void> {
       let videoUrl: string
 
       if (VIDEO_PROVIDER === 'did') {
-        // ── D-ID: talking-head with Pexels photo background ────────────────
-        let backgroundImageUrl: string | undefined
-        if (pexelsApiKey) {
-          const hookQuery = HOOK_QUERIES[angleType]?.[productKey] || 'organic garden healthy plants'
-          console.log(`  Fetching Pexels background photo: "${hookQuery}"...`)
-          backgroundImageUrl = await findPexelsPhotoUrl(hookQuery, pexelsApiKey) || undefined
-          if (backgroundImageUrl) console.log('  Background photo found')
-          else console.log('  No background photo found, using default')
-        }
+        // ── D-ID: talking-head composited over 4 Pexels b-roll scenes ────────
+        const sceneQueryList = [
+          HOOK_QUERIES[angleType]?.[productKey]   || 'organic garden healthy plants',
+          PRODUCT_SCENE_QUERIES[productKey]?.[0]  || 'lawn garden soil',
+          PRODUCT_SCENE_QUERIES[productKey]?.[1]  || 'organic garden care',
+          PRODUCT_SCENE_QUERIES[productKey]?.[2]  || 'healthy green plants',
+        ]
 
         const didPayload = {
           script,
-          voiceId:            process.env.DID_VOICE_ID || 'en-US-JennyNeural',
-          sourceUrl:          process.env.DID_SOURCE_URL || undefined,
-          backgroundImageUrl,
-          title:              seed.title,
+          voiceId:   process.env.DID_VOICE_ID || 'en-US-JennyNeural',
+          sourceUrl: process.env.DID_SOURCE_URL || undefined,
+          title:     seed.title,
         }
 
         if (dryRun) {
           console.log('  DRY_RUN (D-ID) payload:')
-          console.log(JSON.stringify({ angle: seed.angle, provider: 'did', script: script.slice(0, 120) + '...', voiceId: didPayload.voiceId }, null, 2))
+          console.log(JSON.stringify({ angle: seed.angle, provider: 'did', script: script.slice(0, 120) + '...', voiceId: didPayload.voiceId, scenes: sceneQueryList }, null, 2))
           results.push({ angle: seed.angle, status: 'dry-run' })
           continue
         }
+
+        // Fetch 4 Pexels portrait clips in parallel
+        console.log('  Fetching 4 Pexels b-roll clips...')
+        const brollUrls = await Promise.all(
+          sceneQueryList.map((q, i) => findPortraitBroll([q], pexelsApiKey || '', `Scene ${i + 1}`))
+        )
 
         console.log('  Submitting D-ID job...')
         const didJobId = await did!.createVideoJob(didPayload)
@@ -312,6 +404,32 @@ async function main(): Promise<void> {
           intervalMs:     10_000,
           initialDelayMs:  5_000,
         })
+
+        // Download D-ID video to temp, download Pexels clips, composite, save final
+        const tmpDir = path.join(TEST_VIDEOS_DIR, '.tmp')
+        fs.mkdirSync(tmpDir, { recursive: true })
+        const didTmp = path.join(tmpDir, `${seed.angle}-did.mp4`)
+        console.log('  Downloading D-ID presenter...')
+        await downloadVideo(videoUrl, didTmp)
+
+        const brollPaths: string[] = []
+        for (let i = 0; i < brollUrls.length; i++) {
+          if (!brollUrls[i]) continue
+          const bp = path.join(tmpDir, `${seed.angle}-broll${i}.mp4`)
+          console.log(`  Downloading b-roll ${i + 1}...`)
+          await downloadVideo(brollUrls[i], bp)
+          brollPaths.push(bp)
+        }
+
+        const finalPath = path.join(TEST_VIDEOS_DIR, seed.videoFileName)
+        await compositeMultiScene(didTmp, brollPaths, finalPath)
+
+        // Clean up temp files
+        try { fs.unlinkSync(didTmp) } catch {}
+        for (const bp of brollPaths) { try { fs.unlinkSync(bp) } catch {} }
+
+        results.push({ angle: seed.angle, status: 'success', file: seed.videoFileName })
+        continue
       } else {
         // ── HeyGen: multi-scene with Pexels b-roll ─────────────────────────
         // 2. Fetch 5 portrait Pexels clips — one per scene
