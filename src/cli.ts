@@ -177,13 +177,7 @@ async function createOrPollVideo(params: { product: Record<string, any>; record:
     const title = String(product.title || product.name || product.Title || 'dry-run-product')
     const generatedScript = await generateScript(product)
     const dryVideoUrl = videoState.videoUrl && !isVideoUrlExpired(videoState.videoUrl) ? videoState.videoUrl : `https://example.com/dry-run/${encodeURIComponent(title)}.mp4`
-    console.log('DRY_RUN_LOG_ONLY=true — skipping D-ID refresh/generation', {
-      rowNumber,
-      product: title,
-      existingVideoUrl: videoState.videoUrl || null,
-      dryVideoUrl,
-      scriptPreview: generatedScript.slice(0, 220),
-    })
+    console.log('DRY_RUN_LOG_ONLY=true — skipping D-ID refresh/generation', { rowNumber, product: title, existingVideoUrl: videoState.videoUrl || null, dryVideoUrl, scriptPreview: generatedScript.slice(0, 220) })
     return dryVideoUrl
   }
 
@@ -230,19 +224,10 @@ async function createOrPollVideo(params: { product: Record<string, any>; record:
 
 async function main(): Promise<void> {
   await bootstrapSecrets()
-
-  try {
-    console.log('Validating configuration before starting polling...')
-    await validateConfig()
-    console.log('Configuration validated')
-  } catch (error) {
-    console.error('❌ Configuration validation failed:', error)
-    process.exit(1)
-  }
+  try { console.log('Validating configuration before starting polling...'); await validateConfig(); console.log('Configuration validated') } catch (error) { console.error('❌ Configuration validation failed:', error); process.exit(1) }
 
   await loadSecretToEnv('GOOGLE_SHEET_CSV_URL')
   await loadSecretToEnv('CSV_URL')
-
   const csvUrl = process.env.CSV_URL || process.env.GOOGLE_SHEET_CSV_URL
   console.log('GOOGLE_SHEET_CSV_URL loaded:', !!process.env.GOOGLE_SHEET_CSV_URL)
   if (!csvUrl) throw new Error('CSV_URL / GOOGLE_SHEET_CSV_URL not set')
@@ -258,23 +243,18 @@ async function main(): Promise<void> {
   const alwaysGenerate = String(process.env.ALWAYS_GENERATE_NEW_VIDEO || 'false').toLowerCase() === 'true'
 
   if (!process.env.VERCEL) startHealthServer()
-
   auditLogger.logEvent({ level: 'INFO', category: 'SYSTEM', message: 'Video posting system started', details: { runOnce, dryRun, enabledPlatforms: enabledPlatformsEnv || 'all', pollIntervalMs: intervalMs } })
 
   const cycle = async (): Promise<void> => {
     updateStatus({ status: 'processing', rowsProcessed: 0 })
     const result = await processCsvUrl(csvUrl)
-    if (result.skipped || result.rows.length === 0) {
-      updateStatus({ status: 'idle', rowsProcessed: 0 })
-      return
-    }
+    if (result.skipped || result.rows.length === 0) { updateStatus({ status: 'idle', rowsProcessed: 0 }); return }
 
     let rowsThisCycle = 0
     for (const { product, jobId, rowNumber, headers, record } of result.rows) {
       if (!jobId || seen.has(jobId)) continue
       if (isRowDeferred(record)) continue
       if (rowsThisCycle >= rowsPerRun) break
-
       console.log(`\n========== Processing Row ${rowNumber} ==========`)
       console.log('Product:', product?.title || product?.name || jobId)
 
@@ -293,15 +273,9 @@ async function main(): Promise<void> {
           console.warn(`⚠️ Row ${rowNumber}: no platforms succeeded, skipping writeback`)
         }
 
-        seen.add(jobId)
-        rowsThisCycle++
-        incrementSuccessfulPost()
-        updateStatus({ status: 'processed-row', rowsProcessed: rowsThisCycle })
+        seen.add(jobId); rowsThisCycle++; incrementSuccessfulPost(); updateStatus({ status: 'processed-row', rowsProcessed: rowsThisCycle })
       } catch (error: any) {
-        seen.add(jobId)
-        rowsThisCycle++
-        incrementFailedPost()
-        addError(error?.message || String(error))
+        seen.add(jobId); rowsThisCycle++; incrementFailedPost(); addError(error?.message || String(error))
         auditLogger.logEvent({ level: 'ERROR', category: 'POSTING', message: 'Failed to process row', rowNumber, product: product?.title || product?.name, details: { error: error?.message || String(error) } })
         await writeRowFields(csvUrl, headers, rowNumber, { Video_Status: 'failed', Last_Error: error?.message || String(error), Last_Error_At: new Date().toISOString() }, dryRun)
       }
@@ -312,27 +286,12 @@ async function main(): Promise<void> {
       const sheetGid = extractGidFromCsv(csvUrl)
       await resetPostedColumn({ spreadsheetId, sheetGid, totalRows: result.rows.length, headers: result.rows[0]?.headers || [] })
       seen.clear()
-    } else if (loopResetPosted && dryRun) {
-      console.log('DRY_RUN_LOG_ONLY=true — skipping loop reset writeback')
-    }
-
+    } else if (loopResetPosted && dryRun) console.log('DRY_RUN_LOG_ONLY=true — skipping loop reset writeback')
     updateStatus({ status: 'idle', rowsProcessed: rowsThisCycle })
   }
 
-  do {
-    await cycle()
-    if (!runOnce) await sleep(intervalMs)
-  } while (!runOnce)
+  do { await cycle(); if (!runOnce) await sleep(intervalMs) } while (!runOnce)
 }
 
-process.on('SIGINT', async () => {
-  stopHealthServer()
-  process.exit(0)
-})
-
-main().catch((error) => {
-  console.error('Fatal error:', error)
-  addError(error?.message || String(error))
-  stopHealthServer()
-  process.exit(1)
-})
+process.on('SIGINT', async () => { stopHealthServer(); process.exit(0) })
+main().catch((error) => { console.error('Fatal error:', error); addError(error?.message || String(error)); stopHealthServer(); process.exit(1) })
