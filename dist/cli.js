@@ -8,6 +8,7 @@ const instagram_1 = require("./instagram");
 const twitter_1 = require("./twitter");
 const pinterest_1 = require("./pinterest");
 const youtube_1 = require("./youtube");
+const facebook_1 = require("./facebook");
 const config_validator_1 = require("./config-validator");
 const did_1 = require("./did");
 const did_adapter_1 = require("./did-adapter");
@@ -30,17 +31,16 @@ function pickFirstNonEmpty(record, keys) {
         return '';
     for (const key of keys) {
         const value = record[key];
-        if (value !== undefined && value !== null && String(value).trim() !== '') {
+        if (value !== undefined && value !== null && String(value).trim() !== '')
             return String(value).trim();
-        }
     }
     return '';
 }
 function getVideoState(record) {
     return {
-        videoId: pickFirstNonEmpty(record, ['Video_ID', 'DID_VIDEO_ID', 'D_ID_VIDEO_ID', 'HEYGEN_VIDEO_ID', 'HeyGen_Video_ID', 'video_id']),
+        videoId: pickFirstNonEmpty(record, ['Video_ID', 'DID_VIDEO_ID', 'D_ID_VIDEO_ID', 'video_id']),
         videoUrl: pickFirstNonEmpty(record, ['Video_URL', 'Video URL', 'video_url', 'VideoURL']),
-        videoStatus: pickFirstNonEmpty(record, ['Video_Status', 'DID_VIDEO_STATUS', 'D_ID_VIDEO_STATUS', 'HEYGEN_VIDEO_STATUS', 'video_status']),
+        videoStatus: pickFirstNonEmpty(record, ['Video_Status', 'DID_VIDEO_STATUS', 'D_ID_VIDEO_STATUS', 'video_status']),
     };
 }
 function extractSpreadsheetIdFromCsv(csvUrl) {
@@ -95,27 +95,25 @@ async function loadSecretToEnv(secretName) {
         console.warn(`Could not load secret ${secretName}:`, error?.message || error);
     }
 }
-async function writeRowFields(csvUrl, headers, rowNumber, updates) {
+async function writeRowFields(csvUrl, headers, rowNumber, updates, dryRun = false) {
+    if (dryRun) {
+        console.log('DRY_RUN_LOG_ONLY=true — skipping Google Sheets writeback', { rowNumber, updates });
+        return;
+    }
     const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
     const sheetGid = extractGidFromCsv(csvUrl);
     for (const [columnName, value] of Object.entries(updates)) {
-        await (0, sheets_1.writeColumnValues)({
-            spreadsheetId,
-            sheetGid,
-            headers,
-            columnName,
-            rows: [{ rowNumber, value }],
-        });
+        await (0, sheets_1.writeColumnValues)({ spreadsheetId, sheetGid, headers, columnName, rows: [{ rowNumber, value }] });
     }
 }
 async function postToEnabledPlatforms(params) {
     const { videoUrl, product, enabledPlatforms, dryRun } = params;
     const caption = String(product.caption || product.Caption || product.details || product.description || product.title || product.name || '').trim();
     const title = String(product.title || product.name || 'Nature\'s Way Soil').trim();
-    const allPlatforms = ['instagram', 'twitter', 'pinterest', 'youtube'];
+    const allPlatforms = ['instagram', 'twitter', 'pinterest', 'youtube', 'facebook'];
     const shouldPost = (platform) => enabledPlatforms.size === 0 || enabledPlatforms.has(platform);
     if (dryRun) {
-        console.log('DRY_RUN_LOG_ONLY=true — skipping platform posting', { title, videoUrl });
+        console.log('DRY_RUN_LOG_ONLY=true — skipping platform posting', { title, videoUrl, platforms: Array.from(enabledPlatforms) });
         return { anySucceeded: false };
     }
     const config = (0, config_validator_1.getConfig)();
@@ -130,12 +128,11 @@ async function postToEnabledPlatforms(params) {
                 console.error('❌ Instagram post failed:', e?.message || e);
             }
         }
-        else {
+        else
             console.log('⚠️ Instagram credentials not configured (INSTAGRAM_ACCESS_TOKEN, INSTAGRAM_USER_ID)');
-        }
     }
     if (shouldPost('twitter')) {
-        if (config.TWITTER_BEARER_TOKEN) {
+        if (config.TWITTER_BEARER_TOKEN || (config.TWITTER_API_KEY && config.TWITTER_API_SECRET && config.TWITTER_ACCESS_TOKEN && config.TWITTER_ACCESS_SECRET)) {
             try {
                 await (0, twitter_1.postToTwitter)(videoUrl, caption || title, config.TWITTER_BEARER_TOKEN);
                 anySucceeded = true;
@@ -144,9 +141,8 @@ async function postToEnabledPlatforms(params) {
                 console.error('❌ Twitter post failed:', e?.message || e);
             }
         }
-        else {
-            console.log('⚠️ Twitter credentials not configured (TWITTER_BEARER_TOKEN)');
-        }
+        else
+            console.log('⚠️ Twitter credentials not configured');
     }
     if (shouldPost('pinterest')) {
         if (config.PINTEREST_ACCESS_TOKEN && config.PINTEREST_BOARD_ID) {
@@ -158,9 +154,8 @@ async function postToEnabledPlatforms(params) {
                 console.error('❌ Pinterest post failed:', e?.message || e);
             }
         }
-        else {
+        else
             console.log('⚠️ Pinterest credentials not configured (PINTEREST_ACCESS_TOKEN, PINTEREST_BOARD_ID)');
-        }
     }
     if (shouldPost('youtube')) {
         if (config.YOUTUBE_CLIENT_ID && config.YOUTUBE_CLIENT_SECRET && config.YOUTUBE_REFRESH_TOKEN) {
@@ -172,9 +167,21 @@ async function postToEnabledPlatforms(params) {
                 console.error('❌ YouTube post failed:', e?.message || e);
             }
         }
-        else {
+        else
             console.log('⚠️ YouTube credentials not configured (YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN)');
+    }
+    if (shouldPost('facebook')) {
+        if (config.FACEBOOK_PAGE_ACCESS_TOKEN && config.FACEBOOK_PAGE_ID) {
+            try {
+                await (0, facebook_1.postToFacebook)(videoUrl, caption || title, config.FACEBOOK_PAGE_ACCESS_TOKEN, config.FACEBOOK_PAGE_ID);
+                anySucceeded = true;
+            }
+            catch (e) {
+                console.error('❌ Facebook post failed:', e?.message || e);
+            }
         }
+        else
+            console.log('⚠️ Facebook credentials not configured (FACEBOOK_PAGE_ACCESS_TOKEN, FACEBOOK_PAGE_ID)');
     }
     const skipped = allPlatforms.filter((platform) => !shouldPost(platform));
     if (skipped.length > 0)
@@ -182,8 +189,15 @@ async function postToEnabledPlatforms(params) {
     return { anySucceeded };
 }
 async function createOrPollVideo(params) {
-    const { product, record, headers, rowNumber, csvUrl, alwaysGenerate } = params;
+    const { product, record, headers, rowNumber, csvUrl, alwaysGenerate, dryRun } = params;
     const videoState = getVideoState(record);
+    if (dryRun) {
+        const title = String(product.title || product.name || product.Title || 'dry-run-product');
+        const generatedScript = await (0, openai_1.generateScript)(product);
+        const dryVideoUrl = videoState.videoUrl && !isVideoUrlExpired(videoState.videoUrl) ? videoState.videoUrl : `https://example.com/dry-run/${encodeURIComponent(title)}.mp4`;
+        console.log('DRY_RUN_LOG_ONLY=true — skipping D-ID refresh/generation', { rowNumber, product: title, existingVideoUrl: videoState.videoUrl || null, dryVideoUrl, scriptPreview: generatedScript.slice(0, 220) });
+        return dryVideoUrl;
+    }
     if (videoState.videoUrl && !alwaysGenerate) {
         if (!isVideoUrlExpired(videoState.videoUrl)) {
             console.log('✅ Using existing video:', videoState.videoUrl);
@@ -196,10 +210,7 @@ async function createOrPollVideo(params) {
                 const result = await refreshClient.getJobStatus(videoState.videoId);
                 if ((result.status.includes('done') || result.status.includes('complete')) && result.videoUrl && !isVideoUrlExpired(result.videoUrl)) {
                     console.log('✅ Refreshed video URL from D-ID API');
-                    await writeRowFields(csvUrl, headers, rowNumber, {
-                        Video_URL: result.videoUrl,
-                        Video_Completed_At: new Date().toISOString(),
-                    });
+                    await writeRowFields(csvUrl, headers, rowNumber, { Video_URL: result.videoUrl, Video_Completed_At: new Date().toISOString() });
                     return result.videoUrl;
                 }
             }
@@ -208,52 +219,21 @@ async function createOrPollVideo(params) {
             }
         }
         console.log(`📹 Regenerating video for row ${rowNumber} (URL expired, refresh unavailable)`);
-        await writeRowFields(csvUrl, headers, rowNumber, {
-            Video_URL: '',
-            Video_ID: '',
-            Video_Status: '',
-        });
+        await writeRowFields(csvUrl, headers, rowNumber, { Video_URL: '', Video_ID: '', Video_Status: '' });
     }
     const didClient = await (0, did_1.createClientWithSecrets)();
     if (!alwaysGenerate && videoState.videoId && (videoState.videoStatus || '').toLowerCase() === 'processing') {
         console.log(`⏳ Existing D-ID job found for row ${rowNumber}: ${videoState.videoId}`);
-        console.log('Polling D-ID job');
-        const videoUrl = await didClient.pollJobForVideoUrl(videoState.videoId, {
-            timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000),
-            intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000),
-        });
-        await writeRowFields(csvUrl, headers, rowNumber, {
-            Video_URL: videoUrl,
-            Video_Status: 'completed',
-            Video_Completed_At: new Date().toISOString(),
-        });
+        const videoUrl = await didClient.pollJobForVideoUrl(videoState.videoId, { timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000), intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000) });
+        await writeRowFields(csvUrl, headers, rowNumber, { Video_URL: videoUrl, Video_Status: 'completed', Video_Completed_At: new Date().toISOString() });
         return videoUrl;
     }
     const mapping = (0, did_adapter_1.mapProductToDidPayload)(record);
     const generatedScript = await (0, openai_1.generateScript)(product);
-    const payload = {
-        ...mapping.payload,
-        script: generatedScript,
-    };
-    const videoId = await didClient.createVideoJob(payload);
-    await writeRowFields(csvUrl, headers, rowNumber, {
-        Video_ID: videoId,
-        Video_Status: 'processing',
-        DID_AVATAR: mapping.avatar,
-        DID_VOICE: mapping.voice,
-        DID_LENGTH_SECONDS: String(mapping.lengthSeconds),
-        DID_MAPPING_REASON: mapping.reason,
-        DID_MAPPED_AT: new Date().toISOString(),
-    });
-    const videoUrl = await didClient.pollJobForVideoUrl(videoId, {
-        timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000),
-        intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000),
-    });
-    await writeRowFields(csvUrl, headers, rowNumber, {
-        Video_URL: videoUrl,
-        Video_Status: 'completed',
-        Video_Completed_At: new Date().toISOString(),
-    });
+    const videoId = await didClient.createVideoJob({ ...mapping.payload, script: generatedScript });
+    await writeRowFields(csvUrl, headers, rowNumber, { Video_ID: videoId, Video_Status: 'processing', DID_AVATAR: mapping.avatar, DID_VOICE: mapping.voice, DID_LENGTH_SECONDS: String(mapping.lengthSeconds), DID_MAPPING_REASON: mapping.reason, DID_MAPPED_AT: new Date().toISOString() });
+    const videoUrl = await didClient.pollJobForVideoUrl(videoId, { timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000), intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000) });
+    await writeRowFields(csvUrl, headers, rowNumber, { Video_URL: videoUrl, Video_Status: 'completed', Video_Completed_At: new Date().toISOString() });
     return videoUrl;
 }
 async function main() {
@@ -284,12 +264,7 @@ async function main() {
     const alwaysGenerate = String(process.env.ALWAYS_GENERATE_NEW_VIDEO || 'false').toLowerCase() === 'true';
     if (!process.env.VERCEL)
         (0, health_server_1.startHealthServer)();
-    auditLogger.logEvent({
-        level: 'INFO',
-        category: 'SYSTEM',
-        message: 'Video posting system started',
-        details: { runOnce, dryRun, enabledPlatforms: enabledPlatformsEnv || 'all', pollIntervalMs: intervalMs },
-    });
+    auditLogger.logEvent({ level: 'INFO', category: 'SYSTEM', message: 'Video posting system started', details: { runOnce, dryRun, enabledPlatforms: enabledPlatformsEnv || 'all', pollIntervalMs: intervalMs } });
     const cycle = async () => {
         (0, health_server_1.updateStatus)({ status: 'processing', rowsProcessed: 0 });
         const result = await (0, core_1.processCsvUrl)(csvUrl);
@@ -308,15 +283,17 @@ async function main() {
             console.log(`\n========== Processing Row ${rowNumber} ==========`);
             console.log('Product:', product?.title || product?.name || jobId);
             try {
-                const videoUrl = await createOrPollVideo({ product, record, headers, rowNumber, csvUrl, alwaysGenerate });
+                const videoUrl = await createOrPollVideo({ product, record, headers, rowNumber, csvUrl, alwaysGenerate, dryRun });
                 const { anySucceeded } = await postToEnabledPlatforms({ videoUrl, product, enabledPlatforms, dryRun });
-                if (!anySucceeded && !dryRun) {
+                if (!anySucceeded && !dryRun)
                     throw new Error('No enabled platform post succeeded for this row');
-                }
-                if (anySucceeded || dryRun) {
+                if (anySucceeded) {
                     const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
                     const sheetGid = extractGidFromCsv(csvUrl);
                     await (0, sheets_1.markRowPosted)({ spreadsheetId, sheetGid, rowNumber, headers });
+                }
+                else if (dryRun) {
+                    console.log('DRY_RUN_LOG_ONLY=true — skipping Posted writeback', { rowNumber });
                 }
                 else {
                     console.warn(`⚠️ Row ${rowNumber}: no platforms succeeded, skipping writeback`);
@@ -331,32 +308,18 @@ async function main() {
                 rowsThisCycle++;
                 (0, health_server_1.incrementFailedPost)();
                 (0, health_server_1.addError)(error?.message || String(error));
-                auditLogger.logEvent({
-                    level: 'ERROR',
-                    category: 'POSTING',
-                    message: 'Failed to process row',
-                    rowNumber,
-                    product: product?.title || product?.name,
-                    details: { error: error?.message || String(error) },
-                });
-                await writeRowFields(csvUrl, headers, rowNumber, {
-                    Video_Status: 'failed',
-                    Last_Error: error?.message || String(error),
-                    Last_Error_At: new Date().toISOString(),
-                });
+                auditLogger.logEvent({ level: 'ERROR', category: 'POSTING', message: 'Failed to process row', rowNumber, product: product?.title || product?.name, details: { error: error?.message || String(error) } });
+                await writeRowFields(csvUrl, headers, rowNumber, { Video_Status: 'failed', Last_Error: error?.message || String(error), Last_Error_At: new Date().toISOString() }, dryRun);
             }
         }
-        if (loopResetPosted && rowsThisCycle === 0) {
+        if (loopResetPosted && rowsThisCycle === 0 && !dryRun) {
             const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
             const sheetGid = extractGidFromCsv(csvUrl);
-            await (0, sheets_1.resetPostedColumn)({
-                spreadsheetId,
-                sheetGid,
-                totalRows: result.rows.length,
-                headers: result.rows[0]?.headers || [],
-            });
+            await (0, sheets_1.resetPostedColumn)({ spreadsheetId, sheetGid, totalRows: result.rows.length, headers: result.rows[0]?.headers || [] });
             seen.clear();
         }
+        else if (loopResetPosted && dryRun)
+            console.log('DRY_RUN_LOG_ONLY=true — skipping loop reset writeback');
         (0, health_server_1.updateStatus)({ status: 'idle', rowsProcessed: rowsThisCycle });
     };
     do {
@@ -365,13 +328,5 @@ async function main() {
             await sleep(intervalMs);
     } while (!runOnce);
 }
-process.on('SIGINT', async () => {
-    (0, health_server_1.stopHealthServer)();
-    process.exit(0);
-});
-main().catch((error) => {
-    console.error('Fatal error:', error);
-    (0, health_server_1.addError)(error?.message || String(error));
-    (0, health_server_1.stopHealthServer)();
-    process.exit(1);
-});
+process.on('SIGINT', async () => { (0, health_server_1.stopHealthServer)(); process.exit(0); });
+main().catch((error) => { console.error('Fatal error:', error); (0, health_server_1.addError)(error?.message || String(error)); (0, health_server_1.stopHealthServer)(); process.exit(1); });
