@@ -5,7 +5,6 @@ import fs from 'fs'
 import fetch from 'node-fetch'
 import { loadSecretsToEnv } from '../src/secret-manager'
 import { getTestVideoCampaignSeeds } from '../src/content-seed-bank'
-import { createClientWithSecrets as createHeyGenClient } from '../src/heygen'
 import { createClientWithSecrets as createDIDClientWithSecrets } from '../src/did'
 import { generateScript } from '../src/openai'
 
