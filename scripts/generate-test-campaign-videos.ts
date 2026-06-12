@@ -71,62 +71,65 @@ End with exactly: "Visit natureswaysoil.com for more info"`,
 // Each angle type opens on a different visual concept.
 const HOOK_QUERIES: Record<string, Record<string, string>> = {
   'problem-hook': {
-    'dog-urine':  'dog yellow lawn dead spot grass',
-    'garden-mix': 'struggling garden plants wilting soil',
-    'hydroponic': 'hydroponic plant deficiency struggling leaves',
-    'fruit-tree': 'fruit tree sparse blooms bare branches',
+    'dog-urine':  'dead grass lawn brown spots yard',
+    'garden-mix': 'wilting plants garden dry soil',
+    'hydroponic': 'indoor plants grow light hydroponics',
+    'fruit-tree': 'fruit tree orchard spring blossoms',
   },
   'solution-reveal': {
-    'dog-urine':  'organic lawn care bottle product outdoor',
-    'garden-mix': 'organic garden liquid fertilizer bottle',
-    'hydroponic': 'hydroponic nutrient solution bottle label',
-    'fruit-tree': 'organic tree fertilizer bottle garden drip',
+    'dog-urine':  'organic lawn care green grass spray',
+    'garden-mix': 'organic garden fertilizer outdoor plants',
+    'hydroponic': 'hydroponic system indoor plants growing',
+    'fruit-tree': 'fruit tree garden care outdoor',
   },
   'soil-science': {
-    'dog-urine':  'lawn soil biology roots macro close up',
-    'garden-mix': 'rich dark organic garden soil close up',
-    'hydroponic': 'plant roots water nutrient solution close',
-    'fruit-tree': 'tree root zone soil organic matter close up',
+    'dog-urine':  'soil roots grass lawn close up',
+    'garden-mix': 'dark rich garden soil organic',
+    'hydroponic': 'plant roots water growing closeup',
+    'fruit-tree': 'tree roots soil garden organic',
   },
   'results-proof': {
-    'dog-urine':  'lush green lawn healthy yard sunlight',
-    'garden-mix': 'abundant vegetable garden healthy harvest',
-    'hydroponic': 'thriving hydroponic plants lush green canopy',
-    'fruit-tree': 'abundant fruit harvest orchard apple peach',
+    'dog-urine':  'lush green lawn backyard sunlight',
+    'garden-mix': 'vegetable garden harvest summer',
+    'hydroponic': 'indoor plants thriving grow room',
+    'fruit-tree': 'apple orchard fruit harvest summer',
   },
   'easy-routine': {
-    'dog-urine':  'homeowner simple lawn spray routine yard',
-    'garden-mix': 'simple garden watering routine outdoor hose',
-    'hydroponic': 'mixing hydroponic nutrients measuring simple',
-    'fruit-tree': 'simple fruit tree care watering routine',
+    'dog-urine':  'spraying lawn garden hose yard',
+    'garden-mix': 'watering garden plants outdoor hose',
+    'hydroponic': 'indoor garden simple routine plants',
+    'fruit-tree': 'watering fruit tree garden outdoor',
   },
 }
 
-// ── Scenes 2-5 (Context → Application → Benefit → CTA) per product ───────
-const PRODUCT_SCENE_QUERIES: Record<string, string[]> = {
+// ── 4 scenes per product: [problem, application, mechanism, result] ────────
+// Each scene has multiple fallback queries tried in order.
+const PRODUCT_SCENE_QUERY_SETS: Record<string, string[][]> = {
   'dog-urine': [
-    'dog urine yellow spot lawn grass',
-    'homeowner spraying lawn pump sprayer',
-    'grass roots soil healthy close up',
-    'green healthy lawn backyard sunlight',
+    ['dead grass yard', 'brown lawn spots', 'yellow grass lawn', 'lawn damage'],
+    ['dog playing yard', 'dog grass outdoor', 'pet yard lawn', 'dog running grass'],
+    ['spraying lawn garden', 'lawn spray hose', 'garden hose watering', 'watering lawn'],
+    ['green lawn backyard', 'lush grass yard', 'healthy green grass', 'beautiful lawn'],
   ],
   'garden-mix': [
-    'raised bed vegetable garden planting',
-    'watering garden plants organic can',
-    'plant root system soil healthy',
-    'lush vegetable garden harvest summer',
+    ['garden soil planting', 'raised garden bed', 'vegetable garden outdoor', 'garden bed soil'],
+    ['watering garden plants', 'garden care outdoor', 'watering vegetable garden', 'plant garden hose'],
+    ['organic soil garden', 'garden amendment soil', 'planting outdoor garden', 'garden digging soil'],
+    ['vegetable garden harvest', 'garden vegetables summer', 'healthy garden plants', 'summer harvest garden'],
   ],
   'hydroponic': [
-    'hydroponic reservoir nutrient mixing',
-    'plant roots water healthy hydroponic',
-    'indoor grow room lights plants',
-    'hydroponic vegetable harvest yield',
+    ['indoor plants growing', 'hydroponic system plants', 'indoor garden lights', 'plant growing indoor'],
+    ['plant roots water', 'hydroponic roots closeup', 'water plants growing', 'indoor plants roots'],
+    ['mixing garden nutrients', 'liquid fertilizer measuring', 'indoor garden routine', 'plant nutrient solution'],
+    ['indoor harvest plants', 'hydroponic vegetables harvest', 'indoor garden yield', 'growing vegetables indoor'],
   ],
   'fruit-tree': [
-    'apple peach tree blooms spring',
-    'watering around fruit tree drip line',
-    'fruit tree root zone healthy soil',
-    'backyard orchard citrus fruit harvest',
+    ['apple tree blossoms spring', 'fruit tree orchard', 'orchard trees blooming', 'fruit tree outdoor'],
+    ['watering fruit tree', 'orchard tree care', 'tree watering garden', 'fruit tree outdoor care'],
+    ['garden soil organic', 'tree care soil', 'organic garden outdoor', 'garden fertilizer outdoor'],
+    ['fruit harvest basket', 'apple picking orchard', 'fresh fruit garden harvest', 'orchard fruit picking'],
+  ],
+}
   ],
 }
 
@@ -367,13 +370,6 @@ async function main(): Promise<void> {
 
       if (VIDEO_PROVIDER === 'did') {
         // ── D-ID: talking-head composited over 4 Pexels b-roll scenes ────────
-        const sceneQueryList = [
-          HOOK_QUERIES[angleType]?.[productKey]   || 'organic garden healthy plants',
-          PRODUCT_SCENE_QUERIES[productKey]?.[0]  || 'lawn garden soil',
-          PRODUCT_SCENE_QUERIES[productKey]?.[1]  || 'organic garden care',
-          PRODUCT_SCENE_QUERIES[productKey]?.[2]  || 'healthy green plants',
-        ]
-
         const didPayload = {
           script,
           voiceId:   process.env.DID_VOICE_ID || 'en-US-JennyNeural',
@@ -388,10 +384,11 @@ async function main(): Promise<void> {
           continue
         }
 
-        // Fetch 4 Pexels portrait clips in parallel
+        // Fetch 4 Pexels portrait clips in parallel (each with multiple fallback queries)
         console.log('  Fetching 4 Pexels b-roll clips...')
+        const sceneSets = PRODUCT_SCENE_QUERY_SETS[productKey] || sceneQueryList.map(q => [q])
         const brollUrls = await Promise.all(
-          sceneQueryList.map((q, i) => findPortraitBroll([q], pexelsApiKey || '', `Scene ${i + 1}`))
+          sceneSets.map((queries, i) => findPortraitBroll(queries, pexelsApiKey || '', `Scene ${i + 1}`))
         )
 
         console.log('  Submitting D-ID job...')
