@@ -16,6 +16,7 @@ export type DidVideoPayload = {
   sourceUrl?: string
   presenterId?: string
   voiceId?: string
+  backgroundImageUrl?: string
   webhook?: string
   subtitles?: {
     enabled?: boolean
@@ -64,6 +65,7 @@ export class DidClient {
       : {
           source_url: payload.sourceUrl,
           script: { type: 'text', input: payload.script },
+          ...(payload.backgroundImageUrl ? { background: { image_url: payload.backgroundImageUrl } } : {}),
           webhook: payload.webhook,
           metadata: payload.meta,
         }
