@@ -38,9 +38,7 @@ export class DidClient {
     const apiKey = process.env.DID_API_KEY || process.env.DiD || ''
     const apiEndpoint = process.env.DID_API_ENDPOINT || 'https://api.d-id.com'
 
-    if (!apiKey) {
-      throw new AppError('D-ID API key missing', ErrorCode.MISSING_CONFIG, 500)
-    }
+    if (!apiKey) throw new AppError('D-ID API key missing', ErrorCode.MISSING_CONFIG, 500)
 
     this.axios = axios.create({
       baseURL: apiEndpoint,
@@ -54,50 +52,35 @@ export class DidClient {
 
   async createVideoJob(payload: DidVideoPayload): Promise<string> {
     const config = getConfig()
-
     const useClips = !!payload.presenterId
 
     const body: Record<string, any> = useClips
       ? {
           presenter_id: payload.presenterId,
-          script: {
-            type: 'text',
-            input: payload.script,
-          },
+          script: { type: 'text', input: payload.script },
           webhook: payload.webhook,
           metadata: payload.meta,
         }
       : {
           source_url: payload.sourceUrl,
-          script: {
-            type: 'text',
-            input: payload.script,
-          },
+          script: { type: 'text', input: payload.script },
           webhook: payload.webhook,
           metadata: payload.meta,
         }
 
     const endpoint = useClips ? '/clips' : '/talks'
 
-    const jobId = await rateLimiters.execute('heygen', async () => {
+    const jobId = await rateLimiters.execute('did', async () => {
       return withRetry(async () => {
-        const response = await this.axios.post(endpoint, body, {
-          timeout: config.TIMEOUT_HEYGEN,
-        })
-
+        const response = await this.axios.post(endpoint, body, { timeout: config.TIMEOUT_DID })
         const id = response.data?.id || response.data?.data?.id
-
-        if (!id) {
-          throw new AppError('D-ID did not return a job id', ErrorCode.HEYGEN_API_ERROR, 500)
-        }
-
+        if (!id) throw new AppError('D-ID did not return a job id', ErrorCode.DID_API_ERROR, 500)
         return id
       })
     })
 
     metrics.incrementCounter('did.create.success')
     logger.info('Created D-ID job', 'D-ID', { jobId })
-
     return jobId
   }
 
@@ -109,7 +92,6 @@ export class DidClient {
       try {
         const response = await this.axios.get(`/${mode}/${jobId}`)
         const data = response.data || {}
-
         return {
           jobId,
           mode,
@@ -122,32 +104,23 @@ export class DidClient {
       }
     }
 
-    if (axios.isAxiosError(lastError)) {
-      throw fromAxiosError(lastError, ErrorCode.HEYGEN_API_ERROR, { jobId, modeHint })
-    }
-
-    throw new AppError(`Failed to fetch D-ID job status: ${String(lastError)}`, ErrorCode.HEYGEN_API_ERROR, 500)
+    if (axios.isAxiosError(lastError)) throw fromAxiosError(lastError, ErrorCode.DID_API_ERROR, { jobId, modeHint })
+    throw new AppError(`Failed to fetch D-ID job status: ${String(lastError)}`, ErrorCode.DID_API_ERROR, 500)
   }
 
-  async pollJobForVideoUrl(
-    jobId: string,
-    opts?: { timeoutMs?: number; intervalMs?: number; modeHint?: 'talks' | 'clips' }
-  ): Promise<string> {
+  async pollJobForVideoUrl(jobId: string, opts?: { timeoutMs?: number; intervalMs?: number; modeHint?: 'talks' | 'clips' }): Promise<string> {
     const timeoutMs = opts?.timeoutMs || 20 * 60 * 1000
     const intervalMs = opts?.intervalMs || 15000
     const start = Date.now()
 
     while (Date.now() - start < timeoutMs) {
       const result = await this.getJobStatus(jobId, opts?.modeHint)
-
       if (result.status.includes('done') || result.status.includes('complete')) {
         if (result.videoUrl) return result.videoUrl
       }
-
       if (result.status.includes('error') || result.status.includes('fail')) {
-        throw new AppError(`D-ID generation failed: ${result.error}`, ErrorCode.HEYGEN_API_ERROR, 500)
+        throw new AppError(`D-ID generation failed: ${result.error}`, ErrorCode.DID_API_ERROR, 500)
       }
-
       await new Promise(resolve => setTimeout(resolve, intervalMs))
     }
 
@@ -158,11 +131,7 @@ export class DidClient {
 export async function createClientWithSecrets(): Promise<DidClient> {
   await loadSecretToEnv('DID_API_KEY')
   await loadSecretToEnv('DiD')
-
-  if (!process.env.DID_API_KEY && process.env.DiD) {
-    process.env.DID_API_KEY = process.env.DiD
-  }
-
+  if (!process.env.DID_API_KEY && process.env.DiD) process.env.DID_API_KEY = process.env.DiD
   return new DidClient()
 }
 

@@ -2,42 +2,49 @@
 
 **AI-Powered Automated Video Marketing Engine for Nature's Way Soil**
 
-Turns your Google Sheet product catalog into scroll-stopping videos using:
-- OpenAI (smart scripts)
-- HeyGen (avatars)
-- **Pexels API** (B-roll)
-- Real farm footage
+Turns your Google Sheet product catalog into reviewable product videos using:
 
-Auto-posts to Instagram, X, Pinterest & YouTube with configurable scheduling, including campaign mode.
+- OpenAI for conversion-focused scripts
+- D-ID for avatar/talking product videos
+- Product-specific templates for Dog Urine, Hay/Pasture, Biochar, Kelp, Bone Meal, and Fruit & Bloom
+- Claim-safety checks before scripts and captions are used
+- Google Sheets writeback for video status and posted status
 
-## Quick Links
+## D-ID is the only video generator
 
-### Run and deploy
+This repository is standardized on D-ID. Do not add HeyGen configuration, tests, or documentation back into the main workflow unless the project intentionally changes video vendors later.
 
-- [Test Video Campaign Guide (5 posts/day)](TEST_VIDEO_CAMPAIGN_GUIDE.md)
-- [Video Enhancement Plan – Fix Bland Videos](docs/guides/VIDEO_ENHANCEMENT_PLAN.md)
-- [Deployment Guide](docs/deployment/GCLOUD_DEPLOYMENT.md)
-- [Operations Runbook](docs/operations/OPERATIONS_RUNBOOK.md)
-- [Testing Guide](docs/development/TESTING_GUIDE.md)
+Use D-ID talks with a source image URL or D-ID clips with a presenter ID.
 
-### Quality control and commercialization
+## Correct platform variable names
 
-- [Publishing QA Checklist](docs/qa/PUBLISHING_QA_CHECKLIST.md)
-- [Caption and Transcript Workflow](docs/qa/CAPTION_AND_TRANSCRIPT_WORKFLOW.md)
-- [B2B Video Offer Plan](docs/marketing/B2B_VIDEO_OFFER_PLAN.md)
-- [Flagship B2B Script Template](content/templates/flagship_b2b_script.md)
-- [Thumbnail Rules](content/templates/thumbnail_rules.md)
-- [Video Metadata Schema](content/metadata/video_metadata.schema.json)
-- [Example B2B Metadata](content/metadata/example_lawn_recovery_b2b.json)
+Use the names defined in `src/config-validator.ts`. In particular:
 
-## Current improvement focus
+- Instagram uses `INSTAGRAM_USER_ID`.
+- YouTube uses `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, and `YOUTUBE_REFRESH_TOKEN`.
+- Facebook Page posting uses `FACEBOOK_PAGE_ACCESS_TOKEN` and `FACEBOOK_PAGE_ID`.
 
-This repo should operate as a repeatable video marketing engine, not only as a code repository. The current priority is to make every generated video easier to trust, review, publish, and sell from:
+## Run and deploy
+
+- Vercel builds with `npm run build`.
+- Local development: `npm run dev`
+- One video: `npm run one:video`
+- Type check: `npm run typecheck`
+- Build: `npm run build`
+
+## Quality control and commercialization
+
+The system should operate as a repeatable video marketing engine, not just a code repository. Current priorities:
 
 1. Clear product offer and buyer segment.
 2. Human-reviewed captions and transcripts.
 3. Safer claim review before publishing.
 4. Strong thumbnail and metadata standards.
 5. B2B offer structure for public-sector and commercial grounds buyers.
+6. Product-specific script templates for the major Nature's Way Soil product lines.
 
-**Status**: B-roll capable with added QA and B2B commercialization workflow.
+## Repository cleanup note
+
+Amazon PPC optimizer folders should be moved to a separate repository, such as `natureswaysoil/amazon-ppc-optimizer`, or retained only as archived reference material. The production video deployment should stay focused on the video engine.
+
+**Status**: D-ID-only video generation with stronger CSV parsing, claim-safety module, product-specific templates, and Vercel build correction.
