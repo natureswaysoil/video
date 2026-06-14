@@ -7,6 +7,7 @@ import { postToInstagram } from '../src/instagram'
 import { postToYouTube } from '../src/youtube'
 import { postToPinterest } from '../src/pinterest'
 import { postToTwitter } from '../src/twitter'
+import { createNarratedCaptionVideo } from '../src/narrated-caption-video'
 
 const fs = require('fs')
 const childProcess = require('child_process')
@@ -64,7 +65,7 @@ async function chooseVideoUrl(blog: BlogJson): Promise<string> {
   const existing = String(process.env.VIDEO_URL || '').trim()
   if (existing) return existing
 
-  await loadSecretsToEnv(['PEXELS_API_KEY', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'])
+  await loadSecretsToEnv(['PEXELS_API_KEY', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET', 'OPENAI_API_KEY'])
 
   const picked = await selectPexelsBackground({
     product: {
@@ -82,12 +83,19 @@ async function chooseVideoUrl(blog: BlogJson): Promise<string> {
 
   console.log(`Selected Pexels video: ${picked.query} (${picked.id})`)
 
+  const narratedVideo = await createNarratedCaptionVideo({
+    sourceVideoUrl: picked.url,
+    title: blog.title || 'Nature’s Way Soil Garden Tip',
+    excerpt: blog.excerpt || 'Support healthier soil and stronger plants with Nature’s Way Soil.',
+    ctaUrl: blogUrl(blog),
+  })
+
   if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
-    return uploadVideoToCloudinary(picked.url)
+    return uploadVideoToCloudinary(narratedVideo)
   }
 
-  console.log('Cloudinary credentials not configured; using Pexels URL directly')
-  return picked.url
+  console.log('Cloudinary credentials not configured; using generated/source video URL directly')
+  return narratedVideo
 }
 
 function mapTwitterSecretAliases() {
@@ -133,6 +141,7 @@ async function main() {
     'TWITTER_ACCESS_TOKEN_SECRET',
     'TWITTER_ACCESS_SECRET',
     'TWITTER_BEARER_TOKEN',
+    'OPENAI_API_KEY',
   ])
 
   mapTwitterSecretAliases()
