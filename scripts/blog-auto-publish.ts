@@ -3,13 +3,14 @@ import axios from 'axios'
 import { runBlogGeneration } from '../src/blog-generator'
 
 const { execFileSync } = require('child_process')
+const fs = require('fs')
 
 function git(args: string[]) {
   execFileSync('git', args, { stdio: 'inherit' })
 }
 
 function latestBlogFile(): string {
-  const file = execFileSync('bash', ['-lc', 'ls -t generated-blogs/*.json | head -1'])
+  const file = execFileSync('bash', ['-lc', 'ls -t generated-blogs/*.json 2>/dev/null | head -1'])
     .toString()
     .trim()
 
@@ -67,7 +68,6 @@ async function main() {
   }
 
   if (process.env.ENABLE_BLOG_SOCIAL_POSTING === 'true') {
-    const fs = await import('fs')
     const blog = JSON.parse(fs.readFileSync(file, 'utf8'))
     const base = process.env.BLOG_BASE_URL || 'https://natureswaysoil.com/blog'
     const url = `${base.replace(/\/$/, '')}/${blog.slug || slug}`
@@ -76,7 +76,7 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error('Blog auto publish failed:', error?.message || error)
+main().catch((error: any) => {
+  console.error('Blog auto publish failed:', error?.response?.data || error?.message || error)
   process.exit(1)
 })
