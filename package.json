@@ -21,7 +21,11 @@
     "test:e2e": "ts-node scripts/test-e2e-integration.ts",
     "test:e2e:dry": "DRY_RUN=true ts-node scripts/test-e2e-integration.ts",
     "test:all": "npm run test:csv && npm run test:openai && npm run test:e2e:dry",
-    "generate:test-videos": "ts-node scripts/generate-test-campaign-videos.ts"
+    "generate:test-videos": "ts-node scripts/generate-test-campaign-videos.ts",
+    "blog": "ts-node src/blog-generator.ts",
+    "generate:blog": "ts-node src/blog-generator.ts",
+    "post:sheet-row": "NODE_OPTIONS=--max-old-space-size=2048 VIDEO_STYLE=broll_ken_burns ts-node --transpile-only scripts/post-sheet-row.ts",
+    "test:sheet-row": "DRY_RUN_LOG_ONLY=true NODE_OPTIONS=--max-old-space-size=2048 VIDEO_STYLE=broll_ken_burns ts-node --transpile-only scripts/post-sheet-row.ts"
   },
   "dependencies": {
     "@google-cloud/secret-manager": "^6.1.1",
