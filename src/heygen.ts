@@ -3,8 +3,8 @@
 // The old blog code imports './heygen'. This restores that import and turns it
 // into an OpenAI-powered blog package generator instead of a dead HeyGen call.
 
-import fs from 'fs'
-import path from 'path'
+import * as fs from 'fs'
+import * as path from 'path'
 import OpenAI from 'openai'
 
 export type BlogVideoInput = {
