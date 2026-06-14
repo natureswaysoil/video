@@ -50,5 +50,17 @@
     "@types/yargs": "^17.0.34",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.3"
+
+
+    Add this script entry to package.json:
+
+"post:sheet-row": "NODE_OPTIONS=--max-old-space-size=2048 VIDEO_STYLE=broll_ken_burns ts-node --transpile-only scripts/post-sheet-row.ts",
+"test:sheet-row": "DRY_RUN_LOG_ONLY=true NODE_OPTIONS=--max-old-space-size=2048 VIDEO_STYLE=broll_ken_burns ts-node --transpile-only scripts/post-sheet-row.ts"
+
+Recommended run:
+npm run post:sheet-row
+
+Dry run:
+npm run test:sheet-row
   }
 }
