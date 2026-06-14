@@ -5,6 +5,8 @@
   "license": "MIT",
   "scripts": {
     "dev": "ts-node src/cli.ts",
+    "blog": "ts-node src/blog-generator.ts",
+    "generate:blog": "ts-node src/blog-generator.ts",
     "one:video": "ts-node scripts/one-good-video.ts",
     "amazon:video": "ts-node scripts/amazon-video.ts",
     "typecheck": "tsc --noEmit",
