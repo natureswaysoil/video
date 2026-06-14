@@ -22,9 +22,16 @@ function twitterForbiddenMessage(error: any): string {
   return error?.data?.detail || error?.response?.data?.detail || error?.message || String(error)
 }
 
+function uniqueTweetText(caption: string, videoUrl: string): string {
+  const uniqueLine = `\n\nPosted ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`
+  const maxCaptionLength = 280 - videoUrl.length - uniqueLine.length - 3
+  const trimmedCaption = caption.slice(0, Math.max(40, maxCaptionLength)).trim()
+  return `${trimmedCaption}\n${videoUrl}${uniqueLine}`.slice(0, 280)
+}
+
 async function postTextTweetWithUrl(caption: string, videoUrl: string, bearerToken?: string): Promise<string> {
   const config = getConfig()
-  const text = `${caption}\n${videoUrl}`.slice(0, 275)
+  const text = uniqueTweetText(caption, videoUrl)
 
   if (process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env.TWITTER_ACCESS_TOKEN && process.env.TWITTER_ACCESS_SECRET) {
     const client = new TwitterApi({
