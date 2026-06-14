@@ -100,6 +100,12 @@ function errorMessage(error: any): string {
   return error?.response?.data?.detail || error?.response?.data?.message || error?.message || String(error)
 }
 
+function youtubePrivacyStatus(): 'public' | 'unlisted' | 'private' {
+  const value = String(process.env.YOUTUBE_PRIVACY_STATUS || 'public').toLowerCase()
+  if (value === 'unlisted' || value === 'private') return value
+  return 'public'
+}
+
 async function attempt(platform: string, task: () => Promise<void>): Promise<boolean> {
   try {
     await task()
@@ -172,7 +178,14 @@ async function main() {
   if (shouldPost('youtube')) {
     if (process.env.YOUTUBE_CLIENT_ID && process.env.YOUTUBE_CLIENT_SECRET && process.env.YOUTUBE_REFRESH_TOKEN) {
       const ok = await attempt('YouTube', async () => {
-        const id = await postToYouTube(videoUrl, blog.title || 'Nature’s Way Soil Garden Tip', process.env.YOUTUBE_CLIENT_ID as string, process.env.YOUTUBE_CLIENT_SECRET as string, process.env.YOUTUBE_REFRESH_TOKEN as string)
+        const id = await postToYouTube(
+          videoUrl,
+          caption,
+          process.env.YOUTUBE_CLIENT_ID as string,
+          process.env.YOUTUBE_CLIENT_SECRET as string,
+          process.env.YOUTUBE_REFRESH_TOKEN as string,
+          youtubePrivacyStatus()
+        )
         console.log('YouTube video posted:', id)
       })
       if (ok) successCount++
