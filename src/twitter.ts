@@ -14,10 +14,52 @@ const rateLimiters = getRateLimiters()
 // Maximum video size for Twitter (500MB)
 const MAX_VIDEO_SIZE_MB = 500
 
+function statusCode(error: any): number | undefined {
+  return error?.response?.status ?? error?.data?.status ?? error?.code
+}
+
+function twitterForbiddenMessage(error: any): string {
+  return error?.data?.detail || error?.response?.data?.detail || error?.message || String(error)
+}
+
+async function postTextTweetWithUrl(caption: string, videoUrl: string, bearerToken?: string): Promise<string> {
+  const config = getConfig()
+  const text = `${caption}\n${videoUrl}`.slice(0, 275)
+
+  if (process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env.TWITTER_ACCESS_TOKEN && process.env.TWITTER_ACCESS_SECRET) {
+    const client = new TwitterApi({
+      appKey: process.env.TWITTER_API_KEY as string,
+      appSecret: process.env.TWITTER_API_SECRET as string,
+      accessToken: process.env.TWITTER_ACCESS_TOKEN as string,
+      accessSecret: process.env.TWITTER_ACCESS_SECRET as string,
+    })
+    const tweetResult = await client.readWrite.v2.tweet(text)
+    return tweetResult.data.id
+  }
+
+  if (!bearerToken) {
+    throw new AppError(
+      'Twitter bearer token missing and upload credentials not provided',
+      ErrorCode.MISSING_CONFIG,
+      500
+    )
+  }
+
+  const res = await axios.post(
+    'https://api.twitter.com/2/tweets',
+    { text },
+    {
+      headers: { Authorization: `Bearer ${bearerToken}` },
+      timeout: config.TIMEOUT_SOCIAL_POST,
+    }
+  )
+  return String(res.data?.data?.id ?? '')
+}
+
 /**
  * Posts to Twitter/X.
- * If OAuth 1.0a credentials are present (env), uploads the video and posts a tweet with the media.
- * Otherwise, falls back to a simple text tweet (caption + URL) using Bearer token.
+ * If OAuth 1.0a credentials are present, tries video upload first.
+ * If X rejects media upload with 403, falls back to a link tweet so the run can still post.
  */
 export async function postToTwitter(
   videoUrl: string,
@@ -54,122 +96,106 @@ export async function postToTwitter(
     let postId = ''
 
     if (canUpload) {
-      postId = await rateLimiters.execute('twitter', async () => {
-        return withRetry(
-          async () => {
-            const client = new TwitterApi({
-              appKey: process.env.TWITTER_API_KEY as string,
-              appSecret: process.env.TWITTER_API_SECRET as string,
-              accessToken: process.env.TWITTER_ACCESS_TOKEN as string,
-              accessSecret: process.env.TWITTER_ACCESS_SECRET as string,
-            })
-            const rwClient = client.readWrite
-
-            // Check memory before downloading video
-            const memoryBefore = getMemoryUsage()
-            logger.debug('Memory before video download', 'Twitter', {
-              heapUsedMB: memoryBefore.heapUsedMB,
-            })
-
-            // Check video size before downloading
-            try {
-              const headResponse = await axios.head(videoUrl)
-              const contentLength = parseInt(String(headResponse.headers['content-length'] || '0'), 10)
-              const sizeMB = contentLength / (1024 * 1024)
-
-              if (sizeMB > MAX_VIDEO_SIZE_MB) {
-                throw new AppError(
-                  `Video too large for Twitter: ${sizeMB.toFixed(2)}MB (max ${MAX_VIDEO_SIZE_MB}MB)`,
-                  ErrorCode.VALIDATION_ERROR,
-                  400,
-                  true,
-                  { videoSizeMB: sizeMB, maxSizeMB: MAX_VIDEO_SIZE_MB }
-                )
-              }
-
-              logger.debug('Video size check', 'Twitter', { sizeMB: sizeMB.toFixed(2) })
-            } catch (error) {
-              // If HEAD request fails, continue anyway (some servers don't support HEAD)
-              logger.warn('Could not check video size', 'Twitter', {}, error)
-            }
-
-            // Download the video file into memory for upload
-            logger.debug('Downloading video for Twitter upload', 'Twitter')
-            const resp = await axios.get<ArrayBuffer>(videoUrl, {
-              responseType: 'arraybuffer',
-              timeout: config.TIMEOUT_SOCIAL_POST,
-              maxContentLength: MAX_VIDEO_SIZE_MB * 1024 * 1024,
-            })
-
-            const memoryAfter = getMemoryUsage()
-            const memoryUsedMB = memoryAfter.heapUsedMB - memoryBefore.heapUsedMB
-            logger.debug('Video downloaded', 'Twitter', {
-              heapUsedMB: memoryAfter.heapUsedMB,
-              memoryUsedForVideoMB: memoryUsedMB,
-            })
-
-            // Upload media
-            logger.debug('Uploading video to Twitter', 'Twitter')
-            const mediaId = await rwClient.v1.uploadMedia(Buffer.from(resp.data), {
-              type: 'video/mp4',
-            })
-
-            // Post tweet with media
-            logger.debug('Posting tweet', 'Twitter')
-            const tweetResult = await rwClient.v2.tweet({
-              text: caption,
-              media: { media_ids: [mediaId] },
-            })
-
-            logger.debug('Tweet posted successfully', 'Twitter')
-            return tweetResult.data.id
-          },
-          {
-            maxRetries: 3,
-            retryIf: (error) => {
-              if (error instanceof AppError && error.code === ErrorCode.VALIDATION_ERROR) return false
-              // 403 = API tier blocks video upload — retrying always fails
-              const s = (error as any)?.response?.status ?? (error as any)?.data?.status
-              if (s === 403) return false
-              return true
-            },
-            onRetry: (error, attempt) => {
-              logger.warn('Retrying Twitter post', 'Twitter', {
-                attempt,
-                error: error instanceof Error ? error.message : String(error),
+      try {
+        postId = await rateLimiters.execute('twitter', async () => {
+          return withRetry(
+            async () => {
+              const client = new TwitterApi({
+                appKey: process.env.TWITTER_API_KEY as string,
+                appSecret: process.env.TWITTER_API_SECRET as string,
+                accessToken: process.env.TWITTER_ACCESS_TOKEN as string,
+                accessSecret: process.env.TWITTER_ACCESS_SECRET as string,
               })
-            },
-          }
-        )
-      })
-    } else {
-      // Fallback to bearer token (text only)
-      if (!bearerToken) {
-        throw new AppError(
-          'Twitter bearer token missing and upload credentials not provided',
-          ErrorCode.MISSING_CONFIG,
-          500
-        )
-      }
+              const rwClient = client.readWrite
 
+              const memoryBefore = getMemoryUsage()
+              logger.debug('Memory before video download', 'Twitter', {
+                heapUsedMB: memoryBefore.heapUsedMB,
+              })
+
+              try {
+                const headResponse = await axios.head(videoUrl)
+                const contentLength = parseInt(String(headResponse.headers['content-length'] || '0'), 10)
+                const sizeMB = contentLength / (1024 * 1024)
+
+                if (sizeMB > MAX_VIDEO_SIZE_MB) {
+                  throw new AppError(
+                    `Video too large for Twitter: ${sizeMB.toFixed(2)}MB (max ${MAX_VIDEO_SIZE_MB}MB)`,
+                    ErrorCode.VALIDATION_ERROR,
+                    400,
+                    true,
+                    { videoSizeMB: sizeMB, maxSizeMB: MAX_VIDEO_SIZE_MB }
+                  )
+                }
+
+                logger.debug('Video size check', 'Twitter', { sizeMB: sizeMB.toFixed(2) })
+              } catch (error) {
+                logger.warn('Could not check video size', 'Twitter', {}, error)
+              }
+
+              logger.debug('Downloading video for Twitter upload', 'Twitter')
+              const resp = await axios.get<ArrayBuffer>(videoUrl, {
+                responseType: 'arraybuffer',
+                timeout: config.TIMEOUT_SOCIAL_POST,
+                maxContentLength: MAX_VIDEO_SIZE_MB * 1024 * 1024,
+              })
+
+              const memoryAfter = getMemoryUsage()
+              const memoryUsedMB = memoryAfter.heapUsedMB - memoryBefore.heapUsedMB
+              logger.debug('Video downloaded', 'Twitter', {
+                heapUsedMB: memoryAfter.heapUsedMB,
+                memoryUsedForVideoMB: memoryUsedMB,
+              })
+
+              logger.debug('Uploading video to Twitter', 'Twitter')
+              const mediaId = await rwClient.v1.uploadMedia(Buffer.from(resp.data), {
+                mimeType: 'video/mp4',
+              })
+
+              logger.debug('Posting tweet', 'Twitter')
+              const tweetResult = await rwClient.v2.tweet({
+                text: caption,
+                media: { media_ids: [mediaId] },
+              })
+
+              logger.debug('Tweet posted successfully', 'Twitter')
+              return tweetResult.data.id
+            },
+            {
+              maxRetries: 3,
+              retryIf: (error) => {
+                if (error instanceof AppError && error.code === ErrorCode.VALIDATION_ERROR) return false
+                const s = statusCode(error)
+                if (s === 403) return false
+                return true
+              },
+              onRetry: (error, attempt) => {
+                logger.warn('Retrying Twitter post', 'Twitter', {
+                  attempt,
+                  error: error instanceof Error ? error.message : String(error),
+                })
+              },
+            }
+          )
+        })
+      } catch (uploadError: any) {
+        if (statusCode(uploadError) === 403) {
+          logger.warn('Twitter video upload forbidden; falling back to link tweet', 'Twitter', {
+            reason: twitterForbiddenMessage(uploadError),
+          })
+          postId = await rateLimiters.execute('twitter', async () => postTextTweetWithUrl(caption, videoUrl, bearerToken))
+        } else {
+          throw uploadError
+        }
+      }
+    } else {
       postId = await rateLimiters.execute('twitter', async () => {
         return withRetry(
-          async () => {
-            const res = await axios.post(
-              'https://api.twitter.com/2/tweets',
-              { text: `${caption}\n${videoUrl}` },
-              {
-                headers: { Authorization: `Bearer ${bearerToken}` },
-                timeout: config.TIMEOUT_SOCIAL_POST,
-              }
-            )
-            return String(res.data?.data?.id ?? '')
-          },
+          async () => postTextTweetWithUrl(caption, videoUrl, bearerToken),
           {
             maxRetries: 3,
             retryIf: (error) => {
-              // 403 = bearer token lacks write permission — never retryable
-              const s = (error as any)?.response?.status ?? (error as any)?.data?.status
+              const s = statusCode(error)
               if (s === 403) return false
               return true
             },
