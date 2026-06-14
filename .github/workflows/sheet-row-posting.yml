@@ -1,0 +1,107 @@
+name: Google Sheet Row Social Video Posting
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub Actions uses UTC. This is 8:00 AM ET during daylight time.
+    - cron: '0 12 * * *'
+
+jobs:
+  post-sheet-row:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      USE_SECRET_MANAGER: 'true'
+      DEFAULT_GOOGLE_CLOUD_PROJECT: natureswaysoil-video
+      GOOGLE_CLOUD_PROJECT: natureswaysoil-video
+      SHEET_CSV_URL: https://docs.google.com/spreadsheets/d/1dtUYrSy18_D2updwCpVa5wXfgf0hzAXaiQTQqMQnrSc/export?format=csv&gid=916620075
+      SHEET_ROW_STATE_FILE: data/sheet-row-state.json
+      ENABLE_PLATFORMS: youtube,instagram,facebook,facebook_groups
+      CI_MANDATORY_PLATFORMS: 'false'
+      YT_PRIVACY_STATUS: public
+      DRY_RUN_LOG_ONLY: 'false'
+      GCS_PUBLIC_BUCKET: natureswaysoil-social-videos
+      VIDEO_PUBLIC_BUCKET: natureswaysoil-social-videos
+      VIDEO_PUBLIC_URL_BASE: https://storage.googleapis.com/natureswaysoil-social-videos
+
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Restore sheet row state
+        uses: actions/cache/restore@v4
+        with:
+          path: data/sheet-row-state.json
+          key: sheet-row-state-${{ github.run_id }}
+          restore-keys: |
+            sheet-row-state-
+
+      - name: Authenticate to Google Cloud OIDC
+        if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ env.DEFAULT_GOOGLE_CLOUD_PROJECT }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Prepare Google ADC credentials
+        if: env.GOOGLE_APPLICATION_CREDENTIALS == ''
+        run: |
+          set -euo pipefail
+          CREDS_JSON="${GOOGLE_CREDENTIALS:-}"
+          if [ -z "$CREDS_JSON" ]; then
+            CREDS_JSON="${GOOGLE_SERVICE_ACCOUNT_JSON:-}"
+          fi
+          if [ -z "$CREDS_JSON" ]; then
+            echo "::error::No Google auth configured. Add GCP OIDC secrets or GOOGLE_CREDENTIALS / GOOGLE_SERVICE_ACCOUNT_JSON."
+            exit 1
+          fi
+          CREDS_PATH="$RUNNER_TEMP/gcp-service-account.json"
+          printf '%s' "$CREDS_JSON" > "$CREDS_PATH"
+          chmod 600 "$CREDS_PATH"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$CREDS_PATH" >> "$GITHUB_ENV"
+          echo "GOOGLE_CLOUD_PROJECT=$DEFAULT_GOOGLE_CLOUD_PROJECT" >> "$GITHUB_ENV"
+          echo "GCLOUD_PROJECT=$DEFAULT_GOOGLE_CLOUD_PROJECT" >> "$GITHUB_ENV"
+          echo "GCP_PROJECT=$DEFAULT_GOOGLE_CLOUD_PROJECT" >> "$GITHUB_ENV"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Google Sheet row post
+        run: npm run post:sheet-row
+
+      - name: Save sheet row state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/sheet-row-state.json
+          key: sheet-row-state-${{ github.run_id }}
+
+      - name: Upload sheet row state artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sheet-row-state
+          path: data/sheet-row-state.json
+          if-no-files-found: ignore
