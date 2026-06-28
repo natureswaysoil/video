@@ -24,6 +24,11 @@ jobs:
       # The four test-campaign .mp4 files are committed as regular git blobs (not LFS objects),
       # so raw.githubusercontent.com returns actual video bytes for each one.
       TEST_VIDEO_PUBLIC_BASE_URL: 'https://raw.githubusercontent.com/natureswaysoil/video/main/test-campaign-videos'
+      ENABLE_PLATFORMS: 'twitter'
+      TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
+      TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
+      TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
+      TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
 
     steps:
       - name: Checkout repo

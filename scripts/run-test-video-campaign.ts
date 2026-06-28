@@ -110,9 +110,9 @@ function getEnabledPlatforms(): Set<string> {
   const enabledPlatformsEnv = (process.env.ENABLE_PLATFORMS || '').toLowerCase()
   const platforms = new Set(enabledPlatformsEnv.split(',').map((value) => value.trim()).filter(Boolean))
 
-  // Twitter/X is hard-disabled for this campaign.
-  if (platforms.has('twitter') || platforms.has('x')) {
-    console.log('ℹ️ Twitter/X posting is disabled for this campaign and will be skipped.')
+  // Twitter/X enabled by default; set DISABLE_TWITTER=true to opt out.
+  if (String(process.env.DISABLE_TWITTER || '').toLowerCase() === 'true') {
+    console.log('ℹ️ Twitter/X posting disabled via DISABLE_TWITTER.')
     platforms.delete('twitter')
     platforms.delete('x')
   }
