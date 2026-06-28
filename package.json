@@ -19,14 +19,15 @@
     "validate": "ts-node scripts/validate-system.ts",
     "test:csv": "ts-node scripts/test-csv-processing.ts",
     "test:openai": "ts-node scripts/test-openai-script.ts",
-    "test:heygen": "ts-node scripts/test-heygen-integration.ts",
     "test:platforms": "ts-node scripts/test-all-platforms.ts",
     "test:e2e": "ts-node scripts/test-e2e-integration.ts",
     "test:e2e:dry": "DRY_RUN=true ts-node scripts/test-e2e-integration.ts",
     "test:all": "npm run test:csv && npm run test:openai && npm run test:e2e:dry",
     "generate:test-videos": "ts-node scripts/generate-test-campaign-videos.ts",
     "post:sheet-row": "NODE_OPTIONS=--max-old-space-size=2048 VIDEO_STYLE=broll_ken_burns ts-node --transpile-only scripts/post-sheet-row.ts",
-    "test:sheet-row": "DRY_RUN_LOG_ONLY=true NODE_OPTIONS=--max-old-space-size=2048 VIDEO_STYLE=broll_ken_burns ts-node --transpile-only scripts/post-sheet-row.ts"
+    "test:sheet-row": "DRY_RUN_LOG_ONLY=true NODE_OPTIONS=--max-old-space-size=2048 VIDEO_STYLE=broll_ken_burns ts-node --transpile-only scripts/post-sheet-row.ts",
+    "blog:auto": "NODE_OPTIONS=--max-old-space-size=2048 TS_NODE_TRANSPILE_ONLY=true ts-node --transpile-only scripts/blog-auto-publish.ts",
+    "social:video": "NODE_OPTIONS=--max-old-space-size=2048 TS_NODE_TRANSPILE_ONLY=true ts-node --transpile-only scripts/social-video-auto.ts"
   },
   "dependencies": {
     "@google-cloud/secret-manager": "^6.1.1",

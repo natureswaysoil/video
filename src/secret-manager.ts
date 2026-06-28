@@ -49,15 +49,22 @@ function getProjectId(): string {
 function hasLikelyAdc(): boolean {
   if (String(process.env.SKIP_SECRET_MANAGER || '').toLowerCase() === 'true') return false
 
-  return Boolean(
+  if (
     process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-      process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
-      process.env.GOOGLE_CREDENTIALS ||
-      process.env.K_SERVICE ||          // Cloud Run Services
-      process.env.CLOUD_RUN_JOB ||      // Cloud Run Jobs
-      process.env.FUNCTION_TARGET ||
-      process.env.GAE_SERVICE
-  )
+    process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
+    process.env.GOOGLE_CREDENTIALS ||
+    process.env.K_SERVICE ||
+    process.env.CLOUD_RUN_JOB ||
+    process.env.FUNCTION_TARGET ||
+    process.env.GAE_SERVICE
+  ) return true
+
+  // Also detect gcloud user ADC file written by `gcloud auth application-default login`
+  const os = require('os')
+  const path = require('path')
+  const fs = require('fs')
+  const adcFile = path.join(os.homedir(), '.config', 'gcloud', 'application_default_credentials.json')
+  return fs.existsSync(adcFile)
 }
 
 function normalizeSeparators(value: string): string {
