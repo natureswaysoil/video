@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 import { loadSecretsToEnv } from '../src/secret-manager'
 import { getConfig } from '../src/config-validator'
 import { getTestVideoCampaignSeeds } from '../src/content-seed-bank'
+import { postToTwitter } from '../src/twitter'
 import { postToInstagram } from '../src/instagram'
 import { postToPinterest } from '../src/pinterest'
 import { postToYouTube } from '../src/youtube'
@@ -347,6 +348,12 @@ async function main(): Promise<void> {
     )
     anySucceeded = true
     console.log('✅ Posted to YouTube')
+  }
+
+  if (isPlatformEnabled('twitter', enabledPlatforms) || isPlatformEnabled('x', enabledPlatforms)) {
+    const tw = await postToTwitter(videoUrl, caption)
+    anySucceeded = true
+    console.log('✅ Posted to Twitter', tw)
   }
 
   if (!anySucceeded) {
