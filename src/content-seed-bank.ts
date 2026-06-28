@@ -89,7 +89,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Dog yellow lawn dead spot, spray application, soil root zone, green lawn recovery.',
     websiteUrl: 'https://natureswaysoil.com/dog-urine-neutralizer',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'dog-urine-problem-hook.mp4',
+    videoFileName: 'dog-urine-neutralizer-test.mp4',
     hashtags: ['#DogLawnSpots', '#LawnCare', '#SoilFirst', '#NaturesWaySoil'],
   },
   {
@@ -99,7 +99,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Product bottle outdoor, spray application lawn, hose sprayer, soil healthy, green lawn.',
     websiteUrl: 'https://natureswaysoil.com/dog-urine-neutralizer',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'dog-urine-solution-reveal.mp4',
+    videoFileName: 'dog-urine-neutralizer-test.mp4',
     hashtags: ['#DogUrineNeutralizer', '#LawnTreatment', '#OrganicLawn', '#NaturesWaySoil'],
   },
   {
@@ -109,7 +109,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Lawn soil biology roots close up, grass root zone, organic soil, recovery healthy.',
     websiteUrl: 'https://natureswaysoil.com/dog-urine-neutralizer',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'dog-urine-soil-science.mp4',
+    videoFileName: 'dog-urine-neutralizer-test.mp4',
     hashtags: ['#SoilHealth', '#LawnRootZone', '#OrganicLawnCare', '#NaturesWaySoil'],
   },
   {
@@ -119,7 +119,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Greener lawn recovery, spray treatment, soil root healthy, lawn care result.',
     websiteUrl: 'https://natureswaysoil.com/dog-urine-neutralizer',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'dog-urine-results-proof.mp4',
+    videoFileName: 'dog-urine-neutralizer-test.mp4',
     hashtags: ['#LawnRecovery', '#DogOwnerLawn', '#GreenLawn', '#NaturesWaySoil'],
   },
   {
@@ -129,7 +129,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Simple lawn spray routine, homeowner spraying grass, easy application, healthy lawn.',
     websiteUrl: 'https://natureswaysoil.com/dog-urine-neutralizer',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'dog-urine-easy-routine.mp4',
+    videoFileName: 'dog-urine-neutralizer-test.mp4',
     hashtags: ['#EasyLawnCare', '#DogYard', '#LawnRoutine', '#NaturesWaySoil'],
   },
 
@@ -141,7 +141,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Struggling garden plants, empty raised bed soil, watering garden, healthy vegetable result.',
     websiteUrl: 'https://natureswaysoil.com/garden-mix',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'garden-mix-problem-hook.mp4',
+    videoFileName: 'garden-mix-test.mp4',
     hashtags: ['#GardenSoil', '#OrganicGardening', '#RaisedBed', '#NaturesWaySoil'],
   },
   {
@@ -151,7 +151,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Organic garden liquid bottle, watering raised bed, mixing fertilizer, lush vegetable garden.',
     websiteUrl: 'https://natureswaysoil.com/garden-mix',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'garden-mix-solution-reveal.mp4',
+    videoFileName: 'garden-mix-test.mp4',
     hashtags: ['#GardenMix', '#LiquidFertilizer', '#VegetableGarden', '#NaturesWaySoil'],
   },
   {
@@ -161,7 +161,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Rich organic garden soil close up, plant root system, soil microbes organic, thriving vegetable.',
     websiteUrl: 'https://natureswaysoil.com/garden-mix',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'garden-mix-soil-science.mp4',
+    videoFileName: 'garden-mix-test.mp4',
     hashtags: ['#SoilBiology', '#OrganicSoil', '#PlantRoots', '#NaturesWaySoil'],
   },
   {
@@ -171,7 +171,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Abundant vegetable garden, healthy flowers bloom, lush garden bed, organic harvest success.',
     websiteUrl: 'https://natureswaysoil.com/garden-mix',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'garden-mix-results-proof.mp4',
+    videoFileName: 'garden-mix-test.mp4',
     hashtags: ['#GardenResults', '#OrganicHarvest', '#HealthyGarden', '#NaturesWaySoil'],
   },
   {
@@ -181,7 +181,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Simple garden watering routine, mixing liquid fertilizer, watering can raised bed, flourishing garden.',
     websiteUrl: 'https://natureswaysoil.com/garden-mix',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'garden-mix-easy-routine.mp4',
+    videoFileName: 'garden-mix-test.mp4',
     hashtags: ['#EasyGardening', '#GardenRoutine', '#SimpleGardenCare', '#NaturesWaySoil'],
   },
 
@@ -193,7 +193,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Hydroponic plant deficiency struggling, indoor plant roots, nutrient mixing, thriving hydroponic plants.',
     websiteUrl: 'https://natureswaysoil.com/hydroponic-nutrients',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'hydroponic-problem-hook.mp4',
+    videoFileName: 'hydroponic-nutrients-test.mp4',
     hashtags: ['#Hydroponics', '#IndoorGrowing', '#NutrientDeficiency', '#NaturesWaySoil'],
   },
   {
@@ -203,7 +203,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Hydroponic nutrient solution bottle, reservoir mixing, plant roots water, indoor grow lights plants.',
     websiteUrl: 'https://natureswaysoil.com/hydroponic-nutrients',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'hydroponic-solution-reveal.mp4',
+    videoFileName: 'hydroponic-nutrients-test.mp4',
     hashtags: ['#HydroponicNutrients', '#IndoorGarden', '#GrowRoom', '#NaturesWaySoil'],
   },
   {
@@ -213,7 +213,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Plant roots water nutrient close up, root zone hydroponic, indoor plant biology, healthy canopy.',
     websiteUrl: 'https://natureswaysoil.com/hydroponic-nutrients',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'hydroponic-soil-science.mp4',
+    videoFileName: 'hydroponic-nutrients-test.mp4',
     hashtags: ['#HydroponicRoots', '#RootZoneHealth', '#PlantScience', '#NaturesWaySoil'],
   },
   {
@@ -223,7 +223,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Thriving hydroponic plants lush growth, healthy roots water, indoor grow lights canopy, hydroponic harvest.',
     websiteUrl: 'https://natureswaysoil.com/hydroponic-nutrients',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'hydroponic-results-proof.mp4',
+    videoFileName: 'hydroponic-nutrients-test.mp4',
     hashtags: ['#HydroponicResults', '#IndoorYield', '#PlantVitality', '#NaturesWaySoil'],
   },
   {
@@ -233,7 +233,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Mixing hydroponic nutrients simple, reservoir measuring, easy indoor grow routine, thriving plants.',
     websiteUrl: 'https://natureswaysoil.com/hydroponic-nutrients',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'hydroponic-easy-routine.mp4',
+    videoFileName: 'hydroponic-nutrients-test.mp4',
     hashtags: ['#EasyHydroponics', '#GrowRoomRoutine', '#HydroponicSetup', '#NaturesWaySoil'],
   },
 
@@ -245,7 +245,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Fruit tree sparse blooms struggling, backyard apple tree, tree root zone soil, healthy blooms fruit.',
     websiteUrl: 'https://natureswaysoil.com/fruit-tree-fertilizer',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'fruit-tree-problem-hook.mp4',
+    videoFileName: 'fruit-tree-fertilizer-test.mp4',
     hashtags: ['#FruitTree', '#BackyardOrchard', '#TreeCare', '#NaturesWaySoil'],
   },
   {
@@ -255,7 +255,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Organic tree fertilizer bottle garden, watering drip line, applying fertilizer fruit tree, apple citrus blooms.',
     websiteUrl: 'https://natureswaysoil.com/fruit-tree-fertilizer',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'fruit-tree-solution-reveal.mp4',
+    videoFileName: 'fruit-tree-fertilizer-test.mp4',
     hashtags: ['#FruitTreeFertilizer', '#OrchardCare', '#LiquidFertilizer', '#NaturesWaySoil'],
   },
   {
@@ -265,7 +265,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Tree root zone soil organic, soil biology under tree, deep soil roots, healthy fruit tree root system.',
     websiteUrl: 'https://natureswaysoil.com/fruit-tree-fertilizer',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'fruit-tree-soil-science.mp4',
+    videoFileName: 'fruit-tree-fertilizer-test.mp4',
     hashtags: ['#TreeRootHealth', '#SoilBiology', '#OrchardSoil', '#NaturesWaySoil'],
   },
   {
@@ -275,7 +275,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Abundant fruit harvest orchard, apple peach developing fruit, healthy fruit tree blooms, citrus harvest.',
     websiteUrl: 'https://natureswaysoil.com/fruit-tree-fertilizer',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'fruit-tree-results-proof.mp4',
+    videoFileName: 'fruit-tree-fertilizer-test.mp4',
     hashtags: ['#FruitTreeResults', '#OrchardHarvest', '#BackyardFruit', '#NaturesWaySoil'],
   },
   {
@@ -285,7 +285,7 @@ export const TEST_VIDEO_CAMPAIGN_SEEDS: SeedVariation[] = [
     visualPrompt: 'Simple fruit tree care routine, watering hose drip line, homeowner orchard care, healthy fruit result.',
     websiteUrl: 'https://natureswaysoil.com/fruit-tree-fertilizer',
     platform: 'youtube,instagram,pinterest',
-    videoFileName: 'fruit-tree-easy-routine.mp4',
+    videoFileName: 'fruit-tree-fertilizer-test.mp4',
     hashtags: ['#EasyTreeCare', '#BackyardOrchardRoutine', '#FruitTreeFeeding', '#NaturesWaySoil'],
   },
 ]
