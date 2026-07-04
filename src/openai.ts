@@ -33,8 +33,15 @@ function looksLikeMetaNarration(text: string): boolean {
   return bannedPatterns.some((pattern) => pattern.test(text))
 }
 
+function normalizeOrganicClaims(text: string): string {
+  return String(text || '')
+    .replace(/100\s*%\s*organic/gi, 'natural')
+    .replace(/100\s*percent\s*organic/gi, 'natural')
+    .replace(/one\s+hundred\s+percent\s+organic/gi, 'natural')
+}
+
 function normalizeScriptCta(text: string): string {
-  const withoutTrailingCtas = text
+  const withoutTrailingCtas = normalizeOrganicClaims(text)
     .trim()
     .replace(/Visit natureswaysoil\.com for more info\.?\s*$/i, '')
     .trim()
@@ -82,6 +89,7 @@ Rules:
 - Confident, benefit-driven, easy to understand.
 - Write like a farmer/soil educator, not a corporate ad.
 - Keep claims practical, support-focused, and label-safe.
+- Use "natural" instead of "100% organic" or "100 percent organic".
 - Do not mention Amazon reviews, discounts, or unsupported certifications.
 
 Do NOT describe the video, scenes, camera, captions, or visuals.
@@ -115,6 +123,7 @@ Important:
 - do NOT turn this into a how-to lesson
 - do NOT give numbered steps
 - do NOT overpromise
+- do NOT say "100% organic", "100 percent organic", or "one hundred percent organic"; say "natural" instead
 
 End with exactly: "${SCRIPT_CTA}".`
 
@@ -125,8 +134,8 @@ End with exactly: "${SCRIPT_CTA}".`
 
     const filled = userTemplate
       .replaceAll('{title}', title)
-      .replaceAll('{details}', details)
-      .replaceAll('{templateContext}', buildProductTemplateContext(product))
+      .replaceAll('{details}', normalizeOrganicClaims(details))
+      .replaceAll('{templateContext}', normalizeOrganicClaims(buildProductTemplateContext(product)))
 
     logger.info('Generating script with OpenAI', 'OpenAI', { model, productTitle: title })
 
@@ -182,7 +191,7 @@ End with exactly: "${SCRIPT_CTA}".`
 
     if (String(process.env.OPENAI_ALLOW_FALLBACK_SCRIPT || 'true').toLowerCase() === 'true') {
       const title = String(product.title || product.name || product.id || 'Nature\'s Way Soil').trim()
-      const fallback = buildFallbackScript(title)
+      const fallback = normalizeOrganicClaims(buildFallbackScript(title))
       assertMarketingClaimsSafe(fallback, { productTitle: title, source: 'fallback-script' })
       logger.warn('Using fallback conversion script', 'OpenAI', { productTitle: title })
       return fallback

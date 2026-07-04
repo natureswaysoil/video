@@ -1,7 +1,6 @@
 // src/heygen.ts
-// Compatibility module for the blog generator.
-// The old blog code imports './heygen'. This restores that import and turns it
-// into an OpenAI-powered blog package generator instead of a dead HeyGen call.
+// Compatibility module for old blog-generator.ts imports.
+// This keeps the blog feature working without requiring the old HeyGen/D-ID video system.
 
 import * as fs from 'fs'
 import * as path from 'path'
@@ -251,7 +250,6 @@ Rules:
   }
 }
 
-// Old names that blog-generator.ts may import.
 export async function generateHeyGenVideo(input: BlogVideoInput): Promise<BlogVideoResult> {
   return generateOpenAIBlog(input)
 }
@@ -274,10 +272,10 @@ export async function generateBlogPackage(input: BlogVideoInput): Promise<BlogVi
 
 export function saveBlogMarkdown(result: BlogVideoResult, outputDir = 'content/blog') {
   const slug = result.slug || slugify(result.blogTitle || 'nature-way-soil-blog')
-  const dir = path.resolve(process.cwd(), outputDir)
-  fs.mkdirSync(dir, { recursive: true })
-  const file = path.resolve(dir, `${slug}.md`)
-  fs.writeFileSync(file, result.markdown || '', 'utf8')
+  const dir = (path as any).resolve(process.cwd(), outputDir)
+  ;(fs as any).mkdirSync(dir, { recursive: true })
+  const file = (path as any).resolve(dir, `${slug}.md`)
+  ;(fs as any).writeFileSync(file, result.markdown || '', 'utf8')
   return file
 }
 

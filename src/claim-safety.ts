@@ -14,6 +14,9 @@ const restrictedTerms = [
   'epa approved',
   'omri listed',
   'certified organic',
+  '100% organic',
+  '100 percent organic',
+  'one hundred percent organic',
   'safe for all pets',
   'non-toxic',
 ]

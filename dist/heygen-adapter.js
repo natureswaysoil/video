@@ -19,6 +19,7 @@ const DEFAULTS = {
     lengthSeconds: 30,
 };
 const CATEGORY_MAP = [
+    { pattern: /\b(spray\s*pattern|indicator|coverage\s*indicator|applicator|lawn\s*spray)\b/i, avatar: 'garden_expert_01', voice: 'en_us_warm_female_01', lengthSeconds: 30, reason: 'matched keyword: spray/indicator', visualHint: 'lawn sprayer application, spray coverage on grass, hose-end sprayer, even spray distribution, product bottle on lawn, green grass' },
     { pattern: /\b(kelp|seaweed|algae)\b/i, avatar: 'garden_expert_01', voice: 'en_us_warm_female_01', lengthSeconds: 30, reason: 'matched keyword: kelp', visualHint: 'healthy green plants, liquid seaweed fertilizer, measuring cup, watering can, garden beds, natural sunlight' },
     { pattern: /\b(bone ?meal|bonemeal|bone)\b/i, avatar: 'farm_expert_02', voice: 'en_us_deep_male_01', lengthSeconds: 35, reason: 'matched keyword: bone meal', visualHint: 'strong roots, blooming plants, calcium and phosphorus support, liquid bottle near garden soil' },
     { pattern: /\b(hay|pasture|forage)\b/i, avatar: 'pasture_specialist_01', voice: 'en_us_neutral_mx_01', lengthSeconds: 40, reason: 'matched keyword: hay/pasture', visualHint: 'green pasture field, hay grass, sprayer application, farm fence line, healthy forage growth' },
@@ -99,6 +100,7 @@ function mapProductToHeyGenPayload(row) {
         voice,
         lengthSeconds,
         reason,
+        visualHint,
     };
 }
 async function createSheetsAuthClient() {

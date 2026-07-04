@@ -5,7 +5,6 @@ import fs from 'fs'
 import fetch from 'node-fetch'
 import { loadSecretsToEnv } from '../src/secret-manager'
 import { getTestVideoCampaignSeeds } from '../src/content-seed-bank'
-import { createClientWithSecrets as createHeyGenClient } from '../src/heygen'
 import { createClientWithSecrets as createDIDClientWithSecrets } from '../src/did'
 import { generateScript } from '../src/openai'
 
@@ -20,11 +19,11 @@ const SECRETS_TO_LOAD = [
   // Shared
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
+  'PEXELS_API_KEY',
   // HeyGen (only needed when VIDEO_PROVIDER=heygen)
   'HEYGEN_API_KEY',
   'HEYGEN_DEFAULT_AVATAR',
   'HEYGEN_DEFAULT_VOICE',
-  'PEXELS_API_KEY',
 ]
 
 const SCENE_SECONDS = ['6', '7', '8', '7', '6'] // hook, context, solution, proof, cta
@@ -72,66 +71,80 @@ End with exactly: "Visit natureswaysoil.com for more info"`,
 // Each angle type opens on a different visual concept.
 const HOOK_QUERIES: Record<string, Record<string, string>> = {
   'problem-hook': {
-    'dog-urine':  'dog yellow lawn dead spot grass',
-    'garden-mix': 'struggling garden plants wilting soil',
-    'hydroponic': 'hydroponic plant deficiency struggling leaves',
-    'fruit-tree': 'fruit tree sparse blooms bare branches',
+    'dog-urine':  'dead grass lawn brown spots yard',
+    'garden-mix': 'wilting plants garden dry soil',
+    'hydroponic': 'indoor plants grow light hydroponics',
+    'fruit-tree': 'fruit tree orchard spring blossoms',
   },
   'solution-reveal': {
-    'dog-urine':  'organic lawn care bottle product outdoor',
-    'garden-mix': 'organic garden liquid fertilizer bottle',
-    'hydroponic': 'hydroponic nutrient solution bottle label',
-    'fruit-tree': 'organic tree fertilizer bottle garden drip',
+    'dog-urine':  'organic lawn care green grass spray',
+    'garden-mix': 'organic garden fertilizer outdoor plants',
+    'hydroponic': 'hydroponic system indoor plants growing',
+    'fruit-tree': 'fruit tree garden care outdoor',
   },
   'soil-science': {
-    'dog-urine':  'lawn soil biology roots macro close up',
-    'garden-mix': 'rich dark organic garden soil close up',
-    'hydroponic': 'plant roots water nutrient solution close',
-    'fruit-tree': 'tree root zone soil organic matter close up',
+    'dog-urine':  'soil roots grass lawn close up',
+    'garden-mix': 'dark rich garden soil organic',
+    'hydroponic': 'plant roots water growing closeup',
+    'fruit-tree': 'tree roots soil garden organic',
   },
   'results-proof': {
-    'dog-urine':  'lush green lawn healthy yard sunlight',
-    'garden-mix': 'abundant vegetable garden healthy harvest',
-    'hydroponic': 'thriving hydroponic plants lush green canopy',
-    'fruit-tree': 'abundant fruit harvest orchard apple peach',
+    'dog-urine':  'lush green lawn backyard sunlight',
+    'garden-mix': 'vegetable garden harvest summer',
+    'hydroponic': 'indoor plants thriving grow room',
+    'fruit-tree': 'apple orchard fruit harvest summer',
   },
   'easy-routine': {
-    'dog-urine':  'homeowner simple lawn spray routine yard',
-    'garden-mix': 'simple garden watering routine outdoor hose',
-    'hydroponic': 'mixing hydroponic nutrients measuring simple',
-    'fruit-tree': 'simple fruit tree care watering routine',
+    'dog-urine':  'spraying lawn garden hose yard',
+    'garden-mix': 'watering garden plants outdoor hose',
+    'hydroponic': 'indoor garden simple routine plants',
+    'fruit-tree': 'watering fruit tree garden outdoor',
   },
 }
 
-// ── Scenes 2-5 (Context → Application → Benefit → CTA) per product ───────
-const PRODUCT_SCENE_QUERIES: Record<string, string[]> = {
+// ── 4 scenes per product: [problem, application, mechanism, result] ────────
+// Each scene has multiple fallback queries tried in order.
+const PRODUCT_SCENE_QUERY_SETS: Record<string, string[][]> = {
   'dog-urine': [
-    'dog urine yellow spot lawn grass',
-    'homeowner spraying lawn pump sprayer',
-    'grass roots soil healthy close up',
-    'green healthy lawn backyard sunlight',
+    ['dead grass yard', 'brown lawn spots', 'yellow grass lawn', 'lawn damage'],
+    ['dog playing yard', 'dog grass outdoor', 'pet yard lawn', 'dog running grass'],
+    ['spraying lawn garden', 'lawn spray hose', 'garden hose watering', 'watering lawn'],
+    ['green lawn backyard', 'lush grass yard', 'healthy green grass', 'beautiful lawn'],
   ],
   'garden-mix': [
-    'raised bed vegetable garden planting',
-    'watering garden plants organic can',
-    'plant root system soil healthy',
-    'lush vegetable garden harvest summer',
+    ['garden soil planting', 'raised garden bed', 'vegetable garden outdoor', 'garden bed soil'],
+    ['watering garden plants', 'garden care outdoor', 'watering vegetable garden', 'plant garden hose'],
+    ['organic soil garden', 'garden amendment soil', 'planting outdoor garden', 'garden digging soil'],
+    ['vegetable garden harvest', 'garden vegetables summer', 'healthy garden plants', 'summer harvest garden'],
   ],
   'hydroponic': [
-    'hydroponic reservoir nutrient mixing',
-    'plant roots water healthy hydroponic',
-    'indoor grow room lights plants',
-    'hydroponic vegetable harvest yield',
+    ['indoor plants growing', 'hydroponic system plants', 'indoor garden lights', 'plant growing indoor'],
+    ['plant roots water', 'hydroponic roots closeup', 'water plants growing', 'indoor plants roots'],
+    ['mixing garden nutrients', 'liquid fertilizer measuring', 'indoor garden routine', 'plant nutrient solution'],
+    ['indoor harvest plants', 'hydroponic vegetables harvest', 'indoor garden yield', 'growing vegetables indoor'],
   ],
   'fruit-tree': [
-    'apple peach tree blooms spring',
-    'watering around fruit tree drip line',
-    'fruit tree root zone healthy soil',
-    'backyard orchard citrus fruit harvest',
+    ['apple tree blossoms spring', 'fruit tree orchard', 'orchard trees blooming', 'fruit tree outdoor'],
+    ['watering fruit tree', 'orchard tree care', 'tree watering garden', 'fruit tree outdoor care'],
+    ['garden soil organic', 'tree care soil', 'organic garden outdoor', 'garden fertilizer outdoor'],
+    ['fruit harvest basket', 'apple picking orchard', 'fresh fruit garden harvest', 'orchard fruit picking'],
   ],
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
+
+async function findPexelsPhotoUrl(query: string, apiKey: string): Promise<string> {
+  try {
+    const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&orientation=portrait&per_page=10`
+    const res = await fetch(url, { headers: { Authorization: apiKey } })
+    if (!res.ok) return ''
+    const data: any = await res.json()
+    const photo = (data.photos || [])[0]
+    return photo?.src?.portrait || photo?.src?.large || ''
+  } catch {
+    return ''
+  }
+}
 
 function extractAngleType(angle: string): string {
   const parts = angle.split('-')
@@ -200,6 +213,95 @@ async function downloadVideo(url: string, destPath: string): Promise<void> {
   console.log(`  Saved ${sizeMb} MB -> ${path.basename(destPath)}`)
 }
 
+function getVideoDuration(videoPath: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const { spawn } = require('child_process')
+    const proc = spawn('ffprobe', [
+      '-v', 'error', '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1', videoPath
+    ])
+    let out = ''
+    proc.stdout.on('data', (d: Buffer) => { out += d.toString() })
+    proc.on('close', (code: number) => {
+      const dur = parseFloat(out.trim())
+      if (code === 0 && !isNaN(dur)) resolve(dur)
+      else reject(new Error(`ffprobe failed (code ${code})`))
+    })
+  })
+}
+
+function runFfmpeg(args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const { spawn } = require('child_process')
+    const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] })
+    let err = ''
+    proc.stderr.on('data', (d: Buffer) => { err += d.toString() })
+    proc.on('close', (code: number) => {
+      if (code === 0) resolve()
+      else reject(new Error(`ffmpeg failed (code ${code}): ${err.slice(-400)}`))
+    })
+  })
+}
+
+// Composite 4 Pexels clips as background scenes with D-ID presenter overlay.
+// Layout: b-roll fills the frame, presenter anchored at bottom-center.
+async function compositeMultiScene(
+  didVideoPath: string,
+  brollPaths: string[],  // 1-4 local clip paths (may be fewer if Pexels failed)
+  outputPath: string
+): Promise<void> {
+  if (brollPaths.length === 0) {
+    fs.copyFileSync(didVideoPath, outputPath)
+    return
+  }
+
+  const totalDur  = await getVideoDuration(didVideoPath)
+  const segDur    = totalDur / brollPaths.length
+
+  // Build ffmpeg inputs
+  const ffArgs: string[] = ['-y', '-i', didVideoPath]
+  for (const p of brollPaths) {
+    ffArgs.push('-stream_loop', '-1', '-i', p)
+  }
+
+  // Build filter_complex
+  const filterParts: string[] = []
+  const W = 720, H = 1280
+  const presenterW = 360  // presenter occupies bottom-center at half width
+
+  // Scale each b-roll clip to portrait, trim to segment duration
+  for (let i = 0; i < brollPaths.length; i++) {
+    filterParts.push(
+      `[${i + 1}:v]trim=duration=${segDur.toFixed(3)},setpts=PTS-STARTPTS,` +
+      `scale=${W}:${H}:flags=lanczos:force_original_aspect_ratio=increase,` +
+      `crop=${W}:${H},setsar=1[b${i}]`
+    )
+  }
+
+  // Concat b-roll segments into one background track
+  const concatLabels = brollPaths.map((_, i) => `[b${i}]`).join('')
+  filterParts.push(`${concatLabels}concat=n=${brollPaths.length}:v=1:a=0[bg]`)
+
+  // Scale D-ID presenter; anchor bottom-center with 20px margin
+  filterParts.push(`[0:v]scale=${presenterW}:-2:flags=lanczos[pres]`)
+  filterParts.push(`[bg][pres]overlay=(W-w)/2:H-h-20,format=yuv420p[v]`)
+
+  ffArgs.push(
+    '-filter_complex', filterParts.join(';'),
+    '-map', '[v]',
+    '-map', '0:a',
+    '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+    '-c:a', 'aac', '-b:a', '128k',
+    '-shortest',
+    outputPath
+  )
+
+  console.log(`  Compositing ${brollPaths.length} scenes with D-ID presenter...`)
+  await runFfmpeg(ffArgs)
+  const sizeMb = (fs.statSync(outputPath).size / 1024 / 1024).toFixed(1)
+  console.log(`  Composited video: ${sizeMb} MB`)
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -265,7 +367,7 @@ async function main(): Promise<void> {
       let videoUrl: string
 
       if (VIDEO_PROVIDER === 'did') {
-        // ── D-ID: single talking-head video, no b-roll ─────────────────────
+        // ── D-ID: talking-head composited over 4 Pexels b-roll scenes ────────
         const didPayload = {
           script,
           voiceId:   process.env.DID_VOICE_ID || 'en-US-JennyNeural',
@@ -275,10 +377,17 @@ async function main(): Promise<void> {
 
         if (dryRun) {
           console.log('  DRY_RUN (D-ID) payload:')
-          console.log(JSON.stringify({ angle: seed.angle, provider: 'did', script: script.slice(0, 120) + '...', voiceId: didPayload.voiceId }, null, 2))
+          console.log(JSON.stringify({ angle: seed.angle, provider: 'did', script: script.slice(0, 120) + '...', voiceId: didPayload.voiceId, scenes: sceneQueryList }, null, 2))
           results.push({ angle: seed.angle, status: 'dry-run' })
           continue
         }
+
+        // Fetch 4 Pexels portrait clips in parallel (each with multiple fallback queries)
+        console.log('  Fetching 4 Pexels b-roll clips...')
+        const sceneSets = PRODUCT_SCENE_QUERY_SETS[productKey] || sceneQueryList.map(q => [q])
+        const brollUrls = await Promise.all(
+          sceneSets.map((queries, i) => findPortraitBroll(queries, pexelsApiKey || '', `Scene ${i + 1}`))
+        )
 
         console.log('  Submitting D-ID job...')
         const didJobId = await did!.createVideoJob(didPayload)
@@ -290,6 +399,32 @@ async function main(): Promise<void> {
           intervalMs:     10_000,
           initialDelayMs:  5_000,
         })
+
+        // Download D-ID video to temp, download Pexels clips, composite, save final
+        const tmpDir = path.join(TEST_VIDEOS_DIR, '.tmp')
+        fs.mkdirSync(tmpDir, { recursive: true })
+        const didTmp = path.join(tmpDir, `${seed.angle}-did.mp4`)
+        console.log('  Downloading D-ID presenter...')
+        await downloadVideo(videoUrl, didTmp)
+
+        const brollPaths: string[] = []
+        for (let i = 0; i < brollUrls.length; i++) {
+          if (!brollUrls[i]) continue
+          const bp = path.join(tmpDir, `${seed.angle}-broll${i}.mp4`)
+          console.log(`  Downloading b-roll ${i + 1}...`)
+          await downloadVideo(brollUrls[i], bp)
+          brollPaths.push(bp)
+        }
+
+        const finalPath = path.join(TEST_VIDEOS_DIR, seed.videoFileName)
+        await compositeMultiScene(didTmp, brollPaths, finalPath)
+
+        // Clean up temp files
+        try { fs.unlinkSync(didTmp) } catch {}
+        for (const bp of brollPaths) { try { fs.unlinkSync(bp) } catch {} }
+
+        results.push({ angle: seed.angle, status: 'success', file: seed.videoFileName })
+        continue
       } else {
         // ── HeyGen: multi-scene with Pexels b-roll ─────────────────────────
         // 2. Fetch 5 portrait Pexels clips — one per scene

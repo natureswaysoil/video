@@ -119,8 +119,8 @@ class HeyGenClient {
                         for (const scene of payload.scenes) {
                             const background = scene.brollUrl
                                 ? { type: 'video', url: scene.brollUrl }
-                                : payload.imageUrl
-                                    ? { type: 'image', url: payload.imageUrl }
+                                : (scene.imageUrl || payload.imageUrl)
+                                    ? { type: 'image', url: scene.imageUrl || payload.imageUrl }
                                     : { type: 'color', value: '#1a3a1a' };
                             videoInputs.push({
                                 character: {
@@ -161,6 +161,13 @@ class HeyGenClient {
                         video_inputs: videoInputs,
                         dimension: { width: 720, height: 1280 },
                         ...(payload.title ? { title: payload.title } : {}),
+                        // Burn captions into the video for silent viewing
+                        ...(payload.subtitles?.enabled ? {
+                            caption_option: {
+                                position: 'bottom_center',
+                                display_option: 'word_by_word',
+                            },
+                        } : {}),
                     };
                     const response = await this.axios.post('/v2/video/generate', v2Body, {
                         timeout: config.TIMEOUT_HEYGEN,
