@@ -28,6 +28,15 @@ function looksLikeMetaNarration(text: string): boolean {
     /\bshot list\b/i,
     /\bcamera\b/i,
     /\bvisuals?\b/i,
+    /\b(?:the\s+)?(?:speaker|narrator|voiceover|host|presenter)\s+(?:should|will|can|needs?\s+to)\s+(?:say|mention|explain|describe|talk)/i,
+    /\bwhat\s+(?:the\s+)?(?:speaker|narrator|voiceover|host|presenter)\s+(?:should|will|can)\s+say\b/i,
+    /\b(?:say|mention|explain|describe|talk about)\s+(?:this|that|the following)\s+in\s+the\s+video\b/i,
+    /\b(?:voiceover|narration|spoken script)\s*:/i,
+    /\b(?:instruction|direction|production note|stage direction)s?\b/i,
+    /\bshow\s+(?:the\s+)?(?:product|bottle|package|label|scene|clip)\b/i,
+    /\bcut\s+to\b/i,
+    /\btransition\s+to\b/i,
+    /\buse\s+(?:a|an|the)\s+(?:shot|clip|image|visual|scene)\b/i,
   ]
 
   return bannedPatterns.some((pattern) => pattern.test(text))
@@ -65,7 +74,9 @@ export async function generateScript(product: Product, opts?: {
       config.OPENAI_SYSTEM_PROMPT ||
       `You are a direct-response product video copywriter for Nature's Way Soil.
 
-Write ONLY the spoken voiceover for a short vertical product ad.
+Write ONLY the exact words a customer should hear in the finished advertisement.
+Never write instructions for a speaker, narrator, editor, camera operator, or video creator.
+Never preface the copy with labels such as "Voiceover," "Narration," "Script," or "The speaker should say."
 
 Conversion structure:
 1. First sentence must be a scroll-stopping hook under 9 words.
@@ -84,13 +95,13 @@ Rules:
 - Keep claims practical, support-focused, and label-safe.
 - Do not mention Amazon reviews, discounts, or unsupported certifications.
 
-Do NOT describe the video, scenes, camera, captions, or visuals.
-Return plain text only.`
+Do NOT describe the video, scenes, camera, captions, visuals, editing, or what anyone should say.
+Return the finished spoken advertisement as plain text only.`
 
     const userTemplate =
       opts?.userTemplate ||
       config.OPENAI_USER_TEMPLATE ||
-      `Write the spoken voiceover for a conversion-focused vertical product ad about {title}.
+      `Create the finished spoken advertisement for {title}.
 
 Product-specific template:
 {templateContext}
@@ -101,7 +112,7 @@ Product details:
 Audience:
 Home gardeners, lawn owners, landscapers, small farms, and people who want soil-focused products.
 
-The voiceover must follow this sales flow without numbering it:
+The advertisement must follow this sales flow without numbering it:
 - 0-3 seconds: strong hook about the customer's problem or desired result
 - 3-8 seconds: name the problem clearly
 - 8-18 seconds: introduce the product and what it helps do
@@ -109,12 +120,12 @@ The voiceover must follow this sales flow without numbering it:
 - 25-30 seconds: confident call to action
 
 Important:
-- write ONLY what the narrator should say
-- do NOT describe visuals
-- do NOT explain the video
-- do NOT turn this into a how-to lesson
-- do NOT give numbered steps
-- do NOT overpromise
+- output only the exact customer-facing words to be spoken
+- do not refer to a speaker, narrator, voiceover, script, scene, video, shot, clip, or visual
+- do not include directions, labels, headings, brackets, or production notes
+- do not turn this into a how-to lesson
+- do not give numbered steps
+- do not overpromise
 
 End with exactly: "${SCRIPT_CTA}".`
 
@@ -154,6 +165,9 @@ End with exactly: "${SCRIPT_CTA}".`
           }
 
           const normalized = normalizeScriptCta(content)
+          if (looksLikeMetaNarration(normalized)) {
+            throw new AppError('Normalized script still contains production notes', ErrorCode.OPENAI_API_ERROR, 500, true, { preview: normalized.substring(0, 200) })
+          }
           assertMarketingClaimsSafe(normalized, { productTitle: title, source: 'openai-script' })
           return normalized
         },
