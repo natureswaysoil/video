@@ -59,6 +59,7 @@ jobs:
           chmod 600 "$CREDS_PATH"
 
           PROJECT_FROM_JSON="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("project_id", ""))' "$CREDS_PATH" || true)"
+          SERVICE_ACCOUNT_EMAIL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("client_email", ""))' "$CREDS_PATH" || true)"
           EFFECTIVE_PROJECT="${GOOGLE_CLOUD_PROJECT_SECRET:-$PROJECT_FROM_JSON}"
           if [ -z "$EFFECTIVE_PROJECT" ]; then
             EFFECTIVE_PROJECT="$DEFAULT_GOOGLE_CLOUD_PROJECT"
@@ -72,6 +73,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
           echo "Using Google Cloud project: $EFFECTIVE_PROJECT"
+          echo "Using Google service account: ${SERVICE_ACCOUNT_EMAIL:-unknown}"
 
       - name: Setup Node
         uses: actions/setup-node@v4
