@@ -65,7 +65,7 @@ function productName(input: BlogVideoInput): string {
     input.product?.name ||
     input.product?.title ||
     input.product?.Title ||
-    'Nature’s Way Soil product'
+    'Natureâ€™s Way Soil product'
   )
 }
 
@@ -123,7 +123,7 @@ function fallbackBlog(input: BlogVideoInput): BlogVideoResult {
   const brollQueries = input.brollQueries?.length ? input.brollQueries : buildFallbackBroll(input)
 
   const blogTitle = `How ${name} Supports Healthier Soil and Stronger Plants`
-  const metaDescription = `${name} from Nature’s Way Soil helps support practical lawn, garden, and soil care. Learn how to use it and when it fits your routine.`.slice(0, 155)
+  const metaDescription = `${name} from Natureâ€™s Way Soil helps support practical lawn, garden, and soil care. Learn how to use it and when it fits your routine.`.slice(0, 155)
 
   const script = [
     `Hook: If your lawn, garden, or soil is not responding the way it should, the problem may start below the surface.`,
@@ -145,7 +145,7 @@ If your lawn, garden, pasture, or potted plants are not responding the way they 
 
 ## The problem this product helps address
 
-${name} is a Nature’s Way Soil product built for practical soil and plant care. It fits homeowners, gardeners, landowners, and growers who want a simple way to support healthier soil routines.
+${name} is a Natureâ€™s Way Soil product built for practical soil and plant care. It fits homeowners, gardeners, landowners, and growers who want a simple way to support healthier soil routines.
 
 ${keywords.length ? `Common related topics include: ${keywords.slice(0, 10).join(', ')}.` : ''}
 
@@ -163,7 +163,7 @@ ${brollQueries.map((query) => `- ${query}`).join('\n')}
 
 See product details and application guidance here:
 
-[Visit Nature’s Way Soil](${url})
+[Visit Natureâ€™s Way Soil](${url})
 `
 
   return {
@@ -251,6 +251,20 @@ Rules:
   }
 }
 
+// Legacy client contract used by blog-generator.ts and older utility scripts.
+// Video rendering is handled by the scheduled social pipeline, so this adapter
+// explicitly returns no rendered URL instead of calling the retired HeyGen path.
+export async function createClientWithSecrets() {
+  return {
+    async createVideoJob(_input: any): Promise<string> {
+      return 'video-generation-skipped'
+    },
+    async pollJobForVideoUrl(_jobId: string, _options?: any): Promise<null> {
+      return null
+    }
+  }
+}
+
 // Old names that blog-generator.ts may import.
 export async function generateHeyGenVideo(input: BlogVideoInput): Promise<BlogVideoResult> {
   return generateOpenAIBlog(input)
@@ -282,6 +296,7 @@ export function saveBlogMarkdown(result: BlogVideoResult, outputDir = 'content/b
 }
 
 export default {
+  createClientWithSecrets,
   generateHeyGenVideo,
   createHeyGenVideo,
   createVideo,
