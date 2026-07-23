@@ -14,6 +14,26 @@ const rateLimiters = getRateLimiters()
 // Maximum video size for Twitter (500MB)
 const MAX_VIDEO_SIZE_MB = 500
 
+export function getTwitterErrorStatus(error: unknown): number | undefined {
+  const candidate =
+    (error as any)?.response?.status ??
+    (error as any)?.data?.status ??
+    (error as any)?.code
+  const status = Number(candidate)
+  return Number.isFinite(status) ? status : undefined
+}
+
+export function isRetryableTwitterError(error: unknown): boolean {
+  if (error instanceof AppError && error.code === ErrorCode.VALIDATION_ERROR) {
+    return false
+  }
+
+  const status = getTwitterErrorStatus(error)
+  if (status === undefined) return true
+  if (status === 429) return true
+  return status >= 500
+}
+
 /**
  * Posts to Twitter/X.
  * If OAuth 1.0a credentials are present (env), uploads the video and posts a tweet with the media.
@@ -111,7 +131,7 @@ export async function postToTwitter(
             // Upload media
             logger.debug('Uploading video to Twitter', 'Twitter')
             const mediaId = await rwClient.v1.uploadMedia(Buffer.from(resp.data), {
-              type: 'video/mp4',
+              mimeType: 'video/mp4',
             })
 
             // Post tweet with media
@@ -126,13 +146,7 @@ export async function postToTwitter(
           },
           {
             maxRetries: 3,
-            retryIf: (error) => {
-              if (error instanceof AppError && error.code === ErrorCode.VALIDATION_ERROR) return false
-              // 403 = API tier blocks video upload — retrying always fails
-              const s = (error as any)?.response?.status ?? (error as any)?.data?.status
-              if (s === 403) return false
-              return true
-            },
+            retryIf: isRetryableTwitterError,
             onRetry: (error, attempt) => {
               logger.warn('Retrying Twitter post', 'Twitter', {
                 attempt,
@@ -167,12 +181,7 @@ export async function postToTwitter(
           },
           {
             maxRetries: 3,
-            retryIf: (error) => {
-              // 403 = bearer token lacks write permission — never retryable
-              const s = (error as any)?.response?.status ?? (error as any)?.data?.status
-              if (s === 403) return false
-              return true
-            },
+            retryIf: isRetryableTwitterError,
             onRetry: (error, attempt) => {
               logger.warn('Retrying Twitter text post', 'Twitter', {
                 attempt,
