@@ -29,11 +29,17 @@ const STATE_PATH = path.resolve(process.cwd(), '.runtime/test-video-campaign-sta
  * Secret names expected in Google Secret Manager for this campaign.
  *
  * Notes:
- * - Twitter/X is intentionally excluded (posting is disabled).
+ * - Twitter/X credentials are loaded from Google Secret Manager.
  * - Facebook secrets are loaded for Meta ecosystem completeness even though
  *   this script currently posts only to Instagram, Pinterest, and YouTube.
  */
 const TEST_CAMPAIGN_SECRET_NAMES = [
+  // Twitter / X
+  'TWITTER_API_KEY',
+  'TWITTER_API_SECRET',
+  'TWITTER_ACCESS_TOKEN',
+  'TWITTER_ACCESS_SECRET',
+
   // Instagram / Meta
   'INSTAGRAM_ACCESS_TOKEN',
   'INSTAGRAM_IG_ID',
@@ -67,9 +73,9 @@ const TEST_CAMPAIGN_SECRET_NAMES = [
 ]
 
 async function loadCampaignSecretsFromGoogleSecretManager(): Promise<void> {
-  console.log('🔐 Loading campaign credentials from Google Secret Manager...')
+  console.log('ðŸ” Loading campaign credentials from Google Secret Manager...')
   await loadSecretsToEnv(TEST_CAMPAIGN_SECRET_NAMES)
-  console.log('✅ Google Secret Manager secret loading completed')
+  console.log('âœ… Google Secret Manager secret loading completed')
 }
 
 function ensureRuntimeDir(): void {
@@ -113,7 +119,7 @@ function getEnabledPlatforms(): Set<string> {
 
   // Twitter/X enabled by default; set DISABLE_TWITTER=true to opt out.
   if (String(process.env.DISABLE_TWITTER || '').toLowerCase() === 'true') {
-    console.log('ℹ️ Twitter/X posting disabled via DISABLE_TWITTER.')
+    console.log('â„¹ï¸ Twitter/X posting disabled via DISABLE_TWITTER.')
     platforms.delete('twitter')
     platforms.delete('x')
   }
@@ -150,7 +156,7 @@ function getYouTubeCredentials(): { clientId: string; clientSecret: string; refr
   ])
 
   if (clientId.key || clientSecret.key || refreshToken.key) {
-    console.log('🔍 YouTube credential sources:', {
+    console.log('ðŸ” YouTube credential sources:', {
       clientId: clientId.key || 'missing',
       clientSecret: clientSecret.key || 'missing',
       refreshToken: refreshToken.key || 'missing',
@@ -159,7 +165,7 @@ function getYouTubeCredentials(): { clientId: string; clientSecret: string; refr
 
   if (!refreshToken.value && clientId.value && clientSecret.value) {
     console.warn(
-      '⚠️ Found YouTube client ID/secret but no refresh token. Looked for YT_REFRESH_TOKEN, YOUTUBE_REFRESH_TOKEN, YOUTUBE_OAUTH_REFRESH_TOKEN, GOOGLE_YOUTUBE_REFRESH_TOKEN, GOOGLE_REFRESH_TOKEN, REFRESH_TOKEN.'
+      'âš ï¸ Found YouTube client ID/secret but no refresh token. Looked for YT_REFRESH_TOKEN, YOUTUBE_REFRESH_TOKEN, YOUTUBE_OAUTH_REFRESH_TOKEN, GOOGLE_YOUTUBE_REFRESH_TOKEN, GOOGLE_REFRESH_TOKEN, REFRESH_TOKEN.'
     )
   }
 
@@ -217,7 +223,7 @@ async function uploadVideoToSupabase(localVideoPath: string, seedFileName: strin
   const objectPath = `test-campaign/${safeFileName}`
   const fileBuffer = fs.readFileSync(localVideoPath)
 
-  console.log('☁️ Uploading video to Supabase Storage:', {
+  console.log('â˜ï¸ Uploading video to Supabase Storage:', {
     bucketName,
     objectPath,
     localVideoPath,
@@ -239,7 +245,7 @@ async function uploadVideoToSupabase(localVideoPath: string, seedFileName: strin
     throw new Error(`Supabase did not return a public URL for ${bucketName}/${objectPath}`)
   }
 
-  console.log('✅ Supabase upload complete:', publicUrl)
+  console.log('âœ… Supabase upload complete:', publicUrl)
   return publicUrl
 }
 
@@ -300,7 +306,7 @@ async function main(): Promise<void> {
 
   const videoUrl = dryRun ? `file://${localVideoPath}` : await resolveVideoUrl(seed.videoFileName, testVideosDir, state)
 
-  console.log('🎯 Test video campaign slot selected')
+  console.log('ðŸŽ¯ Test video campaign slot selected')
   console.log({
     rotationIndex: index,
     title: seed.title,
@@ -327,13 +333,13 @@ async function main(): Promise<void> {
   if (isPlatformEnabled('instagram', enabledPlatforms) && config.INSTAGRAM_ACCESS_TOKEN && getInstagramAccountId()) {
     await postToInstagram(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, getInstagramAccountId())
     anySucceeded = true
-    console.log('✅ Posted to Instagram')
+    console.log('âœ… Posted to Instagram')
   }
 
   if (isPlatformEnabled('pinterest', enabledPlatforms) && config.PINTEREST_ACCESS_TOKEN && config.PINTEREST_BOARD_ID) {
     await postToPinterest(videoUrl, caption, config.PINTEREST_ACCESS_TOKEN, config.PINTEREST_BOARD_ID)
     anySucceeded = true
-    console.log('✅ Posted to Pinterest')
+    console.log('âœ… Posted to Pinterest')
   }
 
   const youtubeCreds = getYouTubeCredentials()
@@ -347,13 +353,13 @@ async function main(): Promise<void> {
       (process.env.YT_PRIVACY_STATUS as 'public' | 'unlisted' | 'private') || 'unlisted'
     )
     anySucceeded = true
-    console.log('✅ Posted to YouTube')
+    console.log('âœ… Posted to YouTube')
   }
 
   if (isPlatformEnabled('twitter', enabledPlatforms) || isPlatformEnabled('x', enabledPlatforms)) {
     const tw = await postToTwitter(videoUrl, caption)
     anySucceeded = true
-    console.log('✅ Posted to Twitter', tw)
+    console.log('âœ… Posted to Twitter', tw)
   }
 
   if (!anySucceeded) {
@@ -363,10 +369,10 @@ async function main(): Promise<void> {
   }
 
   writeState(state)
-  console.log('✅ Test video campaign slot completed')
+  console.log('âœ… Test video campaign slot completed')
 }
 
 main().catch((error) => {
-  console.error('❌ Test video campaign failed:', error)
+  console.error('âŒ Test video campaign failed:', error)
   process.exit(1)
 })
