@@ -13,7 +13,7 @@ const metrics = getMetrics()
 const rateLimiters = getRateLimiters()
 const SCRIPT_CTA = 'Visit natureswaysoil.com for more info'
 
-function looksLikeMetaNarration(text: string): boolean {
+export function looksLikeMetaNarration(text: string): boolean {
   const bannedPatterns = [
     /\bthis video\b/i,
     /\bin this video\b/i,
@@ -21,6 +21,13 @@ function looksLikeMetaNarration(text: string): boolean {
     /\bon screen\b/i,
     /\bthe scene\b/i,
     /\bscene opens\b/i,
+    /\bscene\s*\d+\b/i,
+    /\bcut(?:s)? to\b/i,
+    /\bvoiceover\s*:/i,
+    /\bnarrator\s*:/i,
+    /\bhook\s*:/i,
+    /\bvisual\s*:/i,
+    /\bdirection\s*:/i,
     /\bstep\s*1\b/i,
     /\bfirst[, ]/i,
     /\bnext[, ]/i,
@@ -28,9 +35,50 @@ function looksLikeMetaNarration(text: string): boolean {
     /\bshot list\b/i,
     /\bcamera\b/i,
     /\bvisuals?\b/i,
+    /\bb-?roll\b/i,
+    /\bclose[- ]?up\b/i,
+    /\bpan(?:s|ning)?\b/i,
+    /\bzoom(?:s|ing)?\b/i,
+    /\bfade(?:s)?\b/i,
+    /\btransition(?:s)?\b/i,
+    /\b\d+\s*(?:second|sec)\b/i,
+    /\[(?:scene|shot|camera|visual|music|sfx)[^\]]*\]/i,
   ]
 
   return bannedPatterns.some((pattern) => pattern.test(text))
+}
+
+export function extractSpokenVoiceover(rawContent: string): string {
+  const raw = String(rawContent || '').trim()
+  if (!raw) throw new AppError('OpenAI returned no content', ErrorCode.OPENAI_API_ERROR, 500)
+
+  let voiceover = raw
+  try {
+    const parsed = JSON.parse(raw)
+    voiceover = String(parsed?.voiceover || '').trim()
+  } catch {
+    // Retain compatibility with models/providers that ignore response_format.
+    voiceover = raw
+      .replace(/^```(?:json|text)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .replace(/^(?:voiceover|narration|script)\s*:\s*/i, '')
+      .trim()
+  }
+
+  if (!voiceover) {
+    throw new AppError('OpenAI returned no spoken voiceover', ErrorCode.OPENAI_API_ERROR, 500)
+  }
+  if (looksLikeMetaNarration(voiceover)) {
+    throw new AppError(
+      'OpenAI returned production notes instead of spoken ad copy',
+      ErrorCode.OPENAI_API_ERROR,
+      500,
+      true,
+      { preview: voiceover.substring(0, 200) }
+    )
+  }
+
+  return voiceover
 }
 
 function normalizeScriptCta(text: string): string {
@@ -38,7 +86,7 @@ function normalizeScriptCta(text: string): string {
     .trim()
     .replace(/Visit natureswaysoil\.com for more info\.?\s*$/i, '')
     .trim()
-    .replace(/[.\s]*$/, '')
+    .replace(/[.!?\s]*$/, '')
   return `${withoutTrailingCtas}. ${SCRIPT_CTA}`.trim()
 }
 
@@ -84,8 +132,9 @@ Rules:
 - Keep claims practical, support-focused, and label-safe.
 - Do not mention Amazon reviews, discounts, or unsupported certifications.
 
-Do NOT describe the video, scenes, camera, captions, or visuals.
-Return plain text only.`
+Do NOT describe the video, scenes, camera, captions, visuals, editing, timing, music, or sound effects.
+Never include labels such as Hook, Scene, Narrator, Voiceover, Visual, or CTA.
+Return one JSON object only in this exact shape: {"voiceover":"the words the customer will hear"}.`
 
     const userTemplate =
       opts?.userTemplate ||
@@ -143,17 +192,13 @@ End with exactly: "${SCRIPT_CTA}".`
               ],
               temperature: 0.62,
               max_tokens: 260,
+              response_format: { type: 'json_object' },
             },
             { headers: { Authorization: `Bearer ${apiKey}` }, timeout: config.TIMEOUT_OPENAI }
           )
 
-          const content = res.data?.choices?.[0]?.message?.content?.trim()
-          if (!content) throw new AppError('OpenAI returned no content', ErrorCode.OPENAI_API_ERROR, 500)
-          if (looksLikeMetaNarration(content)) {
-            throw new AppError('OpenAI returned production notes instead of spoken ad copy', ErrorCode.OPENAI_API_ERROR, 500, true, { preview: content.substring(0, 200) })
-          }
-
-          const normalized = normalizeScriptCta(content)
+          const content = res.data?.choices?.[0]?.message?.content
+          const normalized = normalizeScriptCta(extractSpokenVoiceover(content))
           assertMarketingClaimsSafe(normalized, { productTitle: title, source: 'openai-script' })
           return normalized
         },
