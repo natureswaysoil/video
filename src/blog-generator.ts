@@ -53,7 +53,7 @@ const BLOG_TOPICS = [
 export async function generateBlogArticle(): Promise<BlogPost> {
   const topic = BLOG_TOPICS[Math.floor(Math.random() * BLOG_TOPICS.length)]
   
-  console.log(`\n🎯 Generating blog article about: ${topic}`)
+  console.log(`\nðŸŽ¯ Generating blog article about: ${topic}`)
   
   const prompt = `You are an expert in organic gardening and soil science. Write a comprehensive, SEO-optimized blog article for Nature's Way Soil website.
 
@@ -120,14 +120,14 @@ The content should use Markdown formatting with ## for headings.`
       publishDate
     }
 
-    console.log('✅ Blog article generated successfully!')
+    console.log('âœ… Blog article generated successfully!')
     console.log(`   Title: ${blogPost.title}`)
     console.log(`   Word Count: ~${blogPost.content.split(' ').length} words`)
     console.log(`   Tags: ${blogPost.tags.join(', ')}`)
 
     return blogPost
   } catch (error: any) {
-    console.error('❌ Failed to generate blog article:', error.message)
+    console.error('âŒ Failed to generate blog article:', error.message)
     throw error
   }
 }
@@ -136,16 +136,21 @@ The content should use Markdown formatting with ## for headings.`
  * Generate video for the blog post using HeyGen
  */
 export async function generateBlogVideo(blogPost: BlogPost): Promise<string | null> {
-  console.log(`\n🎬 Generating video for: ${blogPost.title}`)
+  console.log(`\nðŸŽ¬ Generating video for: ${blogPost.title}`)
   
   if (!process.env.HEYGEN_API_KEY && !process.env.GCP_SECRET_HEYGEN_API_KEY) {
-    console.log('⚠️  HeyGen API key not configured, skipping video generation')
+    console.log('âš ï¸  HeyGen API key not configured, skipping video generation')
     return null
   }
 
   try {
-    // Create a compelling video script from the blog content
-    const videoScript = `${blogPost.videoPrompt}. Professional, cinematic style. Nature, garden, soil close-ups. Vibrant green plants. Healthy soil texture.`
+    // Generate customer-facing narration from the article. `videoPrompt` is
+    // visual direction and must never be sent to HeyGen as spoken text.
+    const videoScript = await generateScript({
+      id: blogPost.slug,
+      title: blogPost.title,
+      details: `${blogPost.excerpt}\n\n${blogPost.content.slice(0, 3500)}`,
+    } as any)
 
     console.log('Creating HeyGen video job...')
     
@@ -179,8 +184,8 @@ export async function generateBlogVideo(blogPost: BlogPost): Promise<string | nu
       }
     })
 
-    console.log(`✅ HeyGen job created: ${jobId}`)
-    console.log('⏳ Waiting for video to be ready...')
+    console.log(`âœ… HeyGen job created: ${jobId}`)
+    console.log('â³ Waiting for video to be ready...')
 
     // Poll for completion (timeout 20 minutes)
     const videoUrl = await heygen.pollJobForVideoUrl(jobId, {
@@ -189,14 +194,14 @@ export async function generateBlogVideo(blogPost: BlogPost): Promise<string | nu
     })
     
     if (videoUrl) {
-      console.log(`✅ Video ready: ${videoUrl}`)
+      console.log(`âœ… Video ready: ${videoUrl}`)
       return videoUrl
     } else {
-      console.log('⚠️  Video generation timed out or failed')
+      console.log('âš ï¸  Video generation timed out or failed')
       return null
     }
   } catch (error: any) {
-    console.error('❌ Video generation failed:', error.message)
+    console.error('âŒ Video generation failed:', error.message)
     return null
   }
 }
@@ -205,7 +210,7 @@ export async function generateBlogVideo(blogPost: BlogPost): Promise<string | nu
  * Save blog post to Supabase or file system
  */
 export async function saveBlogPost(blogPost: BlogPost, videoUrl: string | null) {
-  console.log(`\n💾 Saving blog post: ${blogPost.slug}`)
+  console.log(`\nðŸ’¾ Saving blog post: ${blogPost.slug}`)
   
   // Try to save to Supabase first
   try {
@@ -235,12 +240,12 @@ export async function saveBlogPost(blogPost: BlogPost, videoUrl: string | null) 
 
     if (error) throw error
 
-    console.log('✅ Blog post saved to database')
+    console.log('âœ… Blog post saved to database')
     console.log(`   URL: https://natureswaysoil.com/blog/${blogPost.slug}`)
     
     return data
   } catch (error: any) {
-    console.log('⚠️  Database save failed, saving to file instead')
+    console.log('âš ï¸  Database save failed, saving to file instead')
     
     // Fallback: Save to file system
     const fs = await import('fs')
@@ -260,7 +265,7 @@ export async function saveBlogPost(blogPost: BlogPost, videoUrl: string | null) 
     const filename = path.join(blogDir, `${blogPost.slug}.json`)
     fs.writeFileSync(filename, JSON.stringify(blogData, null, 2))
     
-    console.log(`✅ Blog post saved to file: ${filename}`)
+    console.log(`âœ… Blog post saved to file: ${filename}`)
     
     return blogData
   }
@@ -270,7 +275,7 @@ export async function saveBlogPost(blogPost: BlogPost, videoUrl: string | null) 
  * Post video to social media platforms
  */
 export async function postBlogVideoToSocial(blogPost: BlogPost, videoUrl: string) {
-  console.log('\n📱 Posting video to social media...')
+  console.log('\nðŸ“± Posting video to social media...')
   
   const caption = `${blogPost.title}\n\n${blogPost.excerpt}\n\nRead more: https://natureswaysoil.com/blog/${blogPost.slug}\n\n#organicgardening #soilhealth #naturalgardening`
   
@@ -279,7 +284,7 @@ export async function postBlogVideoToSocial(blogPost: BlogPost, videoUrl: string
   // YouTube (caption used as title, first 5000 chars of content as description)
   if (process.env.YT_CLIENT_ID && process.env.YT_CLIENT_SECRET && process.env.YT_REFRESH_TOKEN) {
     try {
-      console.log('📺 Uploading to YouTube...')
+      console.log('ðŸ“º Uploading to YouTube...')
       const ytVideoId = await postToYouTube(
         videoUrl,
         blogPost.title,
@@ -288,75 +293,75 @@ export async function postBlogVideoToSocial(blogPost: BlogPost, videoUrl: string
         process.env.YT_REFRESH_TOKEN,
         (process.env.YT_PRIVACY_STATUS as 'public' | 'unlisted' | 'private') || 'public'
       )
-      console.log('✅ Posted to YouTube:', ytVideoId)
+      console.log('âœ… Posted to YouTube:', ytVideoId)
       results.youtube = { success: true, videoId: ytVideoId }
     } catch (error: any) {
-      console.error('❌ YouTube upload failed:', error.message)
+      console.error('âŒ YouTube upload failed:', error.message)
       results.youtube = { success: false, error: error.message }
     }
   } else {
-    console.log('⏭️  Skipping YouTube - credentials not configured')
+    console.log('â­ï¸  Skipping YouTube - credentials not configured')
   }
   
   // Instagram
   if (process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_IG_ID) {
     try {
-      console.log('📸 Posting to Instagram...')
+      console.log('ðŸ“¸ Posting to Instagram...')
       const igResult = await postToInstagram(
         videoUrl,
         caption,
         process.env.INSTAGRAM_ACCESS_TOKEN,
         process.env.INSTAGRAM_IG_ID
       )
-      console.log('✅ Posted to Instagram:', igResult || 'success')
+      console.log('âœ… Posted to Instagram:', igResult || 'success')
       results.instagram = { success: true, mediaId: igResult }
     } catch (error: any) {
-      console.error('❌ Instagram post failed:', error.message)
+      console.error('âŒ Instagram post failed:', error.message)
       results.instagram = { success: false, error: error.message }
     }
   } else {
-    console.log('⏭️  Skipping Instagram - credentials not configured')
+    console.log('â­ï¸  Skipping Instagram - credentials not configured')
   }
   
   // Twitter
   if (process.env.TWITTER_BEARER_TOKEN) {
     try {
-      console.log('🐦 Posting to Twitter...')
+      console.log('ðŸ¦ Posting to Twitter...')
       await postToTwitter(videoUrl, caption, process.env.TWITTER_BEARER_TOKEN)
-      console.log('✅ Posted to Twitter')
+      console.log('âœ… Posted to Twitter')
       results.twitter = { success: true }
     } catch (error: any) {
-      console.error('❌ Twitter post failed:', error.message)
+      console.error('âŒ Twitter post failed:', error.message)
       results.twitter = { success: false, error: error.message }
     }
   } else {
-    console.log('⏭️  Skipping Twitter - credentials not configured')
+    console.log('â­ï¸  Skipping Twitter - credentials not configured')
   }
   
   // Pinterest (requires board ID)
   if (process.env.PINTEREST_ACCESS_TOKEN && process.env.PINTEREST_BOARD_ID) {
     try {
-      console.log('📌 Posting to Pinterest...')
+      console.log('ðŸ“Œ Posting to Pinterest...')
       await postToPinterest(
         videoUrl,
         caption,
         process.env.PINTEREST_ACCESS_TOKEN,
         process.env.PINTEREST_BOARD_ID
       )
-      console.log('✅ Posted to Pinterest')
+      console.log('âœ… Posted to Pinterest')
       results.pinterest = { success: true }
     } catch (error: any) {
-      console.error('❌ Pinterest post failed:', error.message)
+      console.error('âŒ Pinterest post failed:', error.message)
       results.pinterest = { success: false, error: error.message }
     }
   } else {
-    console.log('⏭️  Skipping Pinterest - board ID not configured')
+    console.log('â­ï¸  Skipping Pinterest - board ID not configured')
   }
 
   // Facebook
   if (process.env.FACEBOOK_PAGE_ACCESS_TOKEN && process.env.FACEBOOK_PAGE_ID) {
     try {
-      console.log('👤 Posting to Facebook...')
+      console.log('ðŸ‘¤ Posting to Facebook...')
       const fbRes = await axios.post(
         `https://graph.facebook.com/v19.0/${process.env.FACEBOOK_PAGE_ID}/videos`,
         {
@@ -365,20 +370,20 @@ export async function postBlogVideoToSocial(blogPost: BlogPost, videoUrl: string
           access_token: process.env.FACEBOOK_PAGE_ACCESS_TOKEN,
         }
       )
-      console.log('✅ Posted to Facebook:', fbRes.data?.id)
+      console.log('âœ… Posted to Facebook:', fbRes.data?.id)
       results.facebook = { success: true, postId: fbRes.data?.id }
     } catch (error: any) {
-      console.error('❌ Facebook post failed:', error?.response?.data || error.message)
+      console.error('âŒ Facebook post failed:', error?.response?.data || error.message)
       results.facebook = { success: false, error: error.message }
     }
   } else {
-    console.log('⏭️  Skipping Facebook - credentials not configured')
+    console.log('â­ï¸  Skipping Facebook - credentials not configured')
   }
 
   // LinkedIn
   if (process.env.LINKEDIN_ACCESS_TOKEN && process.env.LINKEDIN_PERSON_ID) {
     try {
-      console.log('💼 Posting to LinkedIn...')
+      console.log('ðŸ’¼ Posting to LinkedIn...')
       const liRes = await axios.post(
         'https://api.linkedin.com/v2/ugcPosts',
         {
@@ -406,20 +411,20 @@ export async function postBlogVideoToSocial(blogPost: BlogPost, videoUrl: string
           },
         }
       )
-      console.log('✅ Posted to LinkedIn:', liRes.data?.id)
+      console.log('âœ… Posted to LinkedIn:', liRes.data?.id)
       results.linkedin = { success: true, postId: liRes.data?.id }
     } catch (error: any) {
-      console.error('❌ LinkedIn post failed:', error?.response?.data || error.message)
+      console.error('âŒ LinkedIn post failed:', error?.response?.data || error.message)
       results.linkedin = { success: false, error: error.message }
     }
   } else {
-    console.log('⏭️  Skipping LinkedIn - credentials not configured')
+    console.log('â­ï¸  Skipping LinkedIn - credentials not configured')
   }
 
   // TikTok
   if (process.env.TIKTOK_ACCESS_TOKEN) {
     try {
-      console.log('🎵 Posting to TikTok...')
+      console.log('ðŸŽµ Posting to TikTok...')
       const ttRes = await axios.post(
         'https://open.tiktokapis.com/v2/post/publish/video/init/',
         {
@@ -442,14 +447,14 @@ export async function postBlogVideoToSocial(blogPost: BlogPost, videoUrl: string
           },
         }
       )
-      console.log('✅ Posted to TikTok, publish_id:', ttRes.data?.data?.publish_id)
+      console.log('âœ… Posted to TikTok, publish_id:', ttRes.data?.data?.publish_id)
       results.tiktok = { success: true, publishId: ttRes.data?.data?.publish_id }
     } catch (error: any) {
-      console.error('❌ TikTok post failed:', error?.response?.data || error.message)
+      console.error('âŒ TikTok post failed:', error?.response?.data || error.message)
       results.tiktok = { success: false, error: error.message }
     }
   } else {
-    console.log('⏭️  Skipping TikTok - access token not configured')
+    console.log('â­ï¸  Skipping TikTok - access token not configured')
   }
 
   return results
@@ -467,12 +472,12 @@ export async function publishBlogToGitHub(
   videoUrl: string | null
 ): Promise<{ success: boolean; commitSha?: string; skipped?: boolean; reason?: string; error?: string }> {
   if (process.env.ENABLE_BLOG_POSTING !== 'true') {
-    console.log('⏭️  Skipping GitHub blog publish - ENABLE_BLOG_POSTING is not true')
+    console.log('â­ï¸  Skipping GitHub blog publish - ENABLE_BLOG_POSTING is not true')
     return { success: false, skipped: true, reason: 'ENABLE_BLOG_POSTING!=true' }
   }
   const githubToken = process.env.GITHUB_TOKEN
   if (!githubToken) {
-    console.log('⏭️  Skipping GitHub blog publish - GITHUB_TOKEN not set')
+    console.log('â­ï¸  Skipping GitHub blog publish - GITHUB_TOKEN not set')
     return { success: false, skipped: true, reason: 'missing GITHUB_TOKEN' }
   }
 
@@ -482,7 +487,7 @@ export async function publishBlogToGitHub(
   const fileUrl = `https://api.github.com/repos/${repo}/contents/${filePath}?ref=${branch}`
 
   try {
-    console.log(`\n📰 Publishing blog to GitHub: ${repo}@${branch}:${filePath}`)
+    console.log(`\nðŸ“° Publishing blog to GitHub: ${repo}@${branch}:${filePath}`)
 
     // Fetch current articles file
     const fileResponse = await axios.get(fileUrl, {
@@ -499,7 +504,7 @@ export async function publishBlogToGitHub(
     const existingSlugs = new Set(currentArticles.map((a: any) => a.slug))
     const existingTitles = new Set(currentArticles.map((a: any) => String(a.title || '').toLowerCase()))
     if (existingTitles.has(blogPost.title.toLowerCase())) {
-      console.log(`⚠️  Blog article "${blogPost.title}" already exists on GitHub - skipping duplicate`)
+      console.log(`âš ï¸  Blog article "${blogPost.title}" already exists on GitHub - skipping duplicate`)
       return { success: true, skipped: true, reason: 'duplicate-title' }
     }
     const slug = existingSlugs.has(blogPost.slug) ? `${blogPost.slug}-${Date.now()}` : blogPost.slug
@@ -542,14 +547,14 @@ export async function publishBlogToGitHub(
     )
 
     const commitSha = updateResponse.data?.commit?.sha
-    console.log('✅ Blog published to GitHub')
+    console.log('âœ… Blog published to GitHub')
     console.log(`   Slug: ${newArticle.slug}`)
     console.log(`   Commit: ${commitSha}`)
     console.log(`   URL:  https://natureswaysoil.com/blog/${newArticle.slug}`)
     return { success: true, commitSha }
   } catch (error: any) {
     const message = error?.response?.data?.message || error?.message || String(error)
-    console.error('❌ Failed to publish blog to GitHub:', message)
+    console.error('âŒ Failed to publish blog to GitHub:', message)
     return { success: false, error: message }
   }
 }
@@ -559,7 +564,7 @@ export async function publishBlogToGitHub(
  */
 export async function runBlogGeneration() {
   console.log('\n' + '='.repeat(60))
-  console.log('🚀 AUTOMATED BLOG & VIDEO GENERATION')
+  console.log('ðŸš€ AUTOMATED BLOG & VIDEO GENERATION')
   console.log('='.repeat(60))
   console.log(`Started at: ${new Date().toISOString()}`)
   
@@ -581,29 +586,29 @@ export async function runBlogGeneration() {
     if (videoUrl) {
       socialResults = await postBlogVideoToSocial(blogPost, videoUrl)
     } else {
-      console.log('\n⏭️  Skipping social media posting - no video generated')
+      console.log('\nâ­ï¸  Skipping social media posting - no video generated')
     }
     
     console.log('\n' + '='.repeat(60))
-    console.log('✅ Blog generation completed successfully!')
+    console.log('âœ… Blog generation completed successfully!')
     console.log('='.repeat(60))
     console.log(`Title: ${blogPost.title}`)
     console.log(`Slug: ${blogPost.slug}`)
     console.log(`Video: ${videoUrl || 'Not generated'}`)
-    console.log(`GitHub Blog: ${githubResult.success ? (githubResult.skipped ? '⏭️  skipped (' + githubResult.reason + ')' : '✅ ' + (githubResult.commitSha || 'committed')) : '❌ ' + (githubResult.error || 'failed')}`)
+    console.log(`GitHub Blog: ${githubResult.success ? (githubResult.skipped ? 'â­ï¸  skipped (' + githubResult.reason + ')' : 'âœ… ' + (githubResult.commitSha || 'committed')) : 'âŒ ' + (githubResult.error || 'failed')}`)
     console.log(`Social Media:`)
-    console.log(`  YouTube:   ${socialResults.youtube?.success   ? '✅' : socialResults.youtube   ? '❌' : '⏭️  skipped'}`)
-    console.log(`  Instagram: ${socialResults.instagram?.success ? '✅' : socialResults.instagram ? '❌' : '⏭️  skipped'}`)
-    console.log(`  Twitter:   ${socialResults.twitter?.success   ? '✅' : socialResults.twitter   ? '❌' : '⏭️  skipped'}`)
-    console.log(`  Pinterest: ${socialResults.pinterest?.success ? '✅' : socialResults.pinterest ? '❌' : '⏭️  skipped'}`)
-    console.log(`  Facebook:  ${socialResults.facebook?.success  ? '✅' : socialResults.facebook  ? '❌' : '⏭️  skipped'}`)
-    console.log(`  LinkedIn:  ${socialResults.linkedin?.success  ? '✅' : socialResults.linkedin  ? '❌' : '⏭️  skipped'}`)
-    console.log(`  TikTok:    ${socialResults.tiktok?.success    ? '✅' : socialResults.tiktok    ? '❌' : '⏭️  skipped'}`)
+    console.log(`  YouTube:   ${socialResults.youtube?.success   ? 'âœ…' : socialResults.youtube   ? 'âŒ' : 'â­ï¸  skipped'}`)
+    console.log(`  Instagram: ${socialResults.instagram?.success ? 'âœ…' : socialResults.instagram ? 'âŒ' : 'â­ï¸  skipped'}`)
+    console.log(`  Twitter:   ${socialResults.twitter?.success   ? 'âœ…' : socialResults.twitter   ? 'âŒ' : 'â­ï¸  skipped'}`)
+    console.log(`  Pinterest: ${socialResults.pinterest?.success ? 'âœ…' : socialResults.pinterest ? 'âŒ' : 'â­ï¸  skipped'}`)
+    console.log(`  Facebook:  ${socialResults.facebook?.success  ? 'âœ…' : socialResults.facebook  ? 'âŒ' : 'â­ï¸  skipped'}`)
+    console.log(`  LinkedIn:  ${socialResults.linkedin?.success  ? 'âœ…' : socialResults.linkedin  ? 'âŒ' : 'â­ï¸  skipped'}`)
+    console.log(`  TikTok:    ${socialResults.tiktok?.success    ? 'âœ…' : socialResults.tiktok    ? 'âŒ' : 'â­ï¸  skipped'}`)
     console.log('='.repeat(60) + '\n')
     
   } catch (error: any) {
     const message = error?.message || String(error)
-    console.error('\n❌ Blog generation failed:', message)
+    console.error('\nâŒ Blog generation failed:', message)
     throw error
   }
 }
@@ -611,10 +616,10 @@ export async function runBlogGeneration() {
 // Run if executed directly
 if (require.main === module) {
   runBlogGeneration().then(() => {
-    console.log('✅ Done')
+    console.log('âœ… Done')
     process.exit(0)
   }).catch((error) => {
-    console.error('❌ Fatal error:', error)
+    console.error('âŒ Fatal error:', error)
     process.exit(1)
   })
 }
