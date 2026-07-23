@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { generateScript } from '../src/openai'
+import { extractSpokenVoiceover, generateScript, looksLikeMetaNarration } from '../src/openai'
 import type { Product } from '../src/core'
 
 /**
@@ -10,14 +10,22 @@ import type { Product } from '../src/core'
  */
 
 async function main() {
-  console.log('🤖 Testing OpenAI Script Generation...\n')
+  const clean = extractSpokenVoiceover('{"voiceover":"Feed the soil and grow stronger roots."}')
+  if (clean !== 'Feed the soil and grow stronger roots.') {
+    throw new Error('Voiceover JSON extraction failed')
+  }
+  if (!looksLikeMetaNarration('Scene 1: Camera pans across the lawn.')) {
+    throw new Error('Production-note detection failed')
+  }
+
+  console.log('ðŸ¤– Testing OpenAI Script Generation...\n')
   
   // Check API key
   const hasApiKey = Boolean(process.env.OPENAI_API_KEY)
-  console.log('OPENAI_API_KEY:', hasApiKey ? '✓ SET' : '✗ NOT SET')
+  console.log('OPENAI_API_KEY:', hasApiKey ? 'âœ“ SET' : 'âœ— NOT SET')
   
   if (!hasApiKey) {
-    console.error('\n❌ OPENAI_API_KEY not set in environment!')
+    console.error('\nâŒ OPENAI_API_KEY not set in environment!')
     console.error('Set OPENAI_API_KEY to test script generation')
     process.exit(1)
   }
@@ -55,7 +63,7 @@ async function main() {
     }
   ]
   
-  console.log('📦 Testing script generation for', sampleProducts.length, 'sample products...\n')
+  console.log('ðŸ“¦ Testing script generation for', sampleProducts.length, 'sample products...\n')
   
   let successCount = 0
   const results: Array<{ name: string; success: boolean; script?: string; error?: string }> = []
@@ -70,7 +78,7 @@ async function main() {
       console.log('Generating script...')
       const script = await generateScript(product)
       
-      console.log('✓ Script generated successfully!')
+      console.log('âœ“ Script generated successfully!')
       console.log('  Length:', script.length, 'characters')
       console.log('  Word count:', script.split(/\s+/).length, 'words')
       console.log()
@@ -82,14 +90,14 @@ async function main() {
       // Validate script
       const isValid = script.length > 0 && script.length < 1000 // Reasonable bounds
       if (!isValid) {
-        console.warn('⚠️  Script length seems unusual:', script.length, 'characters')
+        console.warn('âš ï¸  Script length seems unusual:', script.length, 'characters')
       }
       
       results.push({ name, success: true, script })
       successCount++
       
     } catch (error: any) {
-      console.error('❌ Script generation failed!')
+      console.error('âŒ Script generation failed!')
       console.error('Error:', error?.message || error)
       if (error?.response?.data) {
         console.error('API Response:', JSON.stringify(error.response.data, null, 2))
@@ -99,14 +107,14 @@ async function main() {
   }
   
   // Summary
-  console.log('\n\n📊 Test Summary:')
+  console.log('\n\nðŸ“Š Test Summary:')
   console.log('  Total products tested:', sampleProducts.length)
   console.log('  Successful generations:', successCount)
   console.log('  Failed generations:', sampleProducts.length - successCount)
   console.log()
   
   results.forEach(r => {
-    const status = r.success ? '✓' : '✗'
+    const status = r.success ? 'âœ“' : 'âœ—'
     console.log(`  ${status} ${r.name}`)
     if (!r.success && r.error) {
       console.log(`    Error: ${r.error}`)
@@ -114,9 +122,9 @@ async function main() {
   })
   
   if (successCount === sampleProducts.length) {
-    console.log('\n✅ All script generation tests passed!')
+    console.log('\nâœ… All script generation tests passed!')
   } else {
-    console.log('\n⚠️  Some tests failed. See details above.')
+    console.log('\nâš ï¸  Some tests failed. See details above.')
     process.exit(1)
   }
 }
