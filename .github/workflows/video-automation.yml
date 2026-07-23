@@ -80,6 +80,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify Twitter retry policy
+        run: npm run test:twitter-policy
+
+      - name: Type-check campaign code
+        run: npm run typecheck
+
       - name: Verify bundled test campaign videos exist
         run: |
           test -d "$TEST_VIDEOS_DIR"

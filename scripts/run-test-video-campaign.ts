@@ -43,8 +43,6 @@ const TEST_CAMPAIGN_SECRET_NAMES = [
   // Instagram / Meta
   'INSTAGRAM_ACCESS_TOKEN',
   'INSTAGRAM_IG_ID',
-  'INSTAGRAM_USER_ID',
-  'INSTAGRAM_ACCOUNT_ID',
   'FACEBOOK_ACCESS_TOKEN',
   'FACEBOOK_PAGE_ID',
 
@@ -56,20 +54,13 @@ const TEST_CAMPAIGN_SECRET_NAMES = [
   'YOUTUBE_CLIENT_ID',
   'YOUTUBE_CLIENT_SECRET',
   'YOUTUBE_REFRESH_TOKEN',
-  'YOUTUBE_OAUTH_REFRESH_TOKEN',
   'YT_CLIENT_ID',
   'YT_CLIENT_SECRET',
   'YT_REFRESH_TOKEN',
-  'CLIENT_ID',
-  'CLIENT_SECRET',
-  'REFRESH_TOKEN',
 
   // Supabase Storage (for hosting local videos when TEST_VIDEO_PUBLIC_BASE_URL is not set)
   'NEXT_PUBLIC_SUPABASE_URL',
-  'SUPABASE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',
-  'SUPABASE_SERVICE_KEY',
-  'SUPABASE_VIDEO_BUCKET',
 ]
 
 async function loadCampaignSecretsFromGoogleSecretManager(): Promise<void> {
@@ -357,14 +348,21 @@ async function main(): Promise<void> {
   }
 
   if (isPlatformEnabled('twitter', enabledPlatforms) || isPlatformEnabled('x', enabledPlatforms)) {
-    const tw = await postToTwitter(videoUrl, caption)
-    anySucceeded = true
-    console.log('âœ… Posted to Twitter', tw)
+    try {
+      const tw = await postToTwitter(videoUrl, caption)
+      anySucceeded = true
+      console.log('âœ… Posted to Twitter', tw)
+    } catch (error: any) {
+      console.error(
+        'Twitter/X posting failed; continuing any other enabled platforms:',
+        error?.message || error
+      )
+    }
   }
 
   if (!anySucceeded) {
     throw new Error(
-      'No enabled platform had valid credentials. Configure ENABLE_PLATFORMS for instagram/pinterest/youtube and ensure required secrets exist in Google Secret Manager. Twitter/X is disabled.'
+      'No enabled platform completed successfully. Check ENABLE_PLATFORMS, credentials, and the platform errors above.'
     )
   }
 
