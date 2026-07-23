@@ -5,6 +5,7 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
+import axios, { AxiosInstance } from 'axios'
 import OpenAI from 'openai'
 
 export type BlogVideoInput = {
@@ -251,18 +252,89 @@ Rules:
   }
 }
 
-// Legacy client contract used by blog-generator.ts and older utility scripts.
-// Video rendering is handled by the scheduled social pipeline, so this adapter
-// explicitly returns no rendered URL instead of calling the retired HeyGen path.
-export async function createClientWithSecrets() {
-  return {
-    async createVideoJob(_input: any): Promise<string> {
-      return 'video-generation-skipped'
-    },
-    async pollJobForVideoUrl(_jobId: string, _options?: any): Promise<null> {
-      return null
+export class HeyGenClient {
+  private readonly client: AxiosInstance
+
+  constructor(apiKey: string, endpoint = process.env.HEYGEN_API_ENDPOINT || 'https://api.heygen.com') {
+    if (!apiKey.trim()) throw new Error('HEYGEN_API_KEY is not configured')
+    this.client = axios.create({
+      baseURL: endpoint,
+      timeout: Number(process.env.TIMEOUT_HEYGEN || 60_000),
+      headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' },
+    })
+  }
+
+  private async resolveId(kind: 'avatars' | 'voices', requested: string): Promise<string> {
+    if (!requested) throw new Error(`A HeyGen ${kind === 'avatars' ? 'avatar' : 'voice'} is required`)
+    try {
+      const response = await this.client.get(`/v2/${kind}`, { timeout: 30_000 })
+      const items = response.data?.data?.[kind] || response.data?.[kind] || []
+      const idKey = kind === 'avatars' ? 'avatar_id' : 'voice_id'
+      const nameKey = kind === 'avatars' ? 'avatar_name' : 'name'
+      const lowered = requested.toLowerCase()
+      const match = items.find((item: any) => item[idKey] === requested)
+        || items.find((item: any) => String(item[nameKey] || '').toLowerCase() === lowered)
+        || items.find((item: any) => String(item[nameKey] || '').toLowerCase().includes(lowered))
+      return match?.[idKey] || requested
+    } catch (error: any) {
+      console.warn(`Could not list HeyGen ${kind}:`, error?.message || error)
+      return requested
     }
   }
+
+  async createVideoJob(payload: any): Promise<string> {
+    const script = String(payload?.script || '').trim()
+    if (!script) throw new Error('Spoken script is required for HeyGen video generation')
+
+    const avatarId = await this.resolveId('avatars', payload.avatar || process.env.HEYGEN_DEFAULT_AVATAR || '')
+    const voiceId = await this.resolveId('voices', payload.voice || process.env.HEYGEN_DEFAULT_VOICE || '')
+    const videoInputs = payload.scenes?.length
+      ? payload.scenes.map((scene: any) => this.videoInput(avatarId, voiceId, scene.avatarText || script, scene.brollUrl || payload.imageUrl))
+      : [this.videoInput(avatarId, voiceId, script, payload.imageUrl)]
+
+    const response = await this.client.post('/v2/video/generate', {
+      video_inputs: videoInputs,
+      dimension: { width: 720, height: 1280 },
+      ...(payload.title ? { title: payload.title } : {}),
+      ...(payload.webhook ? { callback_url: payload.webhook } : {}),
+    })
+    const jobId = response.data?.data?.video_id || response.data?.video_id || response.data?.jobId
+    if (!jobId) throw new Error(`HeyGen did not return a video ID: ${JSON.stringify(response.data)}`)
+    return String(jobId)
+  }
+
+  private videoInput(avatarId: string, voiceId: string, text: string, backgroundUrl?: string) {
+    return {
+      character: { type: 'avatar', avatar_id: avatarId, avatar_style: 'normal' },
+      voice: { type: 'text', input_text: text, voice_id: voiceId, speed: 1.0 },
+      background: backgroundUrl
+        ? { type: backgroundUrl.match(/\.(mp4|mov|webm)(\?|$)/i) ? 'video' : 'image', url: backgroundUrl }
+        : { type: 'color', value: '#1a3a1a' },
+    }
+  }
+
+  async pollJobForVideoUrl(jobId: string, options: { timeoutMs?: number; intervalMs?: number } = {}): Promise<string> {
+    const timeoutMs = options.timeoutMs ?? 20 * 60_000
+    const intervalMs = options.intervalMs ?? 15_000
+    const startedAt = Date.now()
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const response = await this.client.get(`/v1/video_status.get?video_id=${encodeURIComponent(jobId)}`)
+      const data = response.data?.data || response.data || {}
+      const status = String(data.status || '').toLowerCase()
+      const videoUrl = data.video_url || data.videoUrl || data.url
+      if ((status.includes('complet') || status === 'success') && videoUrl) return String(videoUrl)
+      if (status.includes('fail') || status === 'error') {
+        throw new Error(`HeyGen job failed: ${data.error || data.error_message || 'unknown error'}`)
+      }
+      await new Promise(resolve => setTimeout(resolve, intervalMs))
+    }
+    throw new Error(`HeyGen job ${jobId} timed out`)
+  }
+}
+
+export async function createClientWithSecrets(): Promise<HeyGenClient> {
+  return new HeyGenClient(process.env.HEYGEN_API_KEY || '')
 }
 
 // Old names that blog-generator.ts may import.
