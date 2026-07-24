@@ -86,7 +86,9 @@ jobs:
           sudo apt-get install -y ffmpeg
 
       - name: Install dependencies
-        run: npm install
+        run: |
+          npm ci
+          test -f node_modules/gaxios/build/cjs/src/index.js
 
       - name: Run Google Sheet row post
         run: npm run post:sheet-row
