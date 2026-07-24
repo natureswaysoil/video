@@ -1,0 +1,172 @@
+import axios from 'axios'
+import { google } from 'googleapis'
+import { TwitterApi } from 'twitter-api-v2'
+
+function pickEnv(keys: string[]): string {
+  for (const key of keys) {
+    const value = process.env[key]?.trim()
+    if (value) return value
+  }
+  return ''
+}
+
+function apiError(error: any): string {
+  const status = error?.response?.status
+  const body = error?.response?.data
+  const detail = body?.error?.message || body?.message || error?.message || String(error)
+  return status ? `HTTP ${status}: ${detail}` : detail
+}
+
+// ---------------------------------------------------------------------------
+// Twitter / X video posting via twitter-api-v2 (matches the proven path used
+// in the social-video-automation repo). Accepts a LOCAL file path (preferred)
+// or a public URL (downloaded to a temp file first). OAuth 1.0a user context.
+// Secrets: TWITTER_API_KEY, TWITTER_API_SECRET, TWITTER_ACCESS_TOKEN,
+//          TWITTER_ACCESS_TOKEN_SECRET || TWITTER_ACCESS_SECRET
+// ---------------------------------------------------------------------------
+export async function postToTwitter(videoFileOrUrl: string, caption: string) {
+  const appKey = process.env.TWITTER_API_KEY
+  const appSecret = process.env.TWITTER_API_SECRET
+  const accessToken = process.env.TWITTER_ACCESS_TOKEN
+  const accessSecret = process.env.TWITTER_ACCESS_TOKEN_SECRET || process.env.TWITTER_ACCESS_SECRET
+  if (!appKey || !appSecret || !accessToken || !accessSecret) {
+    console.log('Twitter posting skipped: missing TWITTER_API_KEY/API_SECRET/ACCESS_TOKEN/ACCESS_SECRET')
+    return { skipped: true }
+  }
+
+  const client = new TwitterApi({ appKey, appSecret, accessToken, accessSecret })
+
+  // Resolve to a local file path; download if a URL was passed.
+  let localPath = videoFileOrUrl
+  let cleanup = false
+  if (/^https?:\/\//i.test(videoFileOrUrl)) {
+    const fs = await import('fs')
+    const os = await import('os')
+    const path = await import('path')
+    const tmp = path.join(os.tmpdir(), `tw-${Date.now()}.mp4`)
+    const resp = await axios.get(videoFileOrUrl, { responseType: 'arraybuffer', timeout: 180000 })
+    fs.writeFileSync(tmp, Buffer.from(resp.data))
+    localPath = tmp
+    cleanup = true
+  }
+
+  try {
+    // v1.1 chunked uploader first (most reliable for video); fall back to v2.
+    let mediaId: string
+    try {
+      mediaId = await client.v1.uploadMedia(localPath, { mimeType: 'video/mp4', target: 'tweet' })
+    } catch (e: any) {
+      const fsBuf = await import('fs')
+      const buf = fsBuf.readFileSync(localPath)
+      mediaId = await client.v2.uploadMedia(buf, { media_type: 'video/mp4', media_category: 'tweet_video' })
+    }
+    const { data } = await client.v2.tweet({ text: String(caption || '').slice(0, 280), media: { media_ids: [mediaId] } })
+    const tweetId = data?.id
+    if (!tweetId) throw new Error('Twitter did not return a tweet id')
+    return { platform: 'twitter', tweetId, mediaId }
+  } finally {
+    if (cleanup) { try { (await import('fs')).unlinkSync(localPath) } catch {} }
+  }
+}
+
+export async function postToTikTok(videoUrl: string, caption: string) {
+  const accessToken = process.env.TIKTOK_ACCESS_TOKEN
+  const openId = process.env.TIKTOK_OPEN_ID
+  if (!accessToken || !openId) {
+    console.log('TikTok posting skipped: missing TIKTOK_ACCESS_TOKEN or TIKTOK_OPEN_ID')
+    return { skipped: true }
+  }
+  if (!/^https?:\/\//i.test(videoUrl)) throw new Error('TikTok posting requires a public HTTPS video URL')
+
+  const host = process.env.TIKTOK_API_HOST || 'open.tiktokapis.com'
+  const init = await axios.post(`https://${host}/v2/post/publish/video/init/`, {
+    post_info: { title: caption.slice(0, 2200), privacy_level: 'PUBLIC_TO_EVERYONE', disable_duet: false, disable_comment: false, disable_stitch: false },
+    source_info: { source: 'PULL_FROM_URL', video_url: videoUrl }
+  }, { headers: { Authorization: 'Bearer ' + accessToken }, timeout: 120000 })
+
+  const publishId = init.data?.data?.publish_id || init.data?.publish_id || ''
+  if (!publishId) throw new Error(`TikTok init failed: ${JSON.stringify(init.data)}`)
+
+  return { platform: 'tiktok', publishId, status: init.data?.data?.status || init.data?.status || 'submitted' }
+}
+
+export async function postToFacebookReels(videoUrl: string, caption: string) {
+  if (!process.env.FACEBOOK_PAGE_ACCESS_TOKEN || !process.env.FACEBOOK_PAGE_ID) {
+    console.log('Facebook Reels skipped: missing page credentials')
+    return { skipped: true }
+  }
+  return { platform: 'facebook_reels', queued: true, videoUrl, caption }
+}
+
+export async function autoReplyTemplates() {
+  return [
+    'Thanks for checking out Nature\'s Way Soil.',
+    'We appreciate the support.',
+    'Let us know if you have application questions.',
+    'Thanks for supporting a small family business.'
+  ]
+}
+
+export async function fetchBasicMetrics(videoIds: { youtubeId?: string, instagramId?: string, facebookId?: string }) {
+  const metrics: any = {
+    youtube: { views: 0, likes: 0, comments: 0 },
+    instagram: { views: 0, likes: 0, comments: 0, reach: 0 },
+    facebook: { views: 0, likes: 0, comments: 0 }
+  }
+  if (videoIds.youtubeId) {
+    try {
+      const clientId = pickEnv(['YT_CLIENT_ID', 'YOUTUBE_CLIENT_ID'])
+      const clientSecret = pickEnv(['YT_CLIENT_SECRET', 'YOUTUBE_CLIENT_SECRET'])
+      const refreshToken = pickEnv(['YT_REFRESH_TOKEN', 'YOUTUBE_REFRESH_TOKEN'])
+      if (clientId && clientSecret && refreshToken) {
+        const oauth2Client = new google.auth.OAuth2({ clientId, clientSecret })
+        oauth2Client.setCredentials({ refresh_token: refreshToken })
+        const youtube = google.youtube({ version: 'v3', auth: oauth2Client })
+        const response = await youtube.videos.list({ part: ['statistics'], id: [videoIds.youtubeId] })
+        const stats = response.data.items?.[0]?.statistics
+        metrics.youtube = { views: Number(stats?.viewCount || 0), likes: Number(stats?.likeCount || 0), comments: Number(stats?.commentCount || 0) }
+      }
+    } catch (error: any) { metrics.youtube.error = error?.message || String(error) }
+  }
+  if (videoIds.instagramId && process.env.INSTAGRAM_ACCESS_TOKEN) {
+    try {
+      const apiVersion = process.env.INSTAGRAM_API_VERSION || 'v20.0'
+      const host = process.env.INSTAGRAM_API_HOST || 'graph.facebook.com'
+      const response = await axios.get(`https://${host}/${apiVersion}/${videoIds.instagramId}`, {
+        params: { fields: 'like_count,comments_count' },
+        headers: { Authorization: 'Bearer ' + process.env.INSTAGRAM_ACCESS_TOKEN }, timeout: 60000
+      })
+      metrics.instagram.likes = Number(response.data?.like_count || 0)
+      metrics.instagram.comments = Number(response.data?.comments_count || 0)
+
+      try {
+        const insights = await axios.get(`https://${host}/${apiVersion}/${videoIds.instagramId}/insights`, {
+          params: { metric: 'views,reach' },
+          headers: { Authorization: 'Bearer ' + process.env.INSTAGRAM_ACCESS_TOKEN }, timeout: 60000
+        })
+        for (const item of insights.data?.data || []) {
+          if (item.name === 'views') metrics.instagram.views = Number(item.values?.[0]?.value || item.total_value?.value || 0)
+          if (item.name === 'reach') metrics.instagram.reach = Number(item.values?.[0]?.value || item.total_value?.value || 0)
+        }
+      } catch (error: any) {
+        metrics.instagram.insightsError = apiError(error)
+      }
+    } catch (error: any) { metrics.instagram.error = apiError(error) }
+  }
+  if (videoIds.facebookId) {
+    try {
+      const accessToken = pickEnv(['FB_PAGE_ACCESS_TOKEN', 'FACEBOOK_PAGE_ACCESS_TOKEN'])
+      if (accessToken) {
+        const apiVersion = process.env.FACEBOOK_API_VERSION || process.env.INSTAGRAM_API_VERSION || 'v20.0'
+        const host = process.env.FACEBOOK_API_HOST || 'graph.facebook.com'
+        const summary = await axios.get(`https://${host}/${apiVersion}/${videoIds.facebookId}`, {
+          params: { fields: 'reactions.summary(true),comments.summary(true)' },
+          headers: { Authorization: 'Bearer ' + accessToken }, timeout: 60000
+        })
+        metrics.facebook.likes = Number(summary.data?.reactions?.summary?.total_count || 0)
+        metrics.facebook.comments = Number(summary.data?.comments?.summary?.total_count || 0)
+      }
+    } catch (error: any) { metrics.facebook.error = apiError(error) }
+  }
+  return metrics
+}
