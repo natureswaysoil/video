@@ -128,10 +128,13 @@ export async function postToTwitter(
               memoryUsedForVideoMB: memoryUsedMB,
             })
 
-            // Upload media
-            logger.debug('Uploading video to Twitter', 'Twitter')
-            const mediaId = await rwClient.v1.uploadMedia(Buffer.from(resp.data), {
-              mimeType: 'video/mp4',
+            // X's pay-per-use platform exposes media upload through API v2.
+            // The former v1.1 upload endpoint can return 403 even when the app
+            // has valid read/write credentials and a funded credit balance.
+            logger.debug('Uploading video to Twitter with API v2', 'Twitter')
+            const mediaId = await rwClient.v2.uploadMedia(Buffer.from(resp.data), {
+              media_type: 'video/mp4',
+              media_category: 'tweet_video',
             })
 
             // Post tweet with media
