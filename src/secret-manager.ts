@@ -32,6 +32,9 @@ export const DEFAULT_SECRET_NAMES = [
   'TWITTER_API_SECRET',
   'TWITTER_ACCESS_TOKEN',
   'TWITTER_ACCESS_TOKEN_SECRET',
+  'TWITTER_CLIENT_ID',
+  'TWITTER_CLIENT_SECRET',
+  'TWITTER_REFRESH_TOKEN',
   'PINTEREST_ACCESS_TOKEN',
   'PINTEREST_BOARD_ID',
   'PEXELS_API_KEY',
@@ -172,4 +175,13 @@ export async function loadSecretsToEnv(secretNames = DEFAULT_SECRET_NAMES): Prom
   for (const secretName of secretNames) {
     await loadSecretToEnv(secretName)
   }
+}
+
+export async function addSecretVersion(secretName: string, value: string): Promise<void> {
+  const parent = `projects/${getProjectId()}/secrets/${secretName}`
+  await getSecretManagerClient().addSecretVersion({
+    parent,
+    payload: { data: Buffer.from(value, 'utf8') },
+  })
+  process.env[secretName] = value
 }

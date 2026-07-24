@@ -6,6 +6,7 @@ import { getMetrics } from './logger'
 import { getRateLimiters } from './rate-limiter'
 import { getConfig } from './config-validator'
 import { getMemoryUsage } from './memory-manager'
+import { addSecretVersion } from './secret-manager'
 
 const logger = getLogger()
 const metrics = getMetrics()
@@ -13,6 +14,35 @@ const rateLimiters = getRateLimiters()
 
 // Maximum video size for Twitter (500MB)
 const MAX_VIDEO_SIZE_MB = 500
+
+async function createTwitterUserClient(): Promise<TwitterApi> {
+  const clientId = process.env.TWITTER_CLIENT_ID?.trim()
+  const clientSecret = process.env.TWITTER_CLIENT_SECRET?.trim()
+  const refreshToken = process.env.TWITTER_REFRESH_TOKEN?.trim()
+
+  if (clientId && clientSecret && refreshToken) {
+    const oauthClient = new TwitterApi({ clientId, clientSecret })
+    const refreshed = await oauthClient.refreshOAuth2Token(refreshToken)
+
+    logger.info('Refreshed Twitter OAuth 2.0 user authorization', 'Twitter', {
+      scopes: refreshed.scope,
+    })
+
+    if (refreshed.refreshToken && refreshed.refreshToken !== refreshToken) {
+      await addSecretVersion('TWITTER_REFRESH_TOKEN', refreshed.refreshToken)
+      logger.info('Stored rotated Twitter refresh token', 'Twitter')
+    }
+
+    return refreshed.client
+  }
+
+  return new TwitterApi({
+    appKey: process.env.TWITTER_API_KEY as string,
+    appSecret: process.env.TWITTER_API_SECRET as string,
+    accessToken: process.env.TWITTER_ACCESS_TOKEN as string,
+    accessSecret: process.env.TWITTER_ACCESS_SECRET as string,
+  })
+}
 
 export function getTwitterErrorStatus(error: unknown): number | undefined {
   const candidate =
@@ -59,15 +89,22 @@ export async function postToTwitter(
       )
     }
 
-    const canUpload = Boolean(
+    const hasOAuth2User = Boolean(
+      process.env.TWITTER_CLIENT_ID &&
+        process.env.TWITTER_CLIENT_SECRET &&
+        process.env.TWITTER_REFRESH_TOKEN
+    )
+    const hasOAuth1User = Boolean(
       process.env.TWITTER_API_KEY &&
         process.env.TWITTER_API_SECRET &&
         process.env.TWITTER_ACCESS_TOKEN &&
         process.env.TWITTER_ACCESS_SECRET
     )
+    const canUpload = hasOAuth2User || hasOAuth1User
 
     logger.info('Posting to Twitter', 'Twitter', {
       canUpload,
+      authMode: hasOAuth2User ? 'oauth2-user' : hasOAuth1User ? 'oauth1-user' : 'bearer',
       captionLength: caption.length,
     })
 
@@ -77,12 +114,7 @@ export async function postToTwitter(
       postId = await rateLimiters.execute('twitter', async () => {
         return withRetry(
           async () => {
-            const client = new TwitterApi({
-              appKey: process.env.TWITTER_API_KEY as string,
-              appSecret: process.env.TWITTER_API_SECRET as string,
-              accessToken: process.env.TWITTER_ACCESS_TOKEN as string,
-              accessSecret: process.env.TWITTER_ACCESS_SECRET as string,
-            })
+            const client = await createTwitterUserClient()
             const rwClient = client.readWrite
 
             // Check memory before downloading video
