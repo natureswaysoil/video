@@ -186,20 +186,21 @@ async function createHeyGenVideo(apiKey, product, script) {
   }
   
   const payload = {
+    type: 'avatar',
+    avatar_id: avatar,
     script,
-    avatar,
-    voice,
-    lengthSeconds: durationSeconds,
-    music: { style: 'acoustic_nature', volume: 0.18 },
-    subtitles: { enabled: true, style: 'short_lines' },
-    webhook: process.env.HEYGEN_WEBHOOK_URL || undefined,
+    voice_id: voice,
+    voice_settings: { speed: 1.0 },
+    resolution: '1080p',
+    aspect_ratio: '9:16',
+    callback_url: process.env.HEYGEN_WEBHOOK_URL || undefined,
     title: `${product.title || product.name || 'Product Video'}`,
   }
   
   console.log(`🎬 Creating HeyGen video (${durationSeconds}s, avatar: ${avatar}, voice: ${voice})...`)
   
   const response = await axios.post(
-    `${apiEndpoint}/v1/video.generate`,
+    `${apiEndpoint}/v3/videos`,
     payload,
     {
       headers: {
@@ -230,7 +231,7 @@ async function pollForVideoUrl(apiKey, heygenJobId) {
   while (Date.now() - start < timeoutMs) {
     try {
       const response = await axios.get(
-        `${apiEndpoint}/v1/video_status.get?video_id=${heygenJobId}`,
+        `${apiEndpoint}/v3/videos/${encodeURIComponent(heygenJobId)}`,
         {
           headers: { 'X-Api-Key': apiKey },
           timeout: 30000
@@ -248,7 +249,7 @@ async function pollForVideoUrl(apiKey, heygenJobId) {
       }
       
       if (status.includes('fail') || status === 'error') {
-        throw new Error(`HeyGen job failed: ${data?.error || data?.error_message || 'Unknown error'}`)
+        throw new Error(`HeyGen job failed: ${data?.failure_message || data?.error || data?.error_message || 'Unknown error'}`)
       }
       
       // Still processing

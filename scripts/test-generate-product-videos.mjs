@@ -28,6 +28,8 @@ try {
     { name: 'Google Secret Manager support', pattern: /GCP_SECRET_HEYGEN_API_KEY/ },
     { name: 'Single product processing', pattern: /Found 1 product to process/ },
     { name: 'HeyGen video creation', pattern: /createHeyGenVideo/ },
+    { name: 'HeyGen V3 create endpoint', pattern: /\/v3\/videos/ },
+    { name: 'No legacy HeyGen video endpoints', pattern: /\/v1\/video|\/v2\/video/, shouldNotExist: true },
     { name: 'No FFmpeg installation/fallback code', pattern: /falling back to FFmpeg|install.*ffmpeg|ffmpeg.*not.*installed/i, shouldNotExist: true },
     { name: 'OpenAI script generation', pattern: /generateScript/ },
     { name: 'Video URL write-back', pattern: /writeVideoUrlToSheet/ },

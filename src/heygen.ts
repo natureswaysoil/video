@@ -267,15 +267,22 @@ export class HeyGenClient {
   private async resolveId(kind: 'avatars' | 'voices', requested: string): Promise<string> {
     if (!requested) throw new Error(`A HeyGen ${kind === 'avatars' ? 'avatar' : 'voice'} is required`)
     try {
-      const response = await this.client.get(`/v2/${kind}`, { timeout: 30_000 })
-      const items = response.data?.data?.[kind] || response.data?.[kind] || []
-      const idKey = kind === 'avatars' ? 'avatar_id' : 'voice_id'
-      const nameKey = kind === 'avatars' ? 'avatar_name' : 'name'
+      const endpoint = kind === 'avatars' ? '/v3/avatars/looks' : '/v3/voices'
+      const response = await this.client.get(endpoint, {
+        params: { limit: kind === 'avatars' ? 50 : 100 },
+        timeout: 30_000,
+      })
+      const data = response.data?.data || response.data || {}
+      const items = data.items || data.looks || data.voices || []
+      const legacyIdKey = kind === 'avatars' ? 'avatar_id' : 'voice_id'
+      const legacyNameKey = kind === 'avatars' ? 'avatar_name' : 'voice_name'
       const lowered = requested.toLowerCase()
-      const match = items.find((item: any) => item[idKey] === requested)
-        || items.find((item: any) => String(item[nameKey] || '').toLowerCase() === lowered)
-        || items.find((item: any) => String(item[nameKey] || '').toLowerCase().includes(lowered))
-      return match?.[idKey] || requested
+      const itemId = (item: any) => item?.id || item?.[legacyIdKey]
+      const itemName = (item: any) => item?.name || item?.[legacyNameKey] || ''
+      const match = items.find((item: any) => itemId(item) === requested)
+        || items.find((item: any) => String(itemName(item)).toLowerCase() === lowered)
+        || items.find((item: any) => String(itemName(item)).toLowerCase().includes(lowered))
+      return itemId(match) || requested
     } catch (error: any) {
       console.warn(`Could not list HeyGen ${kind}:`, error?.message || error)
       return requested
@@ -288,13 +295,23 @@ export class HeyGenClient {
 
     const avatarId = await this.resolveId('avatars', payload.avatar || process.env.HEYGEN_DEFAULT_AVATAR || '')
     const voiceId = await this.resolveId('voices', payload.voice || process.env.HEYGEN_DEFAULT_VOICE || '')
-    const videoInputs = payload.scenes?.length
-      ? payload.scenes.map((scene: any) => this.videoInput(avatarId, voiceId, scene.avatarText || script, scene.brollUrl || payload.imageUrl))
-      : [this.videoInput(avatarId, voiceId, script, payload.imageUrl)]
+    const sceneScript = payload.scenes?.length
+      ? payload.scenes.map((scene: any) => scene.avatarText).filter(Boolean).join(' ')
+      : script
+    const backgroundUrl = payload.imageUrl
+    const background = backgroundUrl
+      ? { type: 'image', url: backgroundUrl }
+      : { type: 'color', value: '#1a3a1a' }
 
-    const response = await this.client.post('/v2/video/generate', {
-      video_inputs: videoInputs,
-      dimension: { width: 720, height: 1280 },
+    const response = await this.client.post('/v3/videos', {
+      type: 'avatar',
+      avatar_id: avatarId,
+      script: sceneScript,
+      voice_id: voiceId,
+      voice_settings: { speed: 1.0 },
+      resolution: '1080p',
+      aspect_ratio: '9:16',
+      background,
       ...(payload.title ? { title: payload.title } : {}),
       ...(payload.webhook ? { callback_url: payload.webhook } : {}),
     })
@@ -303,29 +320,19 @@ export class HeyGenClient {
     return String(jobId)
   }
 
-  private videoInput(avatarId: string, voiceId: string, text: string, backgroundUrl?: string) {
-    return {
-      character: { type: 'avatar', avatar_id: avatarId, avatar_style: 'normal' },
-      voice: { type: 'text', input_text: text, voice_id: voiceId, speed: 1.0 },
-      background: backgroundUrl
-        ? { type: backgroundUrl.match(/\.(mp4|mov|webm)(\?|$)/i) ? 'video' : 'image', url: backgroundUrl }
-        : { type: 'color', value: '#1a3a1a' },
-    }
-  }
-
   async pollJobForVideoUrl(jobId: string, options: { timeoutMs?: number; intervalMs?: number } = {}): Promise<string> {
     const timeoutMs = options.timeoutMs ?? 20 * 60_000
     const intervalMs = options.intervalMs ?? 15_000
     const startedAt = Date.now()
 
     while (Date.now() - startedAt < timeoutMs) {
-      const response = await this.client.get(`/v1/video_status.get?video_id=${encodeURIComponent(jobId)}`)
+      const response = await this.client.get(`/v3/videos/${encodeURIComponent(jobId)}`)
       const data = response.data?.data || response.data || {}
       const status = String(data.status || '').toLowerCase()
       const videoUrl = data.video_url || data.videoUrl || data.url
       if ((status.includes('complet') || status === 'success') && videoUrl) return String(videoUrl)
       if (status.includes('fail') || status === 'error') {
-        throw new Error(`HeyGen job failed: ${data.error || data.error_message || 'unknown error'}`)
+        throw new Error(`HeyGen job failed: ${data.failure_message || data.error || data.error_message || 'unknown error'}`)
       }
       await new Promise(resolve => setTimeout(resolve, intervalMs))
     }
