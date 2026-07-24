@@ -14,6 +14,13 @@ const rateLimiters = getRateLimiters()
 
 // Maximum video size for Twitter (500MB)
 const MAX_VIDEO_SIZE_MB = 500
+const MAX_TWEET_LENGTH = 280
+
+function fitTweetText(value: string): string {
+  const text = value.trim()
+  if (text.length <= MAX_TWEET_LENGTH) return text
+  return `${text.slice(0, MAX_TWEET_LENGTH - 3).trimEnd()}...`
+}
 
 async function createTwitterUserClient(): Promise<TwitterApi> {
   const clientId = process.env.TWITTER_CLIENT_ID?.trim()
@@ -171,8 +178,9 @@ export async function postToTwitter(
 
             // Post tweet with media
             logger.debug('Posting tweet', 'Twitter')
+            const tweetText = fitTweetText(caption)
             const tweetResult = await rwClient.v2.tweet({
-              text: caption,
+              text: tweetText,
               media: { media_ids: [mediaId] },
             })
 
