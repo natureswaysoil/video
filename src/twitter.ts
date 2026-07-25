@@ -36,8 +36,17 @@ async function createTwitterUserClient(): Promise<TwitterApi> {
     })
 
     if (refreshed.refreshToken && refreshed.refreshToken !== refreshToken) {
-      await addSecretVersion('TWITTER_REFRESH_TOKEN', refreshed.refreshToken)
-      logger.info('Stored rotated Twitter refresh token', 'Twitter')
+      try {
+        await addSecretVersion('TWITTER_REFRESH_TOKEN', refreshed.refreshToken)
+        logger.info('Stored rotated Twitter refresh token', 'Twitter')
+      } catch (err: any) {
+        logger.warn(
+          'Could not persist rotated Twitter refresh token to Secret Manager (continuing)',
+          'Twitter',
+          { error: err?.message ?? String(err) }
+        )
+        process.env.TWITTER_REFRESH_TOKEN = refreshed.refreshToken
+      }
     }
 
     return refreshed.client
