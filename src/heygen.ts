@@ -329,7 +329,13 @@ export class HeyGenClient {
       const response = await this.client.get(`/v3/videos/${encodeURIComponent(jobId)}`)
       const data = response.data?.data || response.data || {}
       const status = String(data.status || '').toLowerCase()
-      const videoUrl = data.video_url || data.videoUrl || data.url
+      // V3 returns separate rendered assets. Prefer the burned-in caption
+      // version so social posts retain subtitles and the closing CTA.
+      const videoUrl = data.captioned_video_url
+        || data.captionedVideoUrl
+        || data.video_url
+        || data.videoUrl
+        || data.url
       if ((status.includes('complet') || status === 'success') && videoUrl) return String(videoUrl)
       if (status.includes('fail') || status === 'error') {
         throw new Error(`HeyGen job failed: ${data.failure_message || data.error || data.error_message || 'unknown error'}`)
