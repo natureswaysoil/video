@@ -3,16 +3,38 @@ name: Nature's Way Soil Video Automation
 on:
   workflow_dispatch:
   schedule:
-    # GitHub Actions uses UTC time.
-    # Five daily posting slots (~ET): 7:00 AM, 8:15 AM, 11:30 AM, 1:00 PM, 6:15 PM
-    - cron: '0 11 * * *'
-    - cron: '15 12 * * *'
-    - cron: '30 15 * * *'
-    - cron: '0 17 * * *'
-    - cron: '15 22 * * *'
+    # GitHub cron is UTC and has no timezone/DST support. Trigger both
+    # Eastern-time candidates; schedule-gate permits only 9 AM or 6 PM ET.
+    - cron: '0 13 * * *'
+    - cron: '0 14 * * *'
+    - cron: '0 22 * * *'
+    - cron: '0 23 * * *'
 
 jobs:
+  schedule-gate:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+    steps:
+      - name: Permit manual runs or 9 AM / 6 PM Eastern
+        id: gate
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          eastern_hour="$(TZ=America/New_York date +%H)"
+          if [ "$eastern_hour" = "09" ] || [ "$eastern_hour" = "18" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   video-automation:
+    needs: schedule-gate
+    if: needs.schedule-gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
