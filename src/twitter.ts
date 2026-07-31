@@ -26,30 +26,51 @@ async function createTwitterUserClient(): Promise<TwitterApi> {
   const clientId = process.env.TWITTER_CLIENT_ID?.trim()
   const clientSecret = process.env.TWITTER_CLIENT_SECRET?.trim()
   const refreshToken = process.env.TWITTER_REFRESH_TOKEN?.trim()
+  const hasOAuth1User = Boolean(
+    process.env.TWITTER_API_KEY?.trim() &&
+      process.env.TWITTER_API_SECRET?.trim() &&
+      process.env.TWITTER_ACCESS_TOKEN?.trim() &&
+      process.env.TWITTER_ACCESS_SECRET?.trim()
+  )
 
   if (clientId && clientSecret && refreshToken) {
-    const oauthClient = new TwitterApi({ clientId, clientSecret })
-    const refreshed = await oauthClient.refreshOAuth2Token(refreshToken)
+    try {
+      const oauthClient = new TwitterApi({ clientId, clientSecret })
+      const refreshed = await oauthClient.refreshOAuth2Token(refreshToken)
 
-    logger.info('Refreshed Twitter OAuth 2.0 user authorization', 'Twitter', {
-      scopes: refreshed.scope,
-    })
+      logger.info('Refreshed Twitter OAuth 2.0 user authorization', 'Twitter', {
+        scopes: refreshed.scope,
+      })
 
-    if (refreshed.refreshToken && refreshed.refreshToken !== refreshToken) {
-      try {
-        await addSecretVersion('TWITTER_REFRESH_TOKEN', refreshed.refreshToken)
-        logger.info('Stored rotated Twitter refresh token', 'Twitter')
-      } catch (err: any) {
-        logger.warn(
-          'Could not persist rotated Twitter refresh token to Secret Manager (continuing)',
-          'Twitter',
-          { error: err?.message ?? String(err) }
-        )
+      if (refreshed.refreshToken && refreshed.refreshToken !== refreshToken) {
+        // X refresh tokens rotate. Update this process immediately so a second
+        // post cannot reuse the token that was just invalidated.
         process.env.TWITTER_REFRESH_TOKEN = refreshed.refreshToken
-      }
-    }
 
-    return refreshed.client
+        try {
+          await addSecretVersion('TWITTER_REFRESH_TOKEN', refreshed.refreshToken)
+          logger.info('Stored rotated Twitter refresh token', 'Twitter')
+        } catch (err: any) {
+          logger.warn(
+            'Could not persist rotated Twitter refresh token to Secret Manager (continuing)',
+            'Twitter',
+            { error: err?.message ?? String(err) }
+          )
+        }
+      }
+
+      return refreshed.client
+    } catch (error) {
+      if (!hasOAuth1User || !isInvalidTwitterOAuth2TokenError(error)) {
+        throw error
+      }
+
+      logger.warn(
+        'Twitter OAuth 2.0 refresh token is invalid; falling back to OAuth 1.0a credentials',
+        'Twitter',
+        { status: getTwitterErrorStatus(error) }
+      )
+    }
   }
 
   return new TwitterApi({
@@ -67,6 +88,19 @@ export function getTwitterErrorStatus(error: unknown): number | undefined {
     (error as any)?.code
   const status = Number(candidate)
   return Number.isFinite(status) ? status : undefined
+}
+
+export function isInvalidTwitterOAuth2TokenError(error: unknown): boolean {
+  const status = getTwitterErrorStatus(error)
+  if (status !== 400 && status !== 401) return false
+
+  const data = (error as any)?.data ?? (error as any)?.response?.data
+  const details = JSON.stringify(data ?? '').toLowerCase()
+  return (
+    details.includes('invalid_request') ||
+    details.includes('token was invalid') ||
+    details.includes('"code":131')
+  )
 }
 
 export function isRetryableTwitterError(error: unknown): boolean {
