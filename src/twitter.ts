@@ -16,42 +16,33 @@ const rateLimiters = getRateLimiters()
 const MAX_VIDEO_SIZE_MB = 500
 const MAX_TWEET_LENGTH = 280
 
-function fitTweetText(value: string): string {
+export function fitTweetText(value: string): string {
   const text = value.trim()
   if (text.length <= MAX_TWEET_LENGTH) return text
   return `${text.slice(0, MAX_TWEET_LENGTH - 3).trimEnd()}...`
 }
 
-async function createTwitterUserClient(): Promise<TwitterApi> {
-  const clientId = process.env.TWITTER_CLIENT_ID?.trim()
-  const clientSecret = process.env.TWITTER_CLIENT_SECRET?.trim()
-  const refreshToken = process.env.TWITTER_REFRESH_TOKEN?.trim()
+export function fitTweetTextWithUrl(caption: string, url: string): string {
+  const suffix = `\n${url.trim()}`
+  const available = MAX_TWEET_LENGTH - suffix.length
+  if (available <= 3) return fitTweetText(url)
+  const text = caption.trim()
+  const fitted = text.length <= available
+    ? text
+    : `${text.slice(0, available - 3).trimEnd()}...`
+  return `${fitted}${suffix}`
+}
 
-  if (clientId && clientSecret && refreshToken) {
-    const oauthClient = new TwitterApi({ clientId, clientSecret })
-    const refreshed = await oauthClient.refreshOAuth2Token(refreshToken)
+function hasOAuth1UserCredentials(): boolean {
+  return Boolean(
+    process.env.TWITTER_API_KEY?.trim() &&
+    process.env.TWITTER_API_SECRET?.trim() &&
+    process.env.TWITTER_ACCESS_TOKEN?.trim() &&
+    process.env.TWITTER_ACCESS_SECRET?.trim()
+  )
+}
 
-    logger.info('Refreshed Twitter OAuth 2.0 user authorization', 'Twitter', {
-      scopes: refreshed.scope,
-    })
-
-    if (refreshed.refreshToken && refreshed.refreshToken !== refreshToken) {
-      try {
-        await addSecretVersion('TWITTER_REFRESH_TOKEN', refreshed.refreshToken)
-        logger.info('Stored rotated Twitter refresh token', 'Twitter')
-      } catch (err: any) {
-        logger.warn(
-          'Could not persist rotated Twitter refresh token to Secret Manager (continuing)',
-          'Twitter',
-          { error: err?.message ?? String(err) }
-        )
-        process.env.TWITTER_REFRESH_TOKEN = refreshed.refreshToken
-      }
-    }
-
-    return refreshed.client
-  }
-
+function createTwitterOAuth1Client(): TwitterApi {
   return new TwitterApi({
     appKey: process.env.TWITTER_API_KEY as string,
     appSecret: process.env.TWITTER_API_SECRET as string,
@@ -60,6 +51,36 @@ async function createTwitterUserClient(): Promise<TwitterApi> {
   })
 }
 
+async function createTwitterUserClient(): Promise<TwitterApi> {
+  const clientId = process.env.TWITTER_CLIENT_ID?.trim()
+  const clientSecret = process.env.TWITTER_CLIENT_SECRET?.trim()
+  const refreshToken = process.env.TWITTER_REFRESH_TOKEN?.trim()
+
+  if (clientId && clientSecret && refreshToken) {
+    try {
+      const oauthClient = new TwitterApi({ clientId, clientSecret })
+      const refreshed = await oauthClient.refreshOAuth2Token(refreshToken)
+      logger.info('Refreshed Twitter OAuth 2.0 user authorization', 'Twitter', { scopes: refreshed.scope })
+
+      if (refreshed.refreshToken && refreshed.refreshToken !== refreshToken) {
+        process.env.TWITTER_REFRESH_TOKEN = refreshed.refreshToken
+        try {
+          await addSecretVersion('TWITTER_REFRESH_TOKEN', refreshed.refreshToken)
+          logger.info('Stored rotated Twitter refresh token', 'Twitter')
+        } catch (err: any) {
+          logger.warn('Could not persist rotated Twitter refresh token to Secret Manager (continuing)', 'Twitter', { error: err?.message ?? String(err) })
+        }
+      }
+      return refreshed.client
+    } catch (error: any) {
+      if (!hasOAuth1UserCredentials()) throw error
+      logger.warn('Twitter OAuth 2.0 refresh failed; falling back to OAuth 1.0a user credentials', 'Twitter', { status: getTwitterErrorStatus(error), error: error?.message ?? String(error) })
+      return createTwitterOAuth1Client()
+    }
+  }
+
+  return createTwitterOAuth1Client()
+}
 export function getTwitterErrorStatus(error: unknown): number | undefined {
   const candidate =
     (error as any)?.response?.status ??
@@ -223,7 +244,7 @@ export async function postToTwitter(
           async () => {
             const res = await axios.post(
               'https://api.twitter.com/2/tweets',
-              { text: `${caption}\n${videoUrl}` },
+              { text: fitTweetTextWithUrl(caption, videoUrl) },
               {
                 headers: { Authorization: `Bearer ${bearerToken}` },
                 timeout: config.TIMEOUT_SOCIAL_POST,
