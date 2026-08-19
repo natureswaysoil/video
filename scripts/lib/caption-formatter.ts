@@ -21,8 +21,23 @@ function hashtags(platform: CaptionPlatform) {
   return ['#NaturesWaySoil', '#SoilHealth', '#LawnCare', '#Gardening']
 }
 
-function siteCta() {
-  return `Learn more: ${SITE_URL}`
+function trackedLandingUrl(product: any, platform: CaptionPlatform) {
+  const productId = String(product?.id || '').trim()
+  const configured = String(product?.websiteUrl || '').trim()
+  const destination = productId === 'NWS_014'
+    ? `${SITE_URL}/dog-urine-lawn-repair`
+    : configured || SITE_URL
+  const url = new URL(destination.startsWith('http') ? destination : `${SITE_URL}${destination.startsWith('/') ? '' : '/'}${destination}`)
+  url.searchParams.set('utm_source', platform)
+  url.searchParams.set('utm_medium', 'organic_social')
+  url.searchParams.set('utm_campaign', productId ? `product_${productId.toLowerCase()}` : 'scheduled_product_video')
+  url.searchParams.set('utm_content', 'scheduled_video')
+  return url.toString()
+}
+
+function siteCta(product: any, platform: CaptionPlatform) {
+  const url = trackedLandingUrl(product, platform)
+  return platform === 'instagram' ? `Shop through the link in our bio: ${url}` : `Shop direct: ${url}`
 }
 
 export function formatCaption(product: any, scenePlan: any, platform: CaptionPlatform) {
@@ -32,21 +47,21 @@ export function formatCaption(product: any, scenePlan: any, platform: CaptionPla
   const tags = hashtags(platform).join(' ')
 
   if (platform === 'youtube') {
-    const lines = [title, description, siteCta(), tags]
+    const lines = [title, description, siteCta(product, platform), tags]
     return clamp(lines.filter(Boolean).join('\n\n'), 5000)
   }
 
   if (platform === 'instagram') {
-    const lines = [title, hook || description, siteCta(), tags]
+    const lines = [title, hook || description, siteCta(product, platform), tags]
     return clamp(lines.filter(Boolean).join('\n\n'), 2200)
   }
 
   if (platform === 'tiktok') {
     const firstLine = hook || `Soil-first support with ${title}`
-    const lines = [`${firstLine}\n${siteCta()}`, description, tags]
+    const lines = [`${firstLine}\n${siteCta(product, platform)}`, description, tags]
     return clamp(lines.filter(Boolean).join('\n\n'), 2200)
   }
 
-  const lines = [title, description, `See full details at ${SITE_URL}.`, tags]
+  const lines = [title, description, siteCta(product, platform), tags]
   return clamp(lines.filter(Boolean).join('\n\n'), 63206)
 }
