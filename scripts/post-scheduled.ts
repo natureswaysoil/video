@@ -9,6 +9,7 @@ import { google } from 'googleapis'
 import { Storage } from '@google-cloud/storage'
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager'
 import { composeVerticalAd } from './lib/ffmpeg-compositor'
+import { validateMarketingVideo } from './lib/video-quality-gate'
 import { buildSceneQueryPriority, fetchBrollForScene } from './lib/pexels-media'
 import { downloadProductImage, productOverlayText } from './lib/product-assets'
 import { ensureDir, safeFileName } from './lib/video-utils'
@@ -557,7 +558,7 @@ async function renderVideo(product: Product, profile: CreativeProfile, scenePlan
     productImage,
     voiceoverFile,
     captionText: hookText(product, scenePlan),
-    overlayText: productOverlayText(product)
+    overlayText: `${productOverlayText(product)}\nSHOP NATURESWAYSOIL.COM`
   })
   log('Rendered b-roll Ken Burns video', {
     videoFile,
@@ -608,6 +609,8 @@ async function main() {
     return
   }
   const videoFile = await renderVideo(product, profile, scenePlan)
+  const quality = validateMarketingVideo(videoFile)
+  log('Marketing video passed pre-upload quality gate', quality)
   const thumbnailFile = createThumbnail(videoFile, product)
 
   // Dry-run posting mode: video rendered, but skip all social publishing API calls.
