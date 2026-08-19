@@ -24,9 +24,14 @@ function hashtags(platform: CaptionPlatform) {
 function trackedLandingUrl(product: any, platform: CaptionPlatform) {
   const productId = String(product?.id || '').trim()
   const configured = String(product?.websiteUrl || '').trim()
-  const destination = productId === 'NWS_014'
-    ? `${SITE_URL}/dog-urine-lawn-repair`
-    : configured || SITE_URL
+  const funnelByProduct: Record<string, string> = {
+    NWS_014: '/dog-urine-lawn-repair',
+    NWS_002: '/liquid-biochar-soil-restoration',
+    NWS_021: '/pasture-lawn-recovery',
+    NWS_022: '/pasture-lawn-recovery',
+  }
+  const funnel = funnelByProduct[productId]
+  const destination = funnel ? `${SITE_URL}${funnel}` : configured || SITE_URL
   const url = new URL(destination.startsWith('http') ? destination : `${SITE_URL}${destination.startsWith('/') ? '' : '/'}${destination}`)
   url.searchParams.set('utm_source', platform)
   url.searchParams.set('utm_medium', 'organic_social')
