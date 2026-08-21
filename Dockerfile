@@ -13,8 +13,8 @@ RUN npm run build
 FROM node:20-slim
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apt-get update \\
-    && apt-get install -y --no-install-recommends ffmpeg \\
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/package*.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
