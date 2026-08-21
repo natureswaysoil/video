@@ -298,10 +298,12 @@ export class HeyGenClient {
     const sceneScript = payload.scenes?.length
       ? payload.scenes.map((scene: any) => scene.avatarText).filter(Boolean).join(' ')
       : script
+    // Never generate the old solid-green placeholder. A real branded visual is
+    // required so an otherwise valid avatar render cannot become a green video.
     const backgroundUrl = payload.imageUrl
-    const background = backgroundUrl
-      ? { type: 'image', url: backgroundUrl }
-      : { type: 'color', value: '#1a3a1a' }
+      || process.env.HEYGEN_BACKGROUND_IMAGE_URL
+      || 'https://www.natureswaysoil.com/images/hero-poster.jpg'
+    const background = { type: 'image', url: backgroundUrl }
 
     const response = await this.client.post('/v3/videos', {
       type: 'avatar',
