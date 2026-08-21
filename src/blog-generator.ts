@@ -11,6 +11,7 @@ import { postToYouTube } from './youtube'
 import { postToInstagram } from './instagram'
 import { postToTwitter } from './twitter'
 import { postToPinterest } from './pinterest'
+import { validateRemoteMarketingVideo } from './video-quality-gate'
 import OpenAI from 'openai'
 
 const openai = new OpenAI({
