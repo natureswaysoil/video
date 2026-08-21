@@ -195,6 +195,8 @@ export async function generateBlogVideo(blogPost: BlogPost): Promise<string | nu
     })
     
     if (videoUrl) {
+      const quality = await validateRemoteMarketingVideo(videoUrl)
+      console.log('Final HeyGen MP4 passed mandatory quality validation:', quality)
       console.log(`âœ… Video ready: ${videoUrl}`)
       return videoUrl
     } else {
@@ -585,6 +587,8 @@ export async function runBlogGeneration() {
     // Step 5: Post to social media (if video was generated)
     let socialResults: any = {}
     if (videoUrl) {
+      const quality = await validateRemoteMarketingVideo(videoUrl)
+      console.log('Final HeyGen MP4 passed mandatory quality validation:', quality)
       socialResults = await postBlogVideoToSocial(blogPost, videoUrl)
     } else {
       console.log('\nâ­ï¸  Skipping social media posting - no video generated')
