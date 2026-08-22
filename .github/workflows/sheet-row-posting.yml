@@ -3,11 +3,37 @@ name: Google Sheet Row Social Video Posting
 on:
   workflow_dispatch:
   schedule:
-    # GitHub Actions uses UTC. This is 8:00 AM ET during daylight time.
-    - cron: '0 12 * * *'
+    # GitHub cron is UTC and has no timezone/DST support. Trigger both
+    # Eastern-time candidates; the gate below permits only 9 AM / 6 PM ET.
+    - cron: '0 13 * * *'
+    - cron: '0 14 * * *'
+    - cron: '0 22 * * *'
+    - cron: '0 23 * * *'
 
 jobs:
+  schedule-gate:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+    steps:
+      - name: Permit manual runs or 9 AM / 6 PM Eastern
+        id: gate
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          eastern_hour="$(TZ=America/New_York date +%H)"
+          if [ "$eastern_hour" = "09" ] || [ "$eastern_hour" = "18" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   post-sheet-row:
+    needs: schedule-gate
+    if: needs.schedule-gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -20,7 +46,10 @@ jobs:
       GOOGLE_CLOUD_PROJECT: natureswaysoil-video
       SHEET_CSV_URL: https://docs.google.com/spreadsheets/d/1dtUYrSy18_D2updwCpVa5wXfgf0hzAXaiQTQqMQnrSc/export?format=csv&gid=916620075
       SHEET_ROW_STATE_FILE: data/sheet-row-state.json
-      ENABLE_PLATFORMS: youtube,instagram,facebook,facebook_groups
+      # Core placements: YouTube Shorts, Instagram Reels, Facebook/Reels and groups.
+      # TikTok and X are enabled too; their posting modules skip cleanly when
+      # credentials are not configured rather than blocking the core platforms.
+      ENABLE_PLATFORMS: youtube,instagram,facebook,facebook_groups,tiktok,twitter
       CI_MANDATORY_PLATFORMS: 'false'
       YT_PRIVACY_STATUS: public
       DRY_RUN_LOG_ONLY: 'false'
@@ -89,6 +118,9 @@ jobs:
         run: |
           npm ci
           test -f node_modules/gaxios/build/cjs/src/index.js
+
+      - name: Type-check production code
+        run: npm run typecheck
 
       - name: Run Google Sheet row post
         run: npm run post:sheet-row
