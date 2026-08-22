@@ -1,40 +1,12 @@
 name: Nature's Way Soil Video Automation
 
 on:
+  # Keep the legacy test campaign available for manual diagnostics only.
+  # Production social posting is handled by sheet-row-posting.yml.
   workflow_dispatch:
-  schedule:
-    # GitHub cron is UTC and has no timezone/DST support. Trigger both
-    # Eastern-time candidates; schedule-gate permits only 9 AM or 6 PM ET.
-    - cron: '0 13 * * *'
-    - cron: '0 14 * * *'
-    - cron: '0 22 * * *'
-    - cron: '0 23 * * *'
 
 jobs:
-  schedule-gate:
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.gate.outputs.should_run }}
-    steps:
-      - name: Permit manual runs or 9 AM / 6 PM Eastern
-        id: gate
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          eastern_hour="$(TZ=America/New_York date +%H)"
-          if [ "$eastern_hour" = "09" ] || [ "$eastern_hour" = "18" ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-          fi
-
   video-automation:
-    needs: schedule-gate
-    if: needs.schedule-gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -42,9 +14,6 @@ jobs:
       TEST_VIDEO_CAMPAIGN_MODE: 'true'
       TEST_VIDEOS_DIR: test-campaign-videos
       DEFAULT_GOOGLE_CLOUD_PROJECT: natureswaysoil-video
-      # Serve videos directly from the repo so the workflow never depends on Supabase storage.
-      # The four test-campaign .mp4 files are committed as regular git blobs (not LFS objects),
-      # so raw.githubusercontent.com returns actual video bytes for each one.
       TEST_VIDEO_PUBLIC_BASE_URL: 'https://raw.githubusercontent.com/natureswaysoil/video/main/test-campaign-videos'
       ENABLE_PLATFORMS: 'twitter'
 
@@ -61,35 +30,27 @@ jobs:
           GOOGLE_CLOUD_PROJECT_SECRET: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
         run: |
           set -euo pipefail
-
           CREDS_JSON="${GOOGLE_CREDENTIALS:-}"
           if [ -z "$CREDS_JSON" ]; then
             CREDS_JSON="${GOOGLE_SERVICE_ACCOUNT_JSON:-}"
           fi
-
           if [ -z "$CREDS_JSON" ]; then
             echo "::error::Missing Google service account secret. Set GOOGLE_CREDENTIALS (preferred) or GOOGLE_SERVICE_ACCOUNT_JSON."
             exit 1
           fi
-
           CREDS_PATH="$RUNNER_TEMP/gcp-service-account.json"
           printf '%s' "$CREDS_JSON" > "$CREDS_PATH"
           chmod 600 "$CREDS_PATH"
-
           PROJECT_FROM_JSON="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("project_id", ""))' "$CREDS_PATH" || true)"
           SERVICE_ACCOUNT_EMAIL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("client_email", ""))' "$CREDS_PATH" || true)"
           EFFECTIVE_PROJECT="${GOOGLE_CLOUD_PROJECT_SECRET:-$PROJECT_FROM_JSON}"
-          if [ -z "$EFFECTIVE_PROJECT" ]; then
-            EFFECTIVE_PROJECT="$DEFAULT_GOOGLE_CLOUD_PROJECT"
-          fi
-
+          if [ -z "$EFFECTIVE_PROJECT" ]; then EFFECTIVE_PROJECT="$DEFAULT_GOOGLE_CLOUD_PROJECT"; fi
           {
             echo "GOOGLE_APPLICATION_CREDENTIALS=$CREDS_PATH"
             echo "GOOGLE_CLOUD_PROJECT=$EFFECTIVE_PROJECT"
             echo "GCLOUD_PROJECT=$EFFECTIVE_PROJECT"
             echo "GCP_PROJECT=$EFFECTIVE_PROJECT"
           } >> "$GITHUB_ENV"
-
           echo "Using Google Cloud project: $EFFECTIVE_PROJECT"
           echo "Using Google service account: ${SERVICE_ACCOUNT_EMAIL:-unknown}"
 
@@ -113,5 +74,5 @@ jobs:
           test -d "$TEST_VIDEOS_DIR"
           ls -1 "$TEST_VIDEOS_DIR"/*.mp4
 
-      - name: Run test-video campaign (rotation mode)
+      - name: Run test-video campaign (manual diagnostics only)
         run: npm run run:test-campaign
