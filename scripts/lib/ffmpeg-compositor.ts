@@ -49,7 +49,7 @@ function makeSceneClip(file: string, index: number, seconds: number, kind: strin
     // contain product over a blurred, cover-filled background of itself
     run([
       'ffmpeg -y -loglevel error',
-      '-loop 1',
+      '-stream_loop -1',
       `-i "${file}"`,
       `-filter_complex "` +
         `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=40:2[bg];` +
@@ -69,11 +69,11 @@ function makeSceneClip(file: string, index: number, seconds: number, kind: strin
     const move = index % 3 === 0
       ? "zoompan=z='min(zoom+0.0018,1.16)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
       : index % 3 === 1
-        ? `zoompan=z='1.12':x='(iw-iw/zoom)*on/${frames}':y='ih/2-(ih/zoom/2)'`            // pan right
-        : `zoompan=z='1.12':x='(iw-iw/zoom)*(1-on/${frames})':y='ih/2-(ih/zoom/2)'`        // pan left
+        ? `zoompan=z='1.12':x='(iw-iw/zoom)*on/${frames}':y='ih/2-(ih/zoom/2)'`
+        : `zoompan=z='1.12':x='(iw-iw/zoom)*(1-on/${frames})':y='ih/2-(ih/zoom/2)'`
     run([
       'ffmpeg -y -loglevel error',
-      '-loop 1',
+      '-stream_loop -1',
       `-i "${file}"`,
       `-vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,${move}:d=${frames}:s=1080x1920:fps=30,format=yuv420p"`,
       '-an -r 30',
@@ -94,7 +94,6 @@ function makeSceneClip(file: string, index: number, seconds: number, kind: strin
   ].join(' '))
   return clip
 }
-
 
 // ---------------------------------------------------------------------------
 // Optional background music. Drop a royalty-free track at music/ (or set
@@ -192,7 +191,7 @@ export async function composeVerticalAd(input: any) {
   let nextInput = 1
 
   if (input.productImage && !hasProductScene && fs.existsSync(input.productImage)) {
-    inputs.push(`-loop 1 -i "${input.productImage}"`)
+    inputs.push(`-stream_loop -1 -i "${input.productImage}"`)
     chains.push(`[${nextInput}:v]scale=430:-1[prod]`)
     chains.push(`[${vlabel}][prod]overlay=40:H-h-80:enable='between(t,1,999)'[vwm]`)
     vlabel = 'vwm'
