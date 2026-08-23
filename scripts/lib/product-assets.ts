@@ -2,7 +2,7 @@
 import axios from 'axios'
 import fs from 'fs'
 import path from 'path'
-import { ensureDir, safeFileName } from './video-utils'
+import { ensureDir, hasUsableFile, safeFileName } from './video-utils'
 
 const ROOT = process.cwd()
 const PRODUCT_ASSET_DIR = path.resolve(ROOT, 'assets/products')
@@ -15,7 +15,7 @@ export function localProductImage(product: any) {
     path.resolve(PRODUCT_ASSET_DIR, `${safeFileName(product.name, 'png')}`),
     path.resolve(PRODUCT_ASSET_DIR, `${safeFileName(product.name, 'jpg')}`)
   ]
-  return candidates.find((file) => fs.existsSync(file)) || ''
+  return candidates.find((file) => hasUsableFile(file)) || ''
 }
 
 function encodeUrlPath(url: string) {
@@ -65,9 +65,11 @@ export async function downloadProductImage(product: any, outputDir: string) {
     await new Promise((resolve, reject) => {
       const writer = fs.createWriteStream(output)
       response.data.pipe(writer)
-      writer.on('finish', resolve)
+      writer.on('close', resolve)
       writer.on('error', reject)
+      response.data.on('error', reject)
     })
+    if (!hasUsableFile(output)) throw new Error('downloaded product image is empty or missing')
     return output
   } catch (error: any) {
     console.log('Product image skipped; continuing with b-roll only', {

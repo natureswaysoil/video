@@ -6,7 +6,31 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.postBlogArticle = postBlogArticle;
 exports.validateGitHubToken = validateGitHubToken;
 const axios_1 = __importDefault(require("axios"));
-const openai_1 = require("./openai");
+function generateBlogArticle(articleData) {
+    const title = `${articleData.productTitle}: Product Spotlight`;
+    const description = articleData.productDescription || `${articleData.productTitle} from Nature's Way Soil.`;
+    const excerpt = `${articleData.productTitle} is designed for customers who want practical soil and plant support as part of a regular care routine.`;
+    const content = [
+        `# ${title}`,
+        '',
+        description,
+        '',
+        `Nature's Way Soil focuses on practical products for lawns, gardens, landscapes, and small farms. ${articleData.productTitle} gives customers a simple way to support the soil and root zone while keeping application straightforward.`,
+        '',
+        articleData.productUrl ? `Learn more: ${articleData.productUrl}` : 'Learn more at natureswaysoil.com.',
+        articleData.videoUrl ? `Video: ${articleData.videoUrl}` : '',
+    ].filter(Boolean).join('\n');
+    return {
+        id: `article_${Date.now()}`,
+        title,
+        excerpt,
+        content,
+        category: 'Product Spotlight',
+        featuredImage: articleData.videoUrl.replace('.mp4', '-thumbnail.jpg'),
+        tags: extractTags(articleData.productTitle),
+        metaDescription: excerpt.substring(0, 160),
+    };
+}
 /**
  * Post a new blog article to the Nature's Way Soil website
  * Uses GitHub API to update blog_articles.json
@@ -14,9 +38,7 @@ const openai_1 = require("./openai");
 async function postBlogArticle(articleData, githubToken, repo = 'natureswaysoil/coplit-built', branch = 'main') {
     try {
         console.log('📝 Generating blog article for:', articleData.productTitle);
-        // Step 1: Generate article content with OpenAI
-        const article = await (0, openai_1.generateBlogArticle)(articleData);
-        // Step 2: Fetch current blog_articles.json from GitHub
+        const article = generateBlogArticle(articleData);
         const fileUrl = `https://api.github.com/repos/${repo}/contents/public/blog_articles.json?ref=${branch}`;
         const fileResponse = await axios_1.default.get(fileUrl, {
             headers: {
@@ -26,15 +48,12 @@ async function postBlogArticle(articleData, githubToken, repo = 'natureswaysoil/
         });
         const currentContent = Buffer.from(fileResponse.data.content, 'base64').toString('utf-8');
         const currentArticles = JSON.parse(currentContent);
-        // Step 3: Build slug from generated title (not product title) to avoid duplicates
         const baseSlug = article.title
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, '-')
             .replace(/^-+|-+$/g, '');
-        // Check for duplicate slugs and append timestamp if needed
         const existingSlugs = new Set(currentArticles.map((a) => a.slug));
         const slug = existingSlugs.has(baseSlug) ? `${baseSlug}-${Date.now()}` : baseSlug;
-        // Also check for duplicate titles to avoid reposting same topic
         const existingTitles = new Set(currentArticles.map((a) => a.title.toLowerCase()));
         if (existingTitles.has(article.title.toLowerCase())) {
             console.log(`⚠️ Blog article "${article.title}" already exists — skipping duplicate`);
@@ -56,7 +75,6 @@ async function postBlogArticle(articleData, githubToken, repo = 'natureswaysoil/
             videoUrl: articleData.videoUrl
         };
         currentArticles.unshift(newArticle);
-        // Step 4: Update file on GitHub
         const updatedContent = JSON.stringify(currentArticles, null, 2);
         const updateResponse = await axios_1.default.put(fileUrl, {
             message: `Add blog article: ${newArticle.title}`,
@@ -93,7 +111,6 @@ async function postBlogArticle(articleData, githubToken, repo = 'natureswaysoil/
 function extractTags(productTitle) {
     const tags = new Set();
     const title = productTitle.toLowerCase();
-    // Product type tags
     if (title.includes('fertilizer'))
         tags.add('fertilizer');
     if (title.includes('compost'))
@@ -108,7 +125,6 @@ function extractTags(productTitle) {
         tags.add('liquid fertilizer');
     if (title.includes('organic'))
         tags.add('organic');
-    // Application tags
     if (title.includes('tomato'))
         tags.add('tomato');
     if (title.includes('lawn') || title.includes('grass'))
@@ -121,7 +137,6 @@ function extractTags(productTitle) {
         tags.add('orchids');
     if (title.includes('vegetable'))
         tags.add('vegetables');
-    // Always include general tags
     tags.add('plant care');
     tags.add('soil health');
     tags.add('natural methods');

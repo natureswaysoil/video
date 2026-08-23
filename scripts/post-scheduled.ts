@@ -12,7 +12,7 @@ import { composeVerticalAd } from './lib/ffmpeg-compositor'
 import { validateMarketingVideo } from './lib/video-quality-gate'
 import { buildSceneQueryPriority, fetchBrollForScene } from './lib/pexels-media'
 import { downloadProductImage, productOverlayText } from './lib/product-assets'
-import { ensureDir, safeFileName } from './lib/video-utils'
+import { ensureDir, hasUsableFile, safeFileName } from './lib/video-utils'
 import { createNarration } from './lib/video-provider'
 import { formatCaption } from './lib/caption-formatter'
 import { postToTikTok, postToTwitter, fetchBasicMetrics } from './lib/social-platforms'
@@ -339,6 +339,10 @@ function isHttpUrl(value: string) {
   return /^https?:\/\//i.test(String(value || ''))
 }
 
+function inferSceneKind(file: string): 'video' | 'photo' {
+  return /\.(png|jpe?g|webp)$/i.test(String(file || '')) ? 'photo' : 'video'
+}
+
 function isCiMandatoryPlatformMode() {
   const setting = String(process.env.CI_MANDATORY_PLATFORMS || '').toLowerCase()
   if (setting === 'false' || setting === 'none' || setting === 'off') return false
@@ -477,7 +481,8 @@ async function collectSceneFiles(product: Product, scenePlan: any) {
   ensureDir(OUTPUT_DIR)
   ensureDir(TEMP_DIR)
   ensureDir(FOOTAGE_DIR)
-  const productImage = await downloadProductImage(product, TEMP_DIR)
+  const downloadedProductImage = await downloadProductImage(product, TEMP_DIR)
+  const productImage = hasUsableFile(downloadedProductImage) ? downloadedProductImage : ''
   const local = localFootageCandidates(product)
   const usedLocal = new Set<string>()
   const scenes: RenderScene[] = []
@@ -515,14 +520,14 @@ async function collectSceneFiles(product: Product, scenePlan: any) {
     }
 
     const localFile = pickLocalForScene(scene, index)
-    if (localFile) {
+    if (hasUsableFile(localFile)) {
       usedLocal.add(localFile)
-      scenes.push({ file: localFile, seconds, kind: 'video', source: 'local', query: sceneQueries(scene, product, index)[0] || '' })
+      scenes.push({ file: localFile, seconds, kind: inferSceneKind(localFile), source: 'local', query: sceneQueries(scene, product, index)[0] || '' })
       continue
     }
 
     const fetched = await fetchBrollForScene(scene, product, TEMP_DIR, index)
-    if (fetched?.file) {
+    if (hasUsableFile(fetched?.file || '')) {
       scenes.push({
         file: fetched.file,
         seconds,
@@ -531,6 +536,9 @@ async function collectSceneFiles(product: Product, scenePlan: any) {
         source: fetched.kind === 'photo' ? 'pexels_photo' : 'pexels_video'
       })
       continue
+    }
+    if (fetched?.file) {
+      log('Discarding unusable fetched media', { index: index + 1, file: fetched.file, query: fetched.query })
     }
 
     if (productImage) {

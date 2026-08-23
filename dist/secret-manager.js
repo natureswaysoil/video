@@ -4,6 +4,7 @@ exports.DEFAULT_SECRET_NAMES = void 0;
 exports.buildSecretNameCandidates = buildSecretNameCandidates;
 exports.loadSecretToEnv = loadSecretToEnv;
 exports.loadSecretsToEnv = loadSecretsToEnv;
+exports.addSecretVersion = addSecretVersion;
 const secret_manager_1 = require("@google-cloud/secret-manager");
 let client = null;
 const loaded = new Set();
@@ -35,6 +36,9 @@ exports.DEFAULT_SECRET_NAMES = [
     'TWITTER_API_SECRET',
     'TWITTER_ACCESS_TOKEN',
     'TWITTER_ACCESS_TOKEN_SECRET',
+    'TWITTER_CLIENT_ID',
+    'TWITTER_CLIENT_SECRET',
+    'TWITTER_REFRESH_TOKEN',
     'PINTEREST_ACCESS_TOKEN',
     'PINTEREST_BOARD_ID',
     'PEXELS_API_KEY',
@@ -153,4 +157,12 @@ async function loadSecretsToEnv(secretNames = exports.DEFAULT_SECRET_NAMES) {
     for (const secretName of secretNames) {
         await loadSecretToEnv(secretName);
     }
+}
+async function addSecretVersion(secretName, value) {
+    const parent = `projects/${getProjectId()}/secrets/${secretName}`;
+    await getSecretManagerClient().addSecretVersion({
+        parent,
+        payload: { data: Buffer.from(value, 'utf8') },
+    });
+    process.env[secretName] = value;
 }
