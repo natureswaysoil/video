@@ -2,7 +2,7 @@
 import axios from 'axios'
 import fs from 'fs'
 import path from 'path'
-import { ensureDir, safeFileName } from './video-utils'
+import { ensureDir, hasUsableFile, safeFileName } from './video-utils'
 
 const PEXELS_VIDEO_API = 'https://api.pexels.com/videos/search'
 const PEXELS_PHOTO_API = 'https://api.pexels.com/v1/search'
@@ -138,14 +138,21 @@ export async function findPexelsPhotoUrl(query: string) {
 
 export async function downloadUrl(url: string, outputFile: string) {
   ensureDir(path.dirname(outputFile))
-  const response = await axios.get(url, { responseType: 'stream', timeout: 120000 })
-  await new Promise((resolve, reject) => {
-    const writer = fs.createWriteStream(outputFile)
-    response.data.pipe(writer)
-    writer.on('finish', resolve)
-    writer.on('error', reject)
-  })
-  return outputFile
+  try {
+    const response = await axios.get(url, { responseType: 'stream', timeout: 120000 })
+    await new Promise((resolve, reject) => {
+      const writer = fs.createWriteStream(outputFile)
+      response.data.pipe(writer)
+      writer.on('close', resolve)
+      writer.on('error', reject)
+      response.data.on('error', reject)
+    })
+    if (!hasUsableFile(outputFile)) throw new Error('downloaded media is empty or missing')
+    return outputFile
+  } catch (error) {
+    try { if (fs.existsSync(outputFile)) fs.unlinkSync(outputFile) } catch {}
+    throw error
+  }
 }
 
 export async function downloadPexelsVideo(query: string, outputDir: string, index = 0) {

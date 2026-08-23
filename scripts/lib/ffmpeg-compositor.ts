@@ -2,7 +2,7 @@
 import fs from 'fs'
 import path from 'path'
 import { execSync } from 'child_process'
-import { ensureDir, safeFileName } from './video-utils'
+import { ensureDir, hasUsableFile, safeFileName } from './video-utils'
 
 function run(cmd: string) {
   execSync(cmd, { stdio: 'inherit' })
@@ -151,6 +151,8 @@ export async function composeVerticalAd(input: any) {
       kind: (productImage && file === productImage) ? 'product' : (isImage(file) ? 'photo' : 'video')
     }))
   }
+  scenes = scenes.filter((scene: any) => hasUsableFile(scene.file))
+  if (!scenes.length) throw new Error('No usable scene files provided to compositor')
 
   // Pick an explicit fontfile so drawtext works even where fontconfig has no
   // default sans (otherwise drawtext can fail at runtime). Empty -> ffmpeg default.

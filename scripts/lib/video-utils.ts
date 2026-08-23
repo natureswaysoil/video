@@ -6,6 +6,14 @@ export function ensureDir(dir: string) {
   fs.mkdirSync(dir, { recursive: true })
 }
 
+export function hasUsableFile(file: string) {
+  try {
+    return !!file && fs.existsSync(file) && fs.statSync(file).isFile() && fs.statSync(file).size > 0
+  } catch {
+    return false
+  }
+}
+
 export function slugify(input: string) {
   return String(input || 'video')
     .toLowerCase()

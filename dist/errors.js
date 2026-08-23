@@ -18,6 +18,7 @@ var ErrorCode;
 (function (ErrorCode) {
     // API Integration Errors
     ErrorCode["OPENAI_API_ERROR"] = "OPENAI_API_ERROR";
+    ErrorCode["DID_API_ERROR"] = "DID_API_ERROR";
     ErrorCode["HEYGEN_API_ERROR"] = "HEYGEN_API_ERROR";
     ErrorCode["SHEETS_API_ERROR"] = "SHEETS_API_ERROR";
     ErrorCode["TWITTER_API_ERROR"] = "TWITTER_API_ERROR";
@@ -63,21 +64,12 @@ class AppError extends Error {
     }
 }
 exports.AppError = AppError;
-/**
- * Create a success result
- */
 function ok(data) {
     return { success: true, data };
 }
-/**
- * Create an error result
- */
 function err(error) {
     return { success: false, error };
 }
-/**
- * Wrap an async function to return Result instead of throwing
- */
 function wrapAsync(fn) {
     return async (...args) => {
         try {
@@ -85,34 +77,24 @@ function wrapAsync(fn) {
             return ok(data);
         }
         catch (error) {
-            if (error instanceof AppError) {
+            if (error instanceof AppError)
                 return err(error);
-            }
             return err(new AppError(error instanceof Error ? error.message : String(error), ErrorCode.UNKNOWN_ERROR, 500, true, undefined, error instanceof Error ? error : undefined));
         }
     };
 }
-/**
- * Extract error message from various error types
- */
 function getErrorMessage(error) {
-    if (error instanceof Error) {
+    if (error instanceof Error)
         return error.message;
-    }
-    if (typeof error === 'string') {
+    if (typeof error === 'string')
         return error;
-    }
     if (error && typeof error === 'object') {
-        if ('message' in error && typeof error.message === 'string') {
+        if ('message' in error && typeof error.message === 'string')
             return error.message;
-        }
         return JSON.stringify(error);
     }
     return String(error);
 }
-/**
- * Check if an error is a network error
- */
 function isNetworkError(error) {
     if (!error || typeof error !== 'object')
         return false;
@@ -124,9 +106,6 @@ function isNetworkError(error) {
         msg.includes('socket') ||
         'code' in error && error.code === 'ECONNREFUSED');
 }
-/**
- * Check if an error is a timeout error
- */
 function isTimeoutError(error) {
     if (!error || typeof error !== 'object')
         return false;
@@ -135,9 +114,6 @@ function isTimeoutError(error) {
         msg.includes('etimedout') ||
         'code' in error && error.code === 'ETIMEDOUT');
 }
-/**
- * Check if an error is a rate limit error
- */
 function isRateLimitError(error) {
     if (!error || typeof error !== 'object')
         return false;
@@ -147,9 +123,6 @@ function isRateLimitError(error) {
         msg.includes('429') ||
         'response' in error && error.response?.status === 429);
 }
-/**
- * Create an error from an axios error
- */
 function fromAxiosError(error, code, context) {
     const message = error?.response?.data?.message
         || error?.response?.data?.error
@@ -163,27 +136,20 @@ function fromAxiosError(error, code, context) {
         method: error?.config?.method,
     }, error);
 }
-/**
- * Retry an async operation with exponential backoff
- */
 async function withRetry(operation, options = {}) {
     const { maxRetries = 3, initialDelayMs = 1000, maxDelayMs = 30000, backoffMultiplier = 2, retryIf = (error) => isNetworkError(error) || isTimeoutError(error) || isRateLimitError(error), onRetry, } = options;
     let lastError;
-    let delay = initialDelayMs;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
             return await operation();
         }
         catch (error) {
             lastError = error;
-            if (attempt === maxRetries || !retryIf(error)) {
+            if (attempt === maxRetries || !retryIf(error))
                 throw error;
-            }
-            if (onRetry) {
-                onRetry(error, attempt + 1);
-            }
+            onRetry?.(error, attempt + 1);
+            const delay = Math.min(initialDelayMs * Math.pow(backoffMultiplier, attempt), maxDelayMs);
             await new Promise(resolve => setTimeout(resolve, delay));
-            delay = Math.min(delay * backoffMultiplier, maxDelayMs);
         }
     }
     throw lastError;
