@@ -1,7 +1,7 @@
 // @ts-nocheck
 import fs from 'fs'
 import path from 'path'
-import { execSync } from 'child_process'
+import { execSync, spawnSync } from 'child_process'
 import { ensureDir, hasUsableFile, safeFileName } from './video-utils'
 
 function run(cmd: string) {
@@ -31,22 +31,54 @@ function probeDuration(file: string): number {
   }
 }
 
-/**
- * Build ONE scene clip (always 1080x1920, 30fps, no audio).
- *   kind 'product' -> the product image is CONTAINED over a blurred copy of
- *                     itself (never cropped) with a gentle Ken Burns push-in.
- *   kind 'photo'   -> Pexels still: cover-crop to portrait + Ken Burns
- *                     (alternating zoom-in / pan so consecutive stills differ).
- *   kind 'video'   -> Pexels/local clip: cover-crop to portrait, looped/trimmed.
- */
+function sourceLooksLikeGreenPlaceholder(file: string, kind: string) {
+  const args = kind === 'video'
+    ? ['-hide_banner', '-loglevel', 'error', '-ss', '0.5', '-i', file, '-frames:v', '1', '-vf', 'scale=16:16,format=rgb24', '-f', 'rawvideo', '-']
+    : ['-hide_banner', '-loglevel', 'error', '-i', file, '-frames:v', '1', '-vf', 'scale=16:16,format=rgb24', '-f', 'rawvideo', '-']
+  const result = spawnSync('ffmpeg', args, { encoding: null, maxBuffer: 1024 * 1024 })
+  if (result.status !== 0 || !Buffer.isBuffer(result.stdout) || result.stdout.length < 16 * 16 * 3) {
+    throw new Error(`SCENE_MEDIA_INVALID: FFmpeg could not decode ${path.basename(file)}`)
+  }
+  let green = 0
+  let pixels = 0
+  let minLuma = 255
+  let maxLuma = 0
+  for (let i = 0; i + 2 < result.stdout.length; i += 3) {
+    const r = result.stdout[i]
+    const g = result.stdout[i + 1]
+    const b = result.stdout[i + 2]
+    const luma = (r + g + b) / 3
+    minLuma = Math.min(minLuma, luma)
+    maxLuma = Math.max(maxLuma, luma)
+    pixels++
+    if (g > r * 1.35 && g > b * 1.35 && g - Math.max(r, b) > 28) green++
+  }
+  const greenRatio = pixels ? green / pixels : 1
+  return greenRatio >= 0.92 && (maxLuma - minLuma) < 65
+}
+
+function validateSceneSource(file: string, kind: string) {
+  if (!hasUsableFile(file)) throw new Error(`SCENE_MEDIA_INVALID: missing or empty file ${file}`)
+  const probe = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,width,height,pix_fmt', '-of', 'json', file], { encoding: 'utf8' })
+  if (probe.status !== 0) throw new Error(`SCENE_MEDIA_INVALID: ffprobe failed for ${path.basename(file)}`)
+  let stream: any = null
+  try { stream = JSON.parse(probe.stdout || '{}').streams?.[0] } catch {}
+  if (!stream || Number(stream.width || 0) < 100 || Number(stream.height || 0) < 100) {
+    throw new Error(`SCENE_MEDIA_INVALID: unusable dimensions for ${path.basename(file)}`)
+  }
+  if (sourceLooksLikeGreenPlaceholder(file, kind)) {
+    throw new Error(`SCENE_MEDIA_INVALID: green-screen placeholder detected in ${path.basename(file)}`)
+  }
+}
+
 function makeSceneClip(file: string, index: number, seconds: number, kind: string, outputDir: string) {
   const duration = Math.max(3, Number(seconds || 5))
   const frames = Math.ceil(duration * 30)
   const clip = path.resolve(outputDir, `scene-${Date.now()}-${index}.mp4`)
   const resolvedKind = kind || (isImage(file) ? 'photo' : 'video')
+  validateSceneSource(file, resolvedKind)
 
   if (resolvedKind === 'product') {
-    // contain product over a blurred, cover-filled background of itself
     run([
       'ffmpeg -y -loglevel error',
       '-stream_loop -1',
@@ -65,7 +97,6 @@ function makeSceneClip(file: string, index: number, seconds: number, kind: strin
   }
 
   if (resolvedKind === 'photo') {
-    // alternate the Ken Burns move so back-to-back stills feel different
     const move = index % 3 === 0
       ? "zoompan=z='min(zoom+0.0018,1.16)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
       : index % 3 === 1
@@ -83,22 +114,18 @@ function makeSceneClip(file: string, index: number, seconds: number, kind: strin
     return clip
   }
 
-  // video
   run([
     'ffmpeg -y -loglevel error',
+    '-fflags +genpts -err_detect ignore_err',
     `-stream_loop -1 -t ${duration}`,
     `-i "${file}"`,
-    '-vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,format=yuv420p"',
-    '-an -r 30',
+    '-vf "fps=30,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,format=yuv420p"',
+    '-an -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -r 30 -movflags +faststart',
     `"${clip}"`
   ].join(' '))
   return clip
 }
 
-// ---------------------------------------------------------------------------
-// Optional background music. Drop a royalty-free track at music/ (or set
-// MUSIC_FILE) and it gets ducked under the narration. Absent -> silently skipped.
-// ---------------------------------------------------------------------------
 function resolveMusicFile(): string {
   const direct = process.env.MUSIC_FILE
   if (direct && fs.existsSync(direct)) return direct
@@ -114,31 +141,10 @@ function resolveMusicFile(): string {
   return ''
 }
 
-function drawtextFilter(text: string, opts: string) {
-  return `drawtext=text='${shellEscapeText(text)}':${opts}`
-}
-
-/**
- * composeVerticalAd
- *  Preferred input:
- *    scenes: [{ file, seconds, kind: 'product'|'photo'|'video' }]
- *  Legacy input (still supported):
- *    sceneFiles: string[], sceneDurations?: number[], productImage?: string
- *  Optional:
- *    voiceoverFile  -> narration track. Visuals are sized to it.
- *    captionText, overlayText
- *
- *  Render path (quality-first): per-scene clips -> ONE combined encode that
- *  concatenates + applies product watermark + overlay + caption at -crf 19
- *  -preset medium (previously this was 4 stacked veryfast re-encodes, which
- *  is the main reason the output looked soft). Audio (narration + optional
- *  ducked music) is muxed last with -c:v copy so the picture is encoded once.
- */
 export async function composeVerticalAd(input: any) {
   const outputDir = path.resolve(process.cwd(), 'output')
   ensureDir(outputDir)
 
-  // Normalise to a scenes[] array with explicit kinds.
   let scenes = Array.isArray(input.scenes) ? input.scenes.filter((s: any) => s && s.file) : []
   if (!scenes.length) {
     const files = input.sceneFiles || []
@@ -154,8 +160,6 @@ export async function composeVerticalAd(input: any) {
   scenes = scenes.filter((scene: any) => hasUsableFile(scene.file))
   if (!scenes.length) throw new Error('No usable scene files provided to compositor')
 
-  // Pick an explicit fontfile so drawtext works even where fontconfig has no
-  // default sans (otherwise drawtext can fail at runtime). Empty -> ffmpeg default.
   const FONT_CANDIDATES = [
     process.env.DRAWTEXT_FONT || '',
     '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
@@ -166,9 +170,6 @@ export async function composeVerticalAd(input: any) {
   const FONT = fontPath ? `fontfile='${fontPath}':` : ''
 
   const hasProductScene = scenes.some((s: any) => s.kind === 'product')
-
-  // Probe narration up front so the visuals can be sized to cover it in a
-  // single encode (instead of padding the finished video with another pass).
   const voiceoverFile = input.voiceoverFile && fs.existsSync(input.voiceoverFile) ? input.voiceoverFile : ''
   const voiceDur = voiceoverFile ? probeDuration(voiceoverFile) : 0
   scenes = scenes.map((s: any) => ({ ...s, seconds: Math.max(3, Number(s.seconds || 5)) }))
@@ -179,14 +180,10 @@ export async function composeVerticalAd(input: any) {
     scenesTotal += extra
   }
 
-  // ---- per-scene clips (motion clips looped/trimmed, stills get Ken Burns) ----
-  const sceneClips = scenes.map((s: any, i: number) =>
-    makeSceneClip(s.file, i, s.seconds, s.kind, outputDir))
-
+  const sceneClips = scenes.map((s: any, i: number) => makeSceneClip(s.file, i, s.seconds, s.kind, outputDir))
   const concatList = path.resolve(outputDir, `concat-${Date.now()}.txt`)
   fs.writeFileSync(concatList, sceneClips.map((f: string) => `file '${f.replace(/'/g, "'\\''")}'`).join('\n'), 'utf8')
 
-  // ---- ONE combined video pass: concat + watermark + overlay + caption ----
   const inputs: string[] = [`-f concat -safe 0 -i "${concatList}"`]
   const chains: string[] = []
   let vlabel = '0:v'
@@ -215,24 +212,11 @@ export async function composeVerticalAd(input: any) {
   const composed = path.resolve(outputDir, `composed-${Date.now()}.mp4`)
   const QUALITY = '-c:v libx264 -preset medium -crf 19 -pix_fmt yuv420p -r 30 -movflags +faststart'
   if (chains.length) {
-    run([
-      'ffmpeg -y -loglevel error',
-      ...inputs,
-      `-filter_complex "${chains.join(';')}"`,
-      `-map "[${vlabel}]"`,
-      QUALITY,
-      `"${composed}"`
-    ].join(' '))
+    run(['ffmpeg -y -loglevel error', ...inputs, `-filter_complex "${chains.join(';')}"`, `-map "[${vlabel}]"`, QUALITY, `"${composed}"`].join(' '))
   } else {
-    run([
-      'ffmpeg -y -loglevel error',
-      `-f concat -safe 0 -i "${concatList}"`,
-      QUALITY,
-      `"${composed}"`
-    ].join(' '))
+    run(['ffmpeg -y -loglevel error', `-f concat -safe 0 -i "${concatList}"`, QUALITY, `"${composed}"`].join(' '))
   }
 
-  // ---- audio: narration (+ optional ducked, looped music), locked to video length ----
   const vDur = probeDuration(composed) || scenesTotal
   const musicFile = resolveMusicFile()
   let working = composed
@@ -241,36 +225,11 @@ export async function composeVerticalAd(input: any) {
     const out = path.resolve(outputDir, `final-${Date.now()}.mp4`)
     const t = vDur.toFixed(2)
     if (voiceoverFile && musicFile) {
-      run([
-        'ffmpeg -y -loglevel error',
-        `-i "${working}"`,
-        `-i "${voiceoverFile}"`,
-        `-stream_loop -1 -i "${musicFile}"`,
-        `-filter_complex "[1:a]apad,atrim=0:${t},asetpts=N/SR/TB[vo];[2:a]volume=0.16,atrim=0:${t},asetpts=N/SR/TB[mu];[vo][mu]amix=inputs=2:duration=first:dropout_transition=0[a]"`,
-        '-map 0:v -map "[a]"',
-        '-c:v copy -c:a aac -b:a 192k',
-        `"${out}"`
-      ].join(' '))
+      run(['ffmpeg -y -loglevel error', `-i "${working}"`, `-i "${voiceoverFile}"`, `-stream_loop -1 -i "${musicFile}"`, `-filter_complex "[1:a]apad,atrim=0:${t},asetpts=N/SR/TB[vo];[2:a]volume=0.16,atrim=0:${t},asetpts=N/SR/TB[mu];[vo][mu]amix=inputs=2:duration=first:dropout_transition=0[a]"`, '-map 0:v -map "[a]"', '-c:v copy -c:a aac -b:a 192k', `"${out}"`].join(' '))
     } else if (voiceoverFile) {
-      run([
-        'ffmpeg -y -loglevel error',
-        `-i "${working}"`,
-        `-i "${voiceoverFile}"`,
-        `-filter_complex "[1:a]apad,atrim=0:${t},asetpts=N/SR/TB[a]"`,
-        '-map 0:v -map "[a]"',
-        '-c:v copy -c:a aac -b:a 192k',
-        `"${out}"`
-      ].join(' '))
+      run(['ffmpeg -y -loglevel error', `-i "${working}"`, `-i "${voiceoverFile}"`, `-filter_complex "[1:a]apad,atrim=0:${t},asetpts=N/SR/TB[a]"`, '-map 0:v -map "[a]"', '-c:v copy -c:a aac -b:a 192k', `"${out}"`].join(' '))
     } else {
-      run([
-        'ffmpeg -y -loglevel error',
-        `-i "${working}"`,
-        `-stream_loop -1 -i "${musicFile}"`,
-        `-filter_complex "[1:a]volume=0.22,atrim=0:${t},asetpts=N/SR/TB[a]"`,
-        '-map 0:v -map "[a]"',
-        '-c:v copy -c:a aac -b:a 192k',
-        `"${out}"`
-      ].join(' '))
+      run(['ffmpeg -y -loglevel error', `-i "${working}"`, `-stream_loop -1 -i "${musicFile}"`, `-filter_complex "[1:a]volume=0.22,atrim=0:${t},asetpts=N/SR/TB[a]"`, '-map 0:v -map "[a]"', '-c:v copy -c:a aac -b:a 192k', `"${out}"`].join(' '))
     }
     working = out
   }
