@@ -46,25 +46,78 @@ function videoAttempts(query: string) {
 }
 
 function inspectPixels(buffer: Buffer) {
-  if (!Buffer.isBuffer(buffer) || buffer.length < 3) return { ok: false, greenRatio: 1, range: 0 }
+  if (!Buffer.isBuffer(buffer) || buffer.length < 3) {
+    return { ok: false, greenRatio: 1, lumaRange: 0, greenColorRange: 0, greenDominanceRange: 0 }
+  }
+
   let green = 0
   let pixels = 0
-  let min = 255
-  let max = 0
+  let minLuma = 255
+  let maxLuma = 0
+  let greenMinR = 255, greenMaxR = 0
+  let greenMinG = 255, greenMaxG = 0
+  let greenMinB = 255, greenMaxB = 0
+  let greenMinDominance = 255, greenMaxDominance = 0
+
   for (let i = 0; i + 2 < buffer.length; i += 3) {
     const r = buffer[i]
     const g = buffer[i + 1]
     const b = buffer[i + 2]
-    min = Math.min(min, r, g, b)
-    max = Math.max(max, r, g, b)
+    const luma = (r + g + b) / 3
+    minLuma = Math.min(minLuma, luma)
+    maxLuma = Math.max(maxLuma, luma)
     pixels++
-    if (g > r * 1.35 && g > b * 1.35 && g - Math.max(r, b) > 28) green++
+
+    const dominance = g - Math.max(r, b)
+    if (g > r * 1.35 && g > b * 1.35 && dominance > 28) {
+      green++
+      greenMinR = Math.min(greenMinR, r)
+      greenMaxR = Math.max(greenMaxR, r)
+      greenMinG = Math.min(greenMinG, g)
+      greenMaxG = Math.max(greenMaxG, g)
+      greenMinB = Math.min(greenMinB, b)
+      greenMaxB = Math.max(greenMaxB, b)
+      greenMinDominance = Math.min(greenMinDominance, dominance)
+      greenMaxDominance = Math.max(greenMaxDominance, dominance)
+    }
   }
+
   const greenRatio = pixels ? green / pixels : 1
-  const range = max - min
-  // A genuine lawn can be very green, so only reject frames that are both
-  // overwhelmingly green AND visually flat/uniform like a placeholder frame.
-  return { ok: !(greenRatio >= 0.92 && range < 70), greenRatio, range }
+  const lumaRange = maxLuma - minLuma
+  const greenColorRange = green
+    ? Math.max(greenMaxR - greenMinR, greenMaxG - greenMinG, greenMaxB - greenMinB)
+    : 255
+  const greenDominanceRange = green ? greenMaxDominance - greenMinDominance : 255
+
+  // Reject either a nearly full-frame flat green placeholder OR a large,
+  // unusually uniform green backdrop. The second case catches chroma/decoder
+  // green even when a foreground object makes the total frame look detailed.
+  const flatWholeFrameGreen = greenRatio >= 0.90 && lumaRange < 65
+  const uniformGreenBackdrop = greenRatio >= 0.70 && greenColorRange < 38 && greenDominanceRange < 28
+
+  return {
+    ok: !(flatWholeFrameGreen || uniformGreenBackdrop),
+    greenRatio,
+    lumaRange,
+    greenColorRange,
+    greenDominanceRange
+  }
+}
+
+function sampleFrame(file: string, seekSeconds?: number) {
+  const args = ['-hide_banner', '-loglevel', 'error']
+  if (Number.isFinite(seekSeconds)) args.push('-ss', String(seekSeconds))
+  args.push('-i', file, '-frames:v', '1', '-vf', 'scale=24:24,format=rgb24', '-f', 'rawvideo', '-')
+  const frame = spawnSync('ffmpeg', args, { encoding: null, maxBuffer: 2 * 1024 * 1024 })
+  if (frame.status !== 0 || !Buffer.isBuffer(frame.stdout) || frame.stdout.length < 24 * 24 * 3) return null
+  return inspectPixels(frame.stdout)
+}
+
+function probeDuration(file: string) {
+  const probe = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file], { encoding: 'utf8' })
+  if (probe.status !== 0) return 0
+  const duration = Number(String(probe.stdout || '').trim())
+  return Number.isFinite(duration) && duration > 0 ? duration : 0
 }
 
 function validateDecodedMedia(file: string, kind: 'video' | 'photo') {
@@ -80,14 +133,33 @@ function validateDecodedMedia(file: string, kind: 'video' | 'photo') {
     if (!stream || Number(stream.width || 0) < 100 || Number(stream.height || 0) < 100) return false
   } catch { return false }
 
-  const args = kind === 'video'
-    ? ['-hide_banner', '-loglevel', 'error', '-ss', '0.6', '-i', file, '-frames:v', '1', '-vf', 'scale=16:16,format=rgb24', '-f', 'rawvideo', '-']
-    : ['-hide_banner', '-loglevel', 'error', '-i', file, '-frames:v', '1', '-vf', 'scale=16:16,format=rgb24', '-f', 'rawvideo', '-']
-  const frame = spawnSync('ffmpeg', args, { encoding: null, maxBuffer: 1024 * 1024 })
-  if (frame.status !== 0 || !Buffer.isBuffer(frame.stdout) || frame.stdout.length < 16 * 16 * 3) return false
-  const inspection = inspectPixels(frame.stdout)
-  if (!inspection.ok) {
-    console.log('Rejected green/flat media source', { file: path.basename(file), greenRatio: Number(inspection.greenRatio.toFixed(3)), range: inspection.range })
+  const checks: any[] = []
+  if (kind === 'video') {
+    const duration = probeDuration(file)
+    const sampleTimes = duration > 1
+      ? [Math.min(0.4, duration * 0.10), duration * 0.35, duration * 0.65, Math.max(0, duration * 0.90 - 0.1)]
+      : [0]
+    for (const t of sampleTimes) {
+      const inspection = sampleFrame(file, t)
+      if (!inspection) return false
+      checks.push({ second: Number(t.toFixed(2)), ...inspection })
+    }
+  } else {
+    const inspection = sampleFrame(file)
+    if (!inspection) return false
+    checks.push(inspection)
+  }
+
+  const bad = checks.find((inspection) => !inspection.ok)
+  if (bad) {
+    console.log('Rejected green/placeholder media source; trying another candidate', {
+      file: path.basename(file),
+      greenRatio: Number(bad.greenRatio.toFixed(3)),
+      lumaRange: Number(bad.lumaRange.toFixed(1)),
+      greenColorRange: Number(bad.greenColorRange.toFixed(1)),
+      greenDominanceRange: Number(bad.greenDominanceRange.toFixed(1)),
+      second: bad.second
+    })
     return false
   }
   return true
@@ -145,26 +217,19 @@ async function findPexelsVideoCandidates(query: string) {
         seen.add(item.url)
         all.push(item)
       }
-      if (all.length >= 6) break
+      if (all.length >= 10) break
     } catch (error: any) {
       console.log('Pexels video search failed', { query: attempt.query, status: error?.response?.status, message: error?.message })
     }
   }
-  return all.slice(0, 6)
+  return all.slice(0, 10)
 }
 
-export async function findPexelsVideoUrl(query: string) {
-  const candidates = await findPexelsVideoCandidates(query)
-  const first = candidates[0]
-  if (first) console.log('Selected Pexels video candidate', { query: first.query, id: first.id, res: `${first.width}x${first.height}`, portrait: first.isPortrait })
-  return first?.url || ''
-}
-
-export async function findPexelsPhotoUrl(query: string) {
+async function findPexelsPhotoCandidates(query: string) {
   const key = process.env.PEXELS_API_KEY
   if (!key) {
     console.log('Pexels skipped: missing PEXELS_API_KEY')
-    return ''
+    return []
   }
 
   const attempts = [
@@ -172,6 +237,8 @@ export async function findPexelsPhotoUrl(query: string) {
     { query: trimQuery(query, 3), orientation: 'portrait' },
     { query: String(query || '').trim(), orientation: 'landscape' }
   ]
+  const all: any[] = []
+  const seen = new Set<string>()
 
   for (const attempt of attempts) {
     try {
@@ -182,17 +249,32 @@ export async function findPexelsPhotoUrl(query: string) {
       })
       const photos = Array.isArray(response.data?.photos) ? response.data.photos : []
       console.log('Pexels photo search', { query: attempt.query, orientation: attempt.orientation, count: photos.length })
-      const first = photos[0]
-      const url = first?.src?.large2x || first?.src?.original || first?.src?.large || ''
-      if (url) {
-        console.log('Selected Pexels photo', { query: attempt.query, id: first?.id })
-        return url
+      for (const photo of photos) {
+        const url = photo?.src?.large2x || photo?.src?.original || photo?.src?.large || ''
+        if (!url || seen.has(url)) continue
+        seen.add(url)
+        all.push({ id: photo.id, url, query: attempt.query })
       }
+      if (all.length >= 8) break
     } catch (error: any) {
       console.log('Pexels photo search failed', { query: attempt.query, status: error?.response?.status, message: error?.message })
     }
   }
-  return ''
+  return all.slice(0, 8)
+}
+
+export async function findPexelsVideoUrl(query: string) {
+  const candidates = await findPexelsVideoCandidates(query)
+  const first = candidates[0]
+  if (first) console.log('Selected Pexels video candidate', { query: first.query, id: first.id, res: `${first.width}x${first.height}`, portrait: first.isPortrait })
+  return first?.url || ''
+}
+
+export async function findPexelsPhotoUrl(query: string) {
+  const candidates = await findPexelsPhotoCandidates(query)
+  const first = candidates[0]
+  if (first) console.log('Selected Pexels photo candidate', { query: first.query, id: first.id })
+  return first?.url || ''
 }
 
 export async function downloadUrl(url: string, outputFile: string) {
@@ -216,7 +298,7 @@ export async function downloadUrl(url: string, outputFile: string) {
 
 export async function downloadPexelsVideo(query: string, outputDir: string, index = 0) {
   const candidates = await findPexelsVideoCandidates(query)
-  for (let candidateIndex = 0; candidateIndex < Math.min(candidates.length, 4); candidateIndex++) {
+  for (let candidateIndex = 0; candidateIndex < Math.min(candidates.length, 8); candidateIndex++) {
     const candidate = candidates[candidateIndex]
     const suffix = candidateIndex ? `-${candidateIndex + 1}` : ''
     const file = path.resolve(outputDir, `${String(index + 1).padStart(2, '0')}-vid-${safeFileName(`${query}${suffix}`, 'mp4')}`)
@@ -228,10 +310,10 @@ export async function downloadPexelsVideo(query: string, outputDir: string, inde
       }
       const normalized = normalizeDownloadedVideo(file)
       if (!normalized) continue
-      console.log('Accepted Pexels video', { query, id: candidate.id, res: `${candidate.width}x${candidate.height}`, file: path.basename(normalized) })
+      console.log('Accepted Pexels video', { query, id: candidate.id, candidate: candidateIndex + 1, res: `${candidate.width}x${candidate.height}`, file: path.basename(normalized) })
       return normalized
     } catch (error: any) {
-      console.log('Pexels candidate rejected', { query, id: candidate.id, message: error?.message || error })
+      console.log('Pexels candidate rejected', { query, id: candidate.id, candidate: candidateIndex + 1, message: error?.message || error })
       try { if (fs.existsSync(file)) fs.unlinkSync(file) } catch {}
     }
   }
@@ -239,16 +321,26 @@ export async function downloadPexelsVideo(query: string, outputDir: string, inde
 }
 
 export async function downloadPexelsPhoto(query: string, outputDir: string, index = 0) {
-  const url = await findPexelsPhotoUrl(query)
-  if (!url) return ''
-  const ext = (url.split('?')[0].toLowerCase().endsWith('.png')) ? 'png' : 'jpg'
-  const file = path.resolve(outputDir, `${String(index + 1).padStart(2, '0')}-img-${safeFileName(query, ext)}`)
-  await downloadUrl(url, file)
-  if (!validateDecodedMedia(file, 'photo')) {
-    try { fs.unlinkSync(file) } catch {}
-    return ''
+  const candidates = await findPexelsPhotoCandidates(query)
+  for (let candidateIndex = 0; candidateIndex < Math.min(candidates.length, 6); candidateIndex++) {
+    const candidate = candidates[candidateIndex]
+    const ext = (candidate.url.split('?')[0].toLowerCase().endsWith('.png')) ? 'png' : 'jpg'
+    const suffix = candidateIndex ? `-${candidateIndex + 1}` : ''
+    const file = path.resolve(outputDir, `${String(index + 1).padStart(2, '0')}-img-${safeFileName(`${query}${suffix}`, ext)}`)
+    try {
+      await downloadUrl(candidate.url, file)
+      if (!validateDecodedMedia(file, 'photo')) {
+        try { fs.unlinkSync(file) } catch {}
+        continue
+      }
+      console.log('Accepted Pexels photo', { query, id: candidate.id, candidate: candidateIndex + 1, file: path.basename(file) })
+      return file
+    } catch (error: any) {
+      console.log('Pexels photo candidate rejected', { query, id: candidate.id, candidate: candidateIndex + 1, message: error?.message || error })
+      try { if (fs.existsSync(file)) fs.unlinkSync(file) } catch {}
+    }
   }
-  return file
+  return ''
 }
 
 export async function fetchBrollForScene(scene: any, product: any, outputDir: string, index = 0) {
