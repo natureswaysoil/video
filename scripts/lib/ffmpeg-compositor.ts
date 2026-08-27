@@ -31,30 +31,71 @@ function probeDuration(file: string): number {
   }
 }
 
-function sourceLooksLikeGreenPlaceholder(file: string, kind: string) {
-  const args = kind === 'video'
-    ? ['-hide_banner', '-loglevel', 'error', '-ss', '0.5', '-i', file, '-frames:v', '1', '-vf', 'scale=16:16,format=rgb24', '-f', 'rawvideo', '-']
-    : ['-hide_banner', '-loglevel', 'error', '-i', file, '-frames:v', '1', '-vf', 'scale=16:16,format=rgb24', '-f', 'rawvideo', '-']
-  const result = spawnSync('ffmpeg', args, { encoding: null, maxBuffer: 1024 * 1024 })
-  if (result.status !== 0 || !Buffer.isBuffer(result.stdout) || result.stdout.length < 16 * 16 * 3) {
-    throw new Error(`SCENE_MEDIA_INVALID: FFmpeg could not decode ${path.basename(file)}`)
-  }
+function inspectGreenFrame(buffer: Buffer) {
   let green = 0
   let pixels = 0
   let minLuma = 255
   let maxLuma = 0
-  for (let i = 0; i + 2 < result.stdout.length; i += 3) {
-    const r = result.stdout[i]
-    const g = result.stdout[i + 1]
-    const b = result.stdout[i + 2]
+  let minR = 255, maxR = 0
+  let minG = 255, maxG = 0
+  let minB = 255, maxB = 0
+  let minDominance = 255, maxDominance = 0
+
+  for (let i = 0; i + 2 < buffer.length; i += 3) {
+    const r = buffer[i]
+    const g = buffer[i + 1]
+    const b = buffer[i + 2]
     const luma = (r + g + b) / 3
     minLuma = Math.min(minLuma, luma)
     maxLuma = Math.max(maxLuma, luma)
     pixels++
-    if (g > r * 1.35 && g > b * 1.35 && g - Math.max(r, b) > 28) green++
+    const dominance = g - Math.max(r, b)
+    if (g > r * 1.35 && g > b * 1.35 && dominance > 28) {
+      green++
+      minR = Math.min(minR, r); maxR = Math.max(maxR, r)
+      minG = Math.min(minG, g); maxG = Math.max(maxG, g)
+      minB = Math.min(minB, b); maxB = Math.max(maxB, b)
+      minDominance = Math.min(minDominance, dominance)
+      maxDominance = Math.max(maxDominance, dominance)
+    }
   }
+
   const greenRatio = pixels ? green / pixels : 1
-  return greenRatio >= 0.92 && (maxLuma - minLuma) < 65
+  const lumaRange = maxLuma - minLuma
+  const greenColorRange = green ? Math.max(maxR - minR, maxG - minG, maxB - minB) : 255
+  const dominanceRange = green ? maxDominance - minDominance : 255
+  const flatWholeFrame = greenRatio >= 0.90 && lumaRange < 65
+  const uniformBackdrop = greenRatio >= 0.70 && greenColorRange < 38 && dominanceRange < 28
+  return { bad: flatWholeFrame || uniformBackdrop, greenRatio, lumaRange, greenColorRange, dominanceRange }
+}
+
+function sourceLooksLikeGreenPlaceholder(file: string, kind: string) {
+  const duration = kind === 'video' ? probeDuration(file) : 0
+  const sampleTimes = kind === 'video' && duration > 1
+    ? [Math.min(0.4, duration * 0.10), duration * 0.35, duration * 0.65, Math.max(0, duration * 0.90 - 0.1)]
+    : [0]
+
+  for (const second of sampleTimes) {
+    const args = ['-hide_banner', '-loglevel', 'error']
+    if (kind === 'video') args.push('-ss', String(second))
+    args.push('-i', file, '-frames:v', '1', '-vf', 'scale=24:24,format=rgb24', '-f', 'rawvideo', '-')
+    const result = spawnSync('ffmpeg', args, { encoding: null, maxBuffer: 2 * 1024 * 1024 })
+    if (result.status !== 0 || !Buffer.isBuffer(result.stdout) || result.stdout.length < 24 * 24 * 3) {
+      throw new Error(`SCENE_MEDIA_INVALID: FFmpeg could not decode ${path.basename(file)}`)
+    }
+    const inspection = inspectGreenFrame(result.stdout)
+    if (inspection.bad) {
+      console.log('Compositor rejected green/placeholder scene source', {
+        file: path.basename(file),
+        second: Number(second.toFixed(2)),
+        greenRatio: Number(inspection.greenRatio.toFixed(3)),
+        greenColorRange: inspection.greenColorRange,
+        dominanceRange: inspection.dominanceRange
+      })
+      return true
+    }
+  }
+  return false
 }
 
 function validateSceneSource(file: string, kind: string) {
@@ -189,10 +230,13 @@ export async function composeVerticalAd(input: any) {
   let vlabel = '0:v'
   let nextInput = 1
 
-  if (input.productImage && !hasProductScene && fs.existsSync(input.productImage)) {
+  // Keep the actual product visible throughout the real-world b-roll. This lets
+  // the scene plan devote four of five scenes to useful footage without losing
+  // early product recognition.
+  if (input.productImage && fs.existsSync(input.productImage)) {
     inputs.push(`-stream_loop -1 -i "${input.productImage}"`)
-    chains.push(`[${nextInput}:v]scale=430:-1[prod]`)
-    chains.push(`[${vlabel}][prod]overlay=40:H-h-80:enable='between(t,1,999)'[vwm]`)
+    chains.push(`[${nextInput}:v]scale=360:-1[prod]`)
+    chains.push(`[${vlabel}][prod]overlay=42:H-h-78:enable='between(t,1,999)'[vwm]`)
     vlabel = 'vwm'
     nextInput++
   }
