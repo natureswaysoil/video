@@ -182,6 +182,45 @@ function resolveMusicFile(): string {
   return ''
 }
 
+function promoteRealScenes(scenes: any[]) {
+  const real = scenes.filter((scene: any) => scene.kind !== 'product')
+  if (scenes.length < 5 || real.length >= 4 || !real.length) return scenes
+
+  const promoted = scenes.map((scene: any) => ({ ...scene }))
+  let needed = 4 - real.length
+  let donorIndex = 0
+
+  // Preserve the final product/CTA card, but replace earlier static product
+  // scenes with actual footage. The product itself remains visible because the
+  // compositor overlays input.productImage over the real-world footage.
+  for (let i = 0; i < promoted.length - 1 && needed > 0; i++) {
+    if (promoted[i].kind !== 'product') continue
+    const donor = real[donorIndex % real.length]
+    donorIndex++
+    promoted[i] = {
+      ...donor,
+      seconds: promoted[i].seconds,
+      source: `${donor.source || 'real'}_promoted`,
+      promotedFromProductScene: true
+    }
+    needed--
+  }
+
+  const realAfter = promoted.filter((scene: any) => scene.kind !== 'product').length
+  console.log('Scene quality audit', {
+    totalScenes: promoted.length,
+    realScenesBefore: real.length,
+    realScenesAfter: realAfter,
+    productScenes: promoted.filter((scene: any) => scene.kind === 'product').length,
+    promotedScenes: promoted.filter((scene: any) => scene.promotedFromProductScene).length
+  })
+
+  if (realAfter < 4) {
+    throw new Error(`SCENE_QUALITY: only ${realAfter} real visual scenes available; require at least 4 before publishing`)
+  }
+  return promoted
+}
+
 export async function composeVerticalAd(input: any) {
   const outputDir = path.resolve(process.cwd(), 'output')
   ensureDir(outputDir)
@@ -200,6 +239,7 @@ export async function composeVerticalAd(input: any) {
   }
   scenes = scenes.filter((scene: any) => hasUsableFile(scene.file))
   if (!scenes.length) throw new Error('No usable scene files provided to compositor')
+  scenes = promoteRealScenes(scenes)
 
   const FONT_CANDIDATES = [
     process.env.DRAWTEXT_FONT || '',
@@ -210,7 +250,6 @@ export async function composeVerticalAd(input: any) {
   const fontPath = FONT_CANDIDATES.find((f) => f && fs.existsSync(f)) || ''
   const FONT = fontPath ? `fontfile='${fontPath}':` : ''
 
-  const hasProductScene = scenes.some((s: any) => s.kind === 'product')
   const voiceoverFile = input.voiceoverFile && fs.existsSync(input.voiceoverFile) ? input.voiceoverFile : ''
   const voiceDur = voiceoverFile ? probeDuration(voiceoverFile) : 0
   scenes = scenes.map((s: any) => ({ ...s, seconds: Math.max(3, Number(s.seconds || 5)) }))
@@ -230,9 +269,6 @@ export async function composeVerticalAd(input: any) {
   let vlabel = '0:v'
   let nextInput = 1
 
-  // Keep the actual product visible throughout the real-world b-roll. This lets
-  // the scene plan devote four of five scenes to useful footage without losing
-  // early product recognition.
   if (input.productImage && fs.existsSync(input.productImage)) {
     inputs.push(`-stream_loop -1 -i "${input.productImage}"`)
     chains.push(`[${nextInput}:v]scale=360:-1[prod]`)
