@@ -1,0 +1,58 @@
+{
+  "defaults": {
+    "audience": "homeowners, gardeners, lawn care customers, farmers and landowners",
+    "angle": "show the real problem, practical application, soil-level benefit and realistic outdoor result",
+    "tone": "plainspoken, practical and product-focused",
+    "cta": "Shop Nature's Way Soil at natureswaysoil.com.",
+    "hooks": [
+      "Better results start with what is happening in the soil."
+    ],
+    "scenes": [
+      {
+        "name": "Problem",
+        "seconds": 5,
+        "voiceover": "Better results start with what is happening in the soil.",
+        "brollQueries": ["lawn soil problem close up", "garden soil close up", "stressed lawn close up"],
+        "caption": "START WITH THE SOIL"
+      },
+      {
+        "name": "Product",
+        "seconds": 5,
+        "voiceover": "Nature's Way Soil products are made for practical lawn, garden, pasture and soil care.",
+        "brollQueries": ["lawn fertilizer bottle application", "garden product application"],
+        "caption": "NATURE'S WAY SOIL",
+        "useProductImage": true
+      },
+      {
+        "name": "Application",
+        "seconds": 6,
+        "voiceover": "Apply according to the label as part of your regular soil and plant care routine.",
+        "brollQueries": ["spraying lawn hose end sprayer", "watering garden plants", "farmer spraying field"],
+        "caption": "EASY TO APPLY"
+      },
+      {
+        "name": "Soil Detail",
+        "seconds": 6,
+        "voiceover": "The goal is to support the root zone, soil condition and nutrient availability.",
+        "brollQueries": ["healthy soil roots close up", "plant roots soil close up", "rich garden soil close up"],
+        "caption": "SUPPORT THE ROOT ZONE"
+      },
+      {
+        "name": "Real World Result",
+        "seconds": 6,
+        "voiceover": "Use consistent care to support healthier-looking lawns, gardens, pastures and plants.",
+        "brollQueries": ["healthy lawn sunlight", "healthy garden plants", "green pasture field"],
+        "caption": "REAL-WORLD SOIL CARE"
+      },
+      {
+        "name": "Profile Sentinel",
+        "seconds": 3,
+        "voiceover": "Shop Nature's Way Soil at natureswaysoil.com.",
+        "brollQuery": "Nature's Way Soil product",
+        "caption": "SHOP NATURESWAYSOIL.COM",
+        "useProductImage": true
+      }
+    ]
+  },
+  "profiles": {}
+}
