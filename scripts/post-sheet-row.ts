@@ -416,7 +416,7 @@ function fallbackScenes(product: any) {
       brollQuery: q[2] || 'gardener applying fertilizer',
       brollQueries: [q[2] || 'gardener applying fertilizer'],
       caption: 'Soil-first support',
-      useProductImage: true
+      useProductImage: false
     },
     {
       name: 'Use',
@@ -466,11 +466,11 @@ Content type: ${pickFirst(row, ['Content_Type', 'Content Type'])}
 CTA URL: ${product.websiteUrl}
 
 Required structure:
-1. Hook
-2. Problem
-3. Solution
-4. Farm/garden use scene
-5. CTA
+1. Hook - real B-roll
+2. Problem - real B-roll
+3. Solution/application - real B-roll with product overlay
+4. Farm/garden use - real B-roll
+5. CTA - product image/end card
 
 Rules:
 - Make the visuals farm, lawn, garden, pasture, soil, compost, roots, watering, sprayer, or plant related.
@@ -478,13 +478,14 @@ Rules:
 - Keep the language plainspoken and practical.
 - No guaranteed results.
 - No pesticide, disease, or cure claims.
+- The first four scenes MUST use real B-roll; only scene 5 may use the static product image.
 - If the product has a landing page URL, use that CTA URL. Otherwise use natureswaysoil.com.
 - Return JSON only:
 {
   "scenes": [
     {"name":"Hook","seconds":5,"voiceover":"...","brollQuery":"...","brollQueries":["..."],"caption":"...","useProductImage":false},
     {"name":"Problem","seconds":6,"voiceover":"...","brollQuery":"...","brollQueries":["..."],"caption":"...","useProductImage":false},
-    {"name":"Solution","seconds":7,"voiceover":"...","brollQuery":"...","brollQueries":["..."],"caption":"...","useProductImage":true},
+    {"name":"Solution","seconds":7,"voiceover":"...","brollQuery":"...","brollQueries":["..."],"caption":"...","useProductImage":false},
     {"name":"Use","seconds":6,"voiceover":"...","brollQuery":"...","brollQueries":["..."],"caption":"...","useProductImage":false},
     {"name":"CTA","seconds":5,"voiceover":"...","brollQuery":"...","brollQueries":["..."],"caption":"...","useProductImage":true}
   ]
@@ -508,7 +509,7 @@ Rules:
           ? scene.brollQueries.map(String)
           : [String(scene?.brollQuery || product.brollQueries?.[index] || product.category)],
         caption: String(scene?.caption || scene?.name || fallback[index]?.caption || product.name).trim(),
-        useProductImage: Boolean(scene?.useProductImage) || index === 2 || index === 4
+        useProductImage: index === 4
       }))
     }
   } catch (error: any) {
@@ -553,7 +554,7 @@ function runExistingPoster(product: any) {
   const env = {
     ...process.env,
     SEED_PRODUCT_LIMIT: '1',
-    VARIATIONS_PER_PRODUCT: '1',
+    VARIATIONS_PER_PRODUCT: '5',
     NEXT_PRODUCT_PREFERRED_ID: product.id,
     ROTATION_STATE_FILE: process.env.SHEET_ROTATION_STATE_FILE || 'data/sheet-row-rotation-state.json',
     USE_OPENAI_SCENE_PLAN: 'false',
