@@ -101,8 +101,8 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
-      - name: Generate or publish LeadPilot video
-        run: node -e "console.log('Campaign:', process.env.LEADPILOT_CAMPAIGN_ID, 'Publish:', process.env.LEADPILOT_PUBLISH, 'Platforms:', process.env.LEADPILOT_PLATFORMS)" && npx ts-node --transpile-only scripts/leadpilot-video.ts
+      - name: Generate or publish LeadPilot product-demo video
+        run: node -e "console.log('Campaign:', process.env.LEADPILOT_CAMPAIGN_ID, 'Publish:', process.env.LEADPILOT_PUBLISH, 'Platforms:', process.env.LEADPILOT_PLATFORMS)" && npx ts-node --transpile-only scripts/leadpilot-product-video.ts
 
       - name: Upload generated LeadPilot video
         if: always()
