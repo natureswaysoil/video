@@ -74,7 +74,7 @@ jobs:
         run: npm ci
 
       - name: Generate LeadPilot video
-        run: npx ts-node --transpile-only scripts/leadpilot-video-v2.ts
+        run: npx ts-node --transpile-only scripts/leadpilot-video.ts
 
       - name: Upload generated video
         if: always()
