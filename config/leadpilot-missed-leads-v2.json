@@ -1,0 +1,54 @@
+{
+  "campaigns": [
+    {
+      "id": "LP_MISSED_LEADS",
+      "name": "Stop Losing Landscaping Leads",
+      "description": "LeadPilot helps landscaping contractors catch, organize, and follow up with new customer inquiries from the Gmail they already use.",
+      "hook": "A good landscaping lead should not get buried in your inbox.",
+      "overlayText": "DON'T LOSE THE NEXT JOB",
+      "cta": "Start free for 14 days. No credit card required.",
+      "brollQueries": [
+        "landscaper working yard phone",
+        "landscaping contractor mowing lawn",
+        "contractor checking smartphone outdoors"
+      ],
+      "scenes": [
+        {
+          "name": "Missed lead",
+          "seconds": 5,
+          "voiceover": "A homeowner asks for an estimate while you are out working. That good lead can disappear in a busy inbox.",
+          "caption": "DON'T MISS THE LEAD",
+          "brollQuery": "landscaper working yard phone"
+        },
+        {
+          "name": "Gmail capture",
+          "seconds": 5,
+          "voiceover": "Connect the Gmail you already use. LeadPilot identifies new customer inquiries automatically.",
+          "caption": "JUST CONNECT GMAIL",
+          "brollQuery": "contractor checking smartphone outdoors"
+        },
+        {
+          "name": "Lead dashboard",
+          "seconds": 5,
+          "voiceover": "Each inquiry is organized in one dashboard with the service, location, lead score, and status.",
+          "caption": "EVERY LEAD IN ONE PLACE",
+          "brollQuery": "small business dashboard laptop"
+        },
+        {
+          "name": "Customer database",
+          "seconds": 5,
+          "voiceover": "Customer details and repeat inquiries stay together, so your lead database keeps building itself.",
+          "caption": "CUSTOMER HISTORY SAVED",
+          "brollQuery": "small business customer records"
+        },
+        {
+          "name": "Trial CTA",
+          "seconds": 5,
+          "voiceover": "Try LeadPilot free for fourteen days. No credit card required, and setup takes about five minutes.",
+          "caption": "14 DAYS FREE · NO CARD",
+          "brollQuery": "landscape business owner phone"
+        }
+      ]
+    }
+  ]
+}
