@@ -1,0 +1,212 @@
+{
+  "campaigns": [
+    {
+      "id": "LP_MISSED_LEADS",
+      "name": "Stop Losing Landscaping Leads",
+      "description": "LeadPilot helps landscaping contractors catch and organize new customer inquiries while they are out working.",
+      "hook": "Still losing jobs because you answered the lead too late?",
+      "overlayText": "STOP LOSING GOOD LEADS",
+      "cta": "Try LeadPilot free for 14 days. No credit card required.",
+      "brollQueries": [
+        "landscaper working yard phone",
+        "landscaping contractor mowing lawn",
+        "small business owner checking phone",
+        "landscape crew working outdoors",
+        "contractor using smartphone"
+      ],
+      "scenes": [
+        {
+          "name": "Missed inquiry",
+          "seconds": 5,
+          "voiceover": "A homeowner asks for a landscaping estimate while you are out working, and the email gets buried.",
+          "caption": "A NEW LEAD JUST CAME IN",
+          "brollQuery": "landscaper working yard phone"
+        },
+        {
+          "name": "Slow response",
+          "seconds": 5,
+          "voiceover": "By the time you get back to it, they may already be talking to another contractor.",
+          "caption": "SPEED MATTERS",
+          "brollQuery": "landscaping contractor mowing lawn"
+        },
+        {
+          "name": "LeadPilot capture",
+          "seconds": 6,
+          "voiceover": "LeadPilot watches the Gmail you already use and identifies real customer inquiries automatically.",
+          "caption": "JUST CONNECT GMAIL",
+          "brollQuery": "small business owner checking phone"
+        },
+        {
+          "name": "Organized pipeline",
+          "seconds": 6,
+          "voiceover": "It organizes the customer, service request, lead score, status, and follow-up in one place.",
+          "caption": "ONE LEAD DATABASE",
+          "brollQuery": "contractor using smartphone"
+        },
+        {
+          "name": "Trial CTA",
+          "seconds": 6,
+          "voiceover": "Try LeadPilot free for fourteen days. No credit card required, and setup takes about five minutes.",
+          "caption": "14 DAYS FREE · NO CARD",
+          "brollQuery": "landscape business owner happy"
+        }
+      ]
+    },
+    {
+      "id": "LP_FIVE_MINUTE_SETUP",
+      "name": "LeadPilot Five Minute Setup",
+      "description": "A simple onboarding message for landscaping contractors: add the business, services and prices, then connect Gmail.",
+      "hook": "You do not need another complicated CRM.",
+      "overlayText": "SET UP IN ABOUT 5 MINUTES",
+      "cta": "Start your free 14-day LeadPilot trial. No credit card required.",
+      "brollQueries": [
+        "landscaping business owner office",
+        "contractor laptop desk",
+        "small business pricing estimate",
+        "business owner gmail laptop",
+        "landscape contractor phone"
+      ],
+      "scenes": [
+        {
+          "name": "Simple start",
+          "seconds": 5,
+          "voiceover": "LeadPilot was built to be simple for landscaping contractors, not another complicated CRM.",
+          "caption": "NO CRM MIGRATION",
+          "brollQuery": "landscaping business owner office"
+        },
+        {
+          "name": "Business",
+          "seconds": 5,
+          "voiceover": "Add your business, service area, and the work you want more of.",
+          "caption": "ADD YOUR BUSINESS",
+          "brollQuery": "contractor laptop desk"
+        },
+        {
+          "name": "Pricing",
+          "seconds": 5,
+          "voiceover": "Add simple starting prices, ranges, or size tiers, or leave a service as a custom quote.",
+          "caption": "ADD SIMPLE PRICING",
+          "brollQuery": "small business pricing estimate"
+        },
+        {
+          "name": "Gmail",
+          "seconds": 6,
+          "voiceover": "Then just connect your Gmail. LeadPilot starts organizing new customer inquiries for you.",
+          "caption": "JUST CONNECT GMAIL",
+          "brollQuery": "business owner gmail laptop"
+        },
+        {
+          "name": "CTA",
+          "seconds": 6,
+          "voiceover": "Setup takes about five minutes. Start free for fourteen days with no credit card required.",
+          "caption": "START FREE TODAY",
+          "brollQuery": "landscape contractor phone"
+        }
+      ]
+    },
+    {
+      "id": "LP_CUSTOMER_DATABASE",
+      "name": "Your Customer Database Builds Itself",
+      "description": "Shows contractors how LeadPilot turns incoming inquiries into an organized customer and prospect database.",
+      "hook": "Your customer list should not live in scattered emails and spreadsheets.",
+      "overlayText": "YOUR LEAD DATABASE BUILDS ITSELF",
+      "cta": "Try LeadPilot free for 14 days. No credit card required.",
+      "brollQueries": [
+        "contractor checking email phone",
+        "small business customer records laptop",
+        "landscape contractor estimate customer",
+        "business owner organizing contacts",
+        "landscaper talking homeowner"
+      ],
+      "scenes": [
+        {
+          "name": "Scattered data",
+          "seconds": 5,
+          "voiceover": "Customer names, phone numbers, estimates, and follow-ups should not be scattered across old emails and spreadsheets.",
+          "caption": "STOP SEARCHING OLD EMAILS",
+          "brollQuery": "contractor checking email phone"
+        },
+        {
+          "name": "Automatic record",
+          "seconds": 6,
+          "voiceover": "When a new inquiry comes in, LeadPilot creates and updates the customer record automatically.",
+          "caption": "CUSTOMERS SAVED AUTOMATICALLY",
+          "brollQuery": "small business customer records laptop"
+        },
+        {
+          "name": "History",
+          "seconds": 5,
+          "voiceover": "Repeat inquiries stay connected to the same customer, giving you a useful history over time.",
+          "caption": "SEE THE FULL HISTORY",
+          "brollQuery": "business owner organizing contacts"
+        },
+        {
+          "name": "More value",
+          "seconds": 5,
+          "voiceover": "That gives you a growing database for follow-up, reactivation, and future seasonal marketing.",
+          "caption": "TURN LEADS INTO A DATABASE",
+          "brollQuery": "landscape contractor estimate customer"
+        },
+        {
+          "name": "CTA",
+          "seconds": 6,
+          "voiceover": "Try LeadPilot free for fourteen days. No credit card required.",
+          "caption": "14 DAYS FREE",
+          "brollQuery": "landscaper talking homeowner"
+        }
+      ]
+    },
+    {
+      "id": "LP_TRIAL",
+      "name": "14 Day Free LeadPilot Trial",
+      "description": "Direct-response trial video for landscaping contractors.",
+      "hook": "Try LeadPilot on the Gmail you already use.",
+      "overlayText": "14 DAYS FREE · NO CREDIT CARD",
+      "cta": "Start your LeadPilot trial today.",
+      "brollQueries": [
+        "landscape contractor smartphone",
+        "landscaping crew working",
+        "small business owner laptop",
+        "contractor customer estimate",
+        "landscape business owner"
+      ],
+      "scenes": [
+        {
+          "name": "Hook",
+          "seconds": 5,
+          "voiceover": "If you run a landscaping business, try LeadPilot on the Gmail you already use.",
+          "caption": "BUILT FOR LANDSCAPERS",
+          "brollQuery": "landscape contractor smartphone"
+        },
+        {
+          "name": "Capture",
+          "seconds": 5,
+          "voiceover": "It helps catch new customer inquiries while you and your crew stay focused on the work.",
+          "caption": "CATCH NEW INQUIRIES",
+          "brollQuery": "landscaping crew working"
+        },
+        {
+          "name": "Organize",
+          "seconds": 5,
+          "voiceover": "Good leads are organized into one dashboard with customer information and follow-up status.",
+          "caption": "KEEP LEADS ORGANIZED",
+          "brollQuery": "small business owner laptop"
+        },
+        {
+          "name": "Setup",
+          "seconds": 5,
+          "voiceover": "Setup takes about five minutes, and you do not need to replace the tools you already use.",
+          "caption": "ABOUT 5 MINUTES TO SET UP",
+          "brollQuery": "contractor customer estimate"
+        },
+        {
+          "name": "Trial",
+          "seconds": 6,
+          "voiceover": "Start a fourteen-day free trial. No credit card required.",
+          "caption": "NO CREDIT CARD REQUIRED",
+          "brollQuery": "landscape business owner"
+        }
+      ]
+    }
+  ]
+}
