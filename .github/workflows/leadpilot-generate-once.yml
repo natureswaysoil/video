@@ -17,6 +17,7 @@ jobs:
       DEFAULT_GOOGLE_CLOUD_PROJECT: natureswaysoil-video
       GOOGLE_CLOUD_PROJECT: natureswaysoil-video
       LEADPILOT_CAMPAIGN_ID: LP_MISSED_LEADS
+      LEADPILOT_CAMPAIGNS_FILE: config/leadpilot-missed-leads-v2.json
       LEADPILOT_PUBLISH: 'false'
       LEADPILOT_PLATFORMS: youtube,facebook
       LEADPILOT_URL: https://followupnest-git-feature-onboard-fc8b14-james-projects-5e9a58a0.vercel.app/
@@ -73,14 +74,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate LeadPilot video
-        run: npx ts-node --transpile-only scripts/leadpilot-video.ts
+      - name: Generate revised LeadPilot product-demo video
+        run: npx ts-node --transpile-only scripts/leadpilot-product-video.ts
 
       - name: Upload generated video
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: leadpilot-first-video
+          name: leadpilot-revised-video
           path: output/leadpilot/*.mp4
           if-no-files-found: warn
           retention-days: 14
