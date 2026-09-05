@@ -27,7 +27,10 @@
     "test:all": "npm run test:csv && npm run test:openai && npm run test:e2e:dry",
     "generate:test-videos": "ts-node scripts/generate-test-campaign-videos.ts",
     "post:sheet-row": "NODE_OPTIONS=--max-old-space-size=2048 VIDEO_STYLE=broll_ken_burns ts-node --transpile-only scripts/post-sheet-row.ts",
-    "test:sheet-row": "DRY_RUN_LOG_ONLY=true NODE_OPTIONS=--max-old-space-size=2048 VIDEO_STYLE=broll_ken_burns ts-node --transpile-only scripts/post-sheet-row.ts"
+    "test:sheet-row": "DRY_RUN_LOG_ONLY=true NODE_OPTIONS=--max-old-space-size=2048 VIDEO_STYLE=broll_ken_burns ts-node --transpile-only scripts/post-sheet-row.ts",
+    "leadpilot:test": "DRY_RUN_LOG_ONLY=true LEADPILOT_PUBLISH=false ts-node --transpile-only scripts/leadpilot-video.ts",
+    "leadpilot:video": "LEADPILOT_PUBLISH=false ts-node --transpile-only scripts/leadpilot-video.ts",
+    "leadpilot:post": "LEADPILOT_PUBLISH=true LEADPILOT_PLATFORMS=youtube,facebook ts-node --transpile-only scripts/leadpilot-video.ts"
   },
   "dependencies": {
     "@google-cloud/secret-manager": "^6.1.1",
@@ -52,7 +55,7 @@
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^20.16.10",
-    "@types/node-cron": "^3.0.11",
+    "@types/node-cron": "^3.0.1",
     "@types/yargs": "^17.0.34",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.3"
