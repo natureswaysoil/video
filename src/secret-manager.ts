@@ -21,6 +21,9 @@ export const DEFAULT_SECRET_NAMES = [
   'HEYGEN_DEFAULT_AVATAR',
   'HEYGEN_DEFAULT_VOICE',
   'HEYGEN_WEBHOOK_URL',
+  'ELEVENLABS_API_KEY',
+  'ELEVENLABS_VOICE_ID',
+  'ELEVENLABS_MODEL_ID',
   'INSTAGRAM_ACCESS_TOKEN',
   'INSTAGRAM_USER_ID',
   'YOUTUBE_CLIENT_ID',
@@ -56,8 +59,8 @@ function hasLikelyAdc(): boolean {
     process.env.GOOGLE_APPLICATION_CREDENTIALS ||
       process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
       process.env.GOOGLE_CREDENTIALS ||
-      process.env.K_SERVICE ||          // Cloud Run Services
-      process.env.CLOUD_RUN_JOB ||      // Cloud Run Jobs
+      process.env.K_SERVICE ||
+      process.env.CLOUD_RUN_JOB ||
       process.env.FUNCTION_TARGET ||
       process.env.GAE_SERVICE
   )
@@ -67,10 +70,6 @@ function normalizeSeparators(value: string): string {
   return value.trim().replace(/[\s]+/g, '_').replace(/[-_]+/g, '_')
 }
 
-/**
- * Generate likely Secret Manager naming variants for a requested env key.
- * Priority order starts with UPPERCASE_UNDERSCORE, then lowercase-hyphen.
- */
 export function buildSecretNameCandidates(secretName: string): string[] {
   const normalized = normalizeSeparators(secretName)
   const upperUnderscore = normalized.toUpperCase()
@@ -109,7 +108,6 @@ export async function loadSecretToEnv(secretName: string): Promise<boolean> {
 
   const candidates = buildSecretNameCandidates(secretName)
 
-  // Always try existing env vars first (supports mixed naming in local/dev runs).
   for (const candidate of candidates) {
     if (process.env[candidate]) {
       process.env[secretName] = process.env[candidate]
