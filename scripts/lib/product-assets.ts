@@ -73,8 +73,7 @@ function encodeUrlPath(url: string) {
   }
 }
 
-function productImageSource(product: any) {
-  const source = product.productImageUrl || product.imageUrl || product.amazonImageUrl || product.productImagePath || product.imagePath || ''
+function normalizeSource(source: string) {
   if (!source) return ''
   if (/^https?:\/\//i.test(source)) return encodeUrlPath(source)
   if (String(source).startsWith('/')) {
@@ -84,6 +83,42 @@ function productImageSource(product: any) {
   return source
 }
 
+function isGenericSiteImage(source: string) {
+  return /\/images\/og-image\.(?:png|jpe?g|webp)(?:\?|$)/i.test(String(source || ''))
+}
+
+function asinFromProduct(product: any) {
+  const direct = String(product.asin || product.ASIN || '').trim()
+  if (/^[A-Z0-9]{10}$/i.test(direct)) return direct.toUpperCase()
+  const amazonUrl = String(product.amazonUrl || '').trim()
+  const match = amazonUrl.match(/\/dp\/([A-Z0-9]{10})(?:[/?#]|$)/i)
+  return match?.[1]?.toUpperCase() || ''
+}
+
+function productImageSources(product: any) {
+  const explicit = String(
+    product.productImageUrl ||
+    product.imageUrl ||
+    product.amazonImageUrl ||
+    product.productImagePath ||
+    product.imagePath ||
+    ''
+  ).trim()
+
+  const sources: string[] = []
+  if (explicit && !isGenericSiteImage(explicit)) sources.push(normalizeSource(explicit))
+  if (explicit && isGenericSiteImage(explicit)) {
+    console.log('Generic site image ignored for product scene', { productId: product.id, source: explicit })
+  }
+
+  const asin = asinFromProduct(product)
+  if (asin) {
+    sources.push(`https://m.media-amazon.com/images/P/${asin}.01._SCLZZZZZZZ_.jpg`)
+  }
+
+  return [...new Set(sources.filter(Boolean))]
+}
+
 function imageExtension(url: string) {
   const clean = String(url || '').split('?')[0].toLowerCase()
   if (clean.endsWith('.png')) return 'png'
@@ -91,17 +126,9 @@ function imageExtension(url: string) {
   return 'jpg'
 }
 
-export async function downloadProductImage(product: any, outputDir: string) {
-  const local = localProductImage(product)
-  if (local) return local
-
-  const url = productImageSource(product)
-  if (!url) return ''
-
-  ensureDir(outputDir)
+async function downloadAndValidateProductImage(product: any, url: string, outputDir: string) {
   const ext = imageExtension(url)
   const output = path.resolve(outputDir, `product-${product.id}.${ext}`)
-
   try {
     const response = await axios.get(url, {
       responseType: 'stream',
@@ -130,7 +157,7 @@ export async function downloadProductImage(product: any, outputDir: string) {
     }
     return valid
   } catch (error: any) {
-    console.log('Product image skipped; continuing with b-roll only', {
+    console.log('Product image source rejected; trying next source', {
       productId: product.id,
       source: url,
       error: error?.response?.status || error?.message || error
@@ -138,6 +165,29 @@ export async function downloadProductImage(product: any, outputDir: string) {
     try { if (fs.existsSync(output)) fs.unlinkSync(output) } catch {}
     return ''
   }
+}
+
+export async function downloadProductImage(product: any, outputDir: string) {
+  const local = localProductImage(product)
+  if (local) return local
+
+  ensureDir(outputDir)
+  const sources = productImageSources(product)
+  if (!sources.length) {
+    console.log('No product-specific image source found; continuing with b-roll only', { productId: product.id })
+    return ''
+  }
+
+  for (const url of sources) {
+    const valid = await downloadAndValidateProductImage(product, url, outputDir)
+    if (valid) return valid
+  }
+
+  console.log('All product image sources failed validation; continuing with b-roll only', {
+    productId: product.id,
+    sourceCount: sources.length
+  })
+  return ''
 }
 
 export function productOverlayText(product: any) {
