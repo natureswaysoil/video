@@ -76,6 +76,9 @@ export function buildSecretNameCandidates(secretName: string): string[] {
   const lowerHyphen = normalized.toLowerCase().replace(/_/g, '-')
   const lowerUnderscore = normalized.toLowerCase()
   const asProvided = secretName.trim()
+  const aliases = secretName === 'ELEVENLABS_API_KEY'
+    ? ['ElevenLabs_Key', 'elevenlabs-key', 'elevenlabs_key']
+    : []
 
   const candidates = [
     upperUnderscore,
@@ -85,6 +88,7 @@ export function buildSecretNameCandidates(secretName: string): string[] {
     asProvided.replace(/_/g, '-'),
     lowerUnderscore,
     normalized,
+    ...aliases,
   ]
 
   return [...new Set(candidates.filter(Boolean))]
@@ -150,9 +154,7 @@ export async function loadSecretToEnv(secretName: string): Promise<boolean> {
       }
       return true
     } catch (error: any) {
-      if (isNotFoundError(error)) {
-        continue
-      }
+      if (isNotFoundError(error)) continue
 
       if (isPermissionDeniedError(error)) {
         console.warn(`Permission denied while loading secret ${candidate}:`, error?.message || error)
