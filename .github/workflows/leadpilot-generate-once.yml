@@ -1,4 +1,4 @@
-# ElevenLabs verification narration workflow
+# ElevenLabs verification narration workflow - stable default voice
 name: Generate LeadPilot Video Once
 
 on:
