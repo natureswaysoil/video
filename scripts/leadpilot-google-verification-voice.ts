@@ -51,7 +51,7 @@ async function main() {
   })
 
   const videoId = create.data?.data?.video_id || create.data?.video_id
-  if (!videoId) throw new Error(`HeyGen did not return a video ID: ${JSON.stringify(create.data)}`)
+  if (!videoId) throw new Error('HeyGen did not return a video ID')
   console.log(`Created HeyGen verification narration video: ${videoId}`)
 
   const started = Date.now()
@@ -66,7 +66,7 @@ async function main() {
       if (videoUrl) break
     }
     if (status === 'failed' || status === 'error') {
-      throw new Error(`HeyGen job failed: ${data.error || data.error_message || data.failure_message || 'unknown error'}`)
+      throw new Error(`HeyGen job failed: ${data.error_message || data.failure_message || 'unknown error'}`)
     }
     await new Promise((resolve) => setTimeout(resolve, 15_000))
   }
@@ -80,7 +80,13 @@ async function main() {
   console.log(`Saved ${outputPath}`)
 }
 
-main().catch((error) => {
-  console.error(error)
+main().catch((error: any) => {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status
+    const apiMessage = error.response?.data?.error?.message || error.response?.data?.message || error.message
+    console.error(`HeyGen request failed${status ? ` (${status})` : ''}: ${apiMessage}`)
+  } else {
+    console.error(error?.message || String(error))
+  }
   process.exit(1)
 })
