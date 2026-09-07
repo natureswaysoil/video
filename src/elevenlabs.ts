@@ -6,6 +6,8 @@ export type ElevenLabsVoiceoverOptions = {
   modelId?: string
 }
 
+const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'
+
 export class ElevenLabsClient {
   private readonly apiKey: string
   private readonly baseUrl: string
@@ -27,21 +29,9 @@ export class ElevenLabsClient {
     const configured = String(requested || process.env.ELEVENLABS_VOICE_ID || '').trim()
     if (configured) return configured
 
-    const response = await axios.get(`${this.baseUrl}/v1/voices`, {
-      headers: this.headers({ Accept: 'application/json' }),
-      timeout: 30_000,
-    })
-    const voices = Array.isArray(response.data?.voices) ? response.data.voices : []
-    if (!voices.length) throw new Error('ElevenLabs returned no available voices')
-
-    const preferred = voices.find((voice: any) => /^(rachel|adam|antoni|josh)$/i.test(String(voice?.name || '')))
-      || voices.find((voice: any) => String(voice?.category || '').toLowerCase() === 'premade')
-      || voices[0]
-
-    const voiceId = String(preferred?.voice_id || preferred?.voiceId || '').trim()
-    if (!voiceId) throw new Error('ElevenLabs voice list did not include a usable voice ID')
-    console.log(`Using ElevenLabs voice: ${preferred?.name || 'available premade voice'}`)
-    return voiceId
+    // Use ElevenLabs' documented Rachel voice by default. This avoids requiring
+    // the deprecated list-voices endpoint, which can reject some newer accounts.
+    return DEFAULT_VOICE_ID
   }
 
   async createVoiceover(options: ElevenLabsVoiceoverOptions): Promise<Buffer> {
@@ -49,7 +39,7 @@ export class ElevenLabsClient {
     if (!text) throw new Error('Voiceover text is required')
 
     const voiceId = await this.resolveVoiceId(options.voiceId)
-    const modelId = String(options.modelId || process.env.ELEVENLABS_MODEL_ID || 'eleven_flash_v2_5').trim()
+    const modelId = String(options.modelId || process.env.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2').trim()
 
     try {
       const response = await axios.post(
@@ -58,9 +48,9 @@ export class ElevenLabsClient {
           text,
           model_id: modelId,
           voice_settings: {
-            stability: 0.45,
+            stability: 0.5,
             similarity_boost: 0.75,
-            style: 0.2,
+            style: 0.1,
             use_speaker_boost: true,
           },
         },
