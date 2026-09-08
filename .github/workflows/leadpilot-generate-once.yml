@@ -1,4 +1,4 @@
-# ElevenLabs verification narration workflow - stable default voice - rerun after key rotation
+# ElevenLabs verification narration workflow - requested for updated Google OAuth review video
 name: Generate LeadPilot Video Once
 
 on:
