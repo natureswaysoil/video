@@ -3,6 +3,8 @@ import path from 'node:path'
 import { ElevenLabsClient } from '../src/elevenlabs'
 import { loadSecretsToEnv } from '../src/secret-manager'
 
+const VOICE_ID = 'PIGsltMj3gFMR34aFDI3'
+
 const SCRIPT = `This video demonstrates how LeadPilot uses Google's Gmail read-only scope for a user-facing lead-management feature.
 
 LeadPilot is designed for contractors who receive customer inquiries, estimate requests, and service requests by email while they are working. With the contractor's explicit authorization, LeadPilot connects to Gmail through Google OAuth and uses read-only access to identify incoming messages that may represent legitimate customer leads.
@@ -26,12 +28,12 @@ LeadPilot's privacy policy explains how Google user data is accessed, used, stor
 This concludes the demonstration of why LeadPilot requests Gmail read-only access, how that access is used, and why a more limited metadata-only permission would not provide the message content required for lead classification and extraction.`
 
 async function main() {
-  await loadSecretsToEnv(['ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_ID', 'ELEVENLABS_MODEL_ID'])
+  await loadSecretsToEnv(['ELEVENLABS_API_KEY', 'ELEVENLABS_MODEL_ID'])
   const apiKey = String(process.env.ELEVENLABS_API_KEY || '').trim()
   if (!apiKey) throw new Error('ELEVENLABS_API_KEY is not configured in the environment or Google Secret Manager')
 
   const client = new ElevenLabsClient(apiKey)
-  const audio = await client.createVoiceover({ text: SCRIPT })
+  const audio = await client.createVoiceover({ text: SCRIPT, voiceId: VOICE_ID })
 
   const outputDir = path.resolve(process.cwd(), 'output/leadpilot')
   await fs.mkdir(outputDir, { recursive: true })
