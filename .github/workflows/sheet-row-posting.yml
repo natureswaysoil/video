@@ -4,11 +4,19 @@ on:
   workflow_dispatch:
   schedule:
     # GitHub cron is UTC and has no timezone/DST support. Trigger both
-    # Eastern-time candidates; the gate below permits only 9 AM / 6 PM ET.
+    # Eastern-time candidates; the gate below permits five daily posts at
+    # 8 AM, 11 AM, 2 PM, 5 PM, and 8 PM ET throughout EST and EDT.
+    - cron: '0 0 * * *'
+    - cron: '0 1 * * *'
+    - cron: '0 12 * * *'
     - cron: '0 13 * * *'
     - cron: '0 14 * * *'
+    - cron: '0 15 * * *'
+    - cron: '0 16 * * *'
+    - cron: '0 18 * * *'
+    - cron: '0 19 * * *'
+    - cron: '0 21 * * *'
     - cron: '0 22 * * *'
-    - cron: '0 23 * * *'
 
 jobs:
   schedule-gate:
@@ -16,7 +24,7 @@ jobs:
     outputs:
       should_run: ${{ steps.gate.outputs.should_run }}
     steps:
-      - name: Permit manual runs or 9 AM / 6 PM Eastern
+      - name: Permit manual runs or five daily Eastern posting times
         id: gate
         shell: bash
         run: |
@@ -25,11 +33,10 @@ jobs:
             exit 0
           fi
           eastern_hour="$(TZ=America/New_York date +%H)"
-          if [ "$eastern_hour" = "09" ] || [ "$eastern_hour" = "18" ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-          fi
+          case "$eastern_hour" in
+            08|11|14|17|20) echo "should_run=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "should_run=false" >> "$GITHUB_OUTPUT" ;;
+          esac
 
   post-sheet-row:
     needs: schedule-gate
