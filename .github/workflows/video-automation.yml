@@ -1,4 +1,4 @@
-name: Nature's Way Soil Video Automation
+name: Legacy Test Campaign (Archived - Never Publishes)
 
 on:
   # Keep the legacy test campaign available for manual diagnostics only.
@@ -7,6 +7,9 @@ on:
 
 jobs:
   video-automation:
+    # The bundled clips are historical test patterns, not marketing assets.
+    # Keep this job permanently disabled so it cannot upload them by mistake.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
 

@@ -95,7 +95,19 @@ function asinFromProduct(product: any) {
   return match?.[1]?.toUpperCase() || ''
 }
 
-function productImageSources(product: any) {
+function catalogFallbackProductId(product: any) {
+  const text = `${product.name || ''} ${product.description || ''}`.toLowerCase()
+  if (/dog|urine|pet odor|yellow spot/.test(text)) return 'NWS_014'
+  if (/humic|fulvic/.test(text)) return 'NWS_021'
+  if (/seaweed|kelp/.test(text)) return 'NWS_018'
+  if (/bone meal|phosphorus/.test(text)) return 'NWS_016'
+  if (/hydroponic|aquaponic/.test(text)) return 'NWS_011'
+  if (/compost|worm casting/.test(text)) return 'NWS_013'
+  if (/biochar|activated charcoal/.test(text)) return 'NWS_002'
+  return ''
+}
+
+export function productImageSources(product: any) {
   const explicit = String(
     product.productImageUrl ||
     product.imageUrl ||
@@ -114,6 +126,15 @@ function productImageSources(product: any) {
   const asin = asinFromProduct(product)
   if (asin) {
     sources.push(`https://m.media-amazon.com/images/P/${asin}.01._SCLZZZZZZZ_.jpg`)
+  }
+
+  // Amazon's legacy ASIN image endpoint now commonly returns a 1x1 tracking
+  // GIF. Fall back to the maintained product catalog in the website repo.
+  // Variant rows (for example NWS_026, a 32 oz humic/fulvic product) can reuse
+  // the corresponding product-family image instead of losing the product card.
+  const catalogId = catalogFallbackProductId(product)
+  if (catalogId) {
+    sources.push(`https://raw.githubusercontent.com/natureswaysoil/best/main/public/images/products/${catalogId}/main.jpg`)
   }
 
   return [...new Set(sources.filter(Boolean))]
