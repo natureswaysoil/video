@@ -299,6 +299,8 @@ function makeProduct(row: SheetRow, sheetIndex: number) {
 
   return {
     id: pickFirst(row, ['Product_ID']) || pickFirst(row, ['ASIN']) || pickFirst(row, ['SKU']) || `SHEET_ROW_${sheetIndex + 1}`,
+    asin: pickFirst(row, ['ASIN']),
+    parentAsin: pickFirst(row, ['Parent_ASIN', 'Parent ASIN']),
     name,
     description,
     category,
