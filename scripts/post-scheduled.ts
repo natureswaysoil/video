@@ -18,6 +18,7 @@ import { formatCaption } from './lib/caption-formatter'
 import { postToTikTok, postToTwitter, fetchBasicMetrics } from './lib/social-platforms'
 import { postToFacebookGroups } from './lib/facebook-groups'
 import { recordPerformance } from './lib/marketing-engine'
+import { decodeMarketingCampaign, marketingCaption } from './lib/marketing-campaign'
 
 type Product = {
   id: string
@@ -602,13 +603,14 @@ async function main() {
   log('Generated scene plan', { fullVoiceoverLength: scenePlan.fullVoiceover.length, scenes: scenePlan.scenes.map((scene: CreativeScene, index: number) => ({ idx: index + 1, name: scene.name, seconds: scene.seconds, useProductImage: !!scene.useProductImage, brollQuery: scene.brollQuery })) })
   const platforms = Array.from(new Set((process.env.ENABLE_PLATFORMS || 'youtube,instagram,facebook').toLowerCase().split(',').map((p) => p.trim()).filter(Boolean)))
   const mandatoryPlatformMode = isCiMandatoryPlatformMode()
+  const approvedCampaign = decodeMarketingCampaign()
   const captions = {
-    youtube: formatCaption(product, scenePlan, 'youtube'),
-    instagram: formatCaption(product, scenePlan, 'instagram'),
-    facebook: formatCaption(product, scenePlan, 'facebook'),
-    tiktok: formatCaption(product, scenePlan, 'tiktok'),
-    twitter: formatCaption(product, scenePlan, 'tiktok'),
-    facebookGroups: formatCaption(product, scenePlan, 'facebook_groups')
+    youtube: marketingCaption(approvedCampaign, 'youtube', formatCaption(product, scenePlan, 'youtube')),
+    instagram: marketingCaption(approvedCampaign, 'instagram', formatCaption(product, scenePlan, 'instagram')),
+    facebook: marketingCaption(approvedCampaign, 'facebook', formatCaption(product, scenePlan, 'facebook')),
+    tiktok: marketingCaption(approvedCampaign, 'tiktok', formatCaption(product, scenePlan, 'tiktok')),
+    twitter: marketingCaption(approvedCampaign, 'twitter', formatCaption(product, scenePlan, 'tiktok')),
+    facebookGroups: marketingCaption(approvedCampaign, 'facebook_groups', formatCaption(product, scenePlan, 'facebook_groups'))
   }
   if (String(process.env.DRY_RUN_LOG_ONLY || '').toLowerCase() === 'true') {
     log('Dry run enabled; skipping render and social posting', {
