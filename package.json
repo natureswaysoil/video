@@ -21,6 +21,7 @@
     "test:openai": "ts-node scripts/test-openai-script.ts",
     "test:twitter-policy": "ts-node scripts/test-twitter-policy.ts",
     "test:twitter-scheduled-auth": "ts-node scripts/test-twitter-scheduled-auth.ts",
+    "test:marketing-campaign": "ts-node scripts/test-marketing-campaign.ts",
     "test:product-assets": "ts-node scripts/test-product-assets.ts",
     "test:heygen": "ts-node scripts/test-heygen-integration.ts",
     "test:platforms": "ts-node scripts/test-all-platforms.ts",
