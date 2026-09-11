@@ -8,6 +8,7 @@ import { execSync } from 'child_process'
 import { google } from 'googleapis'
 import { Storage } from '@google-cloud/storage'
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager'
+import { decodeMarketingCampaign, marketingProduct, marketingScenes } from './lib/marketing-campaign'
 
 type SheetRow = Record<string, string>
 
@@ -598,18 +599,32 @@ function advanceState(state: any, sheetIndex: number, product: any) {
 
 async function main() {
   await loadSecrets()
-  await restoreStateFromGcs()
+  const approvedCampaign = decodeMarketingCampaign()
+  let row: SheetRow = {}
+  let sheetIndex = -1
+  let state: any = null
+  let product: any
+  let scenes: any[]
 
-  const csv = await fetchGoogleSheetCsv()
-  const rows = parseCsv(csv)
-  if (!rows.length) throw new Error('Google Sheet CSV returned no product rows')
-
-  const { row, sheetIndex, state } = selectNextRow(rows)
-  const product = makeProduct(row, sheetIndex)
-  const scenes = await generateScenes(product, row)
+  if (approvedCampaign) {
+    product = marketingProduct(approvedCampaign)
+    scenes = marketingScenes(approvedCampaign)
+    log('Using approved AI marketing campaign', { campaignId: approvedCampaign.id, productId: approvedCampaign.productId })
+  } else {
+    await restoreStateFromGcs()
+    const csv = await fetchGoogleSheetCsv()
+    const rows = parseCsv(csv)
+    if (!rows.length) throw new Error('Google Sheet CSV returned no product rows')
+    const selected = selectNextRow(rows)
+    row = selected.row
+    sheetIndex = selected.sheetIndex
+    state = selected.state
+    product = makeProduct(row, sheetIndex)
+    scenes = await generateScenes(product, row)
+  }
 
   log('Selected Google Sheet row for video', {
-    rowNumber: sheetIndex + 1,
+    rowNumber: approvedCampaign ? 'approved-campaign' : sheetIndex + 1,
     productId: product.id,
     productName: product.name,
     category: product.category,
@@ -632,13 +647,17 @@ async function main() {
   const restoreConfig = writeTempPostingConfig(product, scenes)
   try {
     runExistingPoster(product)
-    advanceState(state, sheetIndex, product)
-    await persistStateToGcs()
-    log('Google Sheet row completed; next run will move to next row', {
-      completedRowNumber: sheetIndex + 1,
-      nextRowNumber: sheetIndex + 2,
-      productId: product.id
-    })
+    if (!approvedCampaign) {
+      advanceState(state, sheetIndex, product)
+      await persistStateToGcs()
+      log('Google Sheet row completed; next run will move to next row', {
+        completedRowNumber: sheetIndex + 1,
+        nextRowNumber: sheetIndex + 2,
+        productId: product.id
+      })
+    } else {
+      log('Approved AI marketing campaign completed', { campaignId: approvedCampaign.id, productId: product.id })
+    }
   } finally {
     restoreConfig()
   }
