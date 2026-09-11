@@ -1,6 +1,10 @@
 import axios from 'axios'
 import { google } from 'googleapis'
 import { TwitterApi } from 'twitter-api-v2'
+import { addSecretVersion } from '../../src/secret-manager'
+import { twitterAuthMode } from './twitter-auth'
+
+export { twitterAuthMode } from './twitter-auth'
 
 function pickEnv(keys: string[]): string {
   for (const key of keys) {
@@ -18,23 +22,61 @@ function apiError(error: any): string {
 }
 
 // ---------------------------------------------------------------------------
-// Twitter / X video posting via twitter-api-v2 (matches the proven path used
-// in the social-video-automation repo). Accepts a LOCAL file path (preferred)
-// or a public URL (downloaded to a temp file first). OAuth 1.0a user context.
-// Secrets: TWITTER_API_KEY, TWITTER_API_SECRET, TWITTER_ACCESS_TOKEN,
-//          TWITTER_ACCESS_TOKEN_SECRET || TWITTER_ACCESS_SECRET
+// Twitter / X video posting via twitter-api-v2. OAuth 2.0 user authorization
+// is preferred because its access token is refreshed automatically. Rotated
+// refresh tokens are written back to Google Secret Manager. OAuth 1.0a remains
+// available as a fallback.
 // ---------------------------------------------------------------------------
+function createTwitterOAuth1Client(): TwitterApi {
+  return new TwitterApi({
+    appKey: process.env.TWITTER_API_KEY as string,
+    appSecret: process.env.TWITTER_API_SECRET as string,
+    accessToken: process.env.TWITTER_ACCESS_TOKEN as string,
+    accessSecret: (process.env.TWITTER_ACCESS_TOKEN_SECRET || process.env.TWITTER_ACCESS_SECRET) as string
+  })
+}
+
+async function createTwitterUserClient(): Promise<{ client: TwitterApi, authMode: 'oauth2-user' | 'oauth1-user' }> {
+  const mode = twitterAuthMode()
+  if (mode === 'oauth2-user') {
+    const currentRefreshToken = process.env.TWITTER_REFRESH_TOKEN!.trim()
+    try {
+      const oauthClient = new TwitterApi({
+        clientId: process.env.TWITTER_CLIENT_ID!.trim(),
+        clientSecret: process.env.TWITTER_CLIENT_SECRET!.trim()
+      })
+      const refreshed = await oauthClient.refreshOAuth2Token(currentRefreshToken)
+      console.log('Refreshed Twitter OAuth 2.0 user authorization', { scopes: refreshed.scope })
+
+      if (refreshed.refreshToken && refreshed.refreshToken !== currentRefreshToken) {
+        process.env.TWITTER_REFRESH_TOKEN = refreshed.refreshToken
+        try {
+          await addSecretVersion('TWITTER_REFRESH_TOKEN', refreshed.refreshToken)
+          console.log('Stored rotated Twitter refresh token in Secret Manager')
+        } catch (error: any) {
+          console.warn('Could not persist rotated Twitter refresh token; continuing with refreshed access token:', error?.message || String(error))
+        }
+      }
+      return { client: refreshed.client, authMode: 'oauth2-user' }
+    } catch (error: any) {
+      const hasOAuth1Fallback = twitterAuthMode({
+        ...process.env,
+        TWITTER_CLIENT_ID: '',
+        TWITTER_CLIENT_SECRET: '',
+        TWITTER_REFRESH_TOKEN: ''
+      }) === 'oauth1-user'
+      if (!hasOAuth1Fallback) throw error
+      console.warn('Twitter OAuth 2.0 refresh failed; falling back to OAuth 1.0a:', error?.message || String(error))
+    }
+  }
+  return { client: createTwitterOAuth1Client(), authMode: 'oauth1-user' }
+}
+
 export async function postToTwitter(videoFileOrUrl: string, caption: string) {
-  const appKey = process.env.TWITTER_API_KEY
-  const appSecret = process.env.TWITTER_API_SECRET
-  const accessToken = process.env.TWITTER_ACCESS_TOKEN
-  const accessSecret = process.env.TWITTER_ACCESS_TOKEN_SECRET || process.env.TWITTER_ACCESS_SECRET
-  if (!appKey || !appSecret || !accessToken || !accessSecret) {
-    console.log('Twitter posting skipped: missing TWITTER_API_KEY/API_SECRET/ACCESS_TOKEN/ACCESS_SECRET')
+  if (twitterAuthMode() === 'none') {
+    console.log('Twitter posting skipped: missing OAuth 2.0 refresh credentials and OAuth 1.0a fallback credentials')
     return { skipped: true }
   }
-
-  const client = new TwitterApi({ appKey, appSecret, accessToken, accessSecret })
 
   // Resolve to a local file path; download if a URL was passed.
   let localPath = videoFileOrUrl
@@ -51,19 +93,22 @@ export async function postToTwitter(videoFileOrUrl: string, caption: string) {
   }
 
   try {
-    // v1.1 chunked uploader first (most reliable for video); fall back to v2.
+    const { client, authMode } = await createTwitterUserClient()
+    const rwClient = client.readWrite
     let mediaId: string
+    const fsBuf = await import('fs')
+    const buf = fsBuf.readFileSync(localPath)
     try {
-      mediaId = await client.v1.uploadMedia(localPath, { mimeType: 'video/mp4', target: 'tweet' })
-    } catch (e: any) {
-      const fsBuf = await import('fs')
-      const buf = fsBuf.readFileSync(localPath)
-      mediaId = await client.v2.uploadMedia(buf, { media_type: 'video/mp4', media_category: 'tweet_video' })
+      mediaId = await rwClient.v2.uploadMedia(buf, { media_type: 'video/mp4', media_category: 'tweet_video' })
+    } catch (error: any) {
+      if (authMode !== 'oauth1-user') throw error
+      console.warn('Twitter API v2 media upload failed; trying OAuth 1.0a v1.1 upload:', error?.message || String(error))
+      mediaId = await rwClient.v1.uploadMedia(localPath, { mimeType: 'video/mp4', target: 'tweet' })
     }
-    const { data } = await client.v2.tweet({ text: String(caption || '').slice(0, 280), media: { media_ids: [mediaId] } })
+    const { data } = await rwClient.v2.tweet({ text: String(caption || '').slice(0, 280), media: { media_ids: [mediaId] } })
     const tweetId = data?.id
     if (!tweetId) throw new Error('Twitter did not return a tweet id')
-    return { platform: 'twitter', tweetId, mediaId }
+    return { platform: 'twitter', tweetId, mediaId, authMode }
   } finally {
     if (cleanup) { try { (await import('fs')).unlinkSync(localPath) } catch {} }
   }
