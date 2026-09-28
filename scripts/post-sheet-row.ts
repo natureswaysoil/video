@@ -647,7 +647,14 @@ async function main() {
   const restoreConfig = writeTempPostingConfig(product, scenes)
   try {
     runExistingPoster(product)
-    if (!approvedCampaign) {
+    const postingDryRun = String(process.env.POSTING_DRY_RUN || '').toLowerCase() === 'true'
+    if (postingDryRun) {
+      log('[DRY RUN] HeyGen video rendered without publishing; sheet row state was not advanced', {
+        rowNumber: approvedCampaign ? 'approved-campaign' : sheetIndex + 1,
+        productId: product.id,
+        productName: product.name
+      })
+    } else if (!approvedCampaign) {
       advanceState(state, sheetIndex, product)
       await persistStateToGcs()
       log('Google Sheet row completed; next run will move to next row', {
