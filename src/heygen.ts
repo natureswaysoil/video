@@ -128,7 +128,6 @@ export class HeyGenClient {
 
   private async resolveId(kind: 'avatars' | 'voices', requested: string): Promise<string> {
     const value = String(requested || '').trim()
-    if (!value) throw new Error(`A HeyGen ${kind === 'avatars' ? 'avatar' : 'voice'} ID is required`)
 
     try {
       const endpoint = kind === 'avatars' ? '/v2/avatars' : '/v2/voices'
@@ -137,13 +136,31 @@ export class HeyGenClient {
       const items = data[kind] || data.items || []
       const idKey = kind === 'avatars' ? 'avatar_id' : 'voice_id'
       const nameKey = kind === 'avatars' ? 'avatar_name' : 'name'
-      const lowered = value.toLowerCase()
-      const match = items.find((item: any) => String(item?.[idKey] || item?.id || '') === value)
-        || items.find((item: any) => String(item?.[nameKey] || item?.name || '').toLowerCase() === lowered)
-      return String(match?.[idKey] || match?.id || value)
+
+      if (!Array.isArray(items) || !items.length) {
+        if (value) return value
+        throw new Error(`HeyGen returned no available ${kind}`)
+      }
+
+      if (value) {
+        const lowered = value.toLowerCase()
+        const match = items.find((item: any) => String(item?.[idKey] || item?.id || '') === value)
+          || items.find((item: any) => String(item?.[nameKey] || item?.name || '').toLowerCase() === lowered)
+        if (match) return String(match?.[idKey] || match?.id || value)
+        console.warn(`Configured HeyGen ${kind === 'avatars' ? 'avatar' : 'voice'} was not found; using the first available account option instead.`)
+      }
+
+      const first = items.find((item: any) => String(item?.[idKey] || item?.id || '').trim())
+      const resolved = String(first?.[idKey] || first?.id || '').trim()
+      if (!resolved) throw new Error(`HeyGen returned ${kind} without a usable ID`)
+      console.log(`Using automatic HeyGen ${kind === 'avatars' ? 'avatar' : 'voice'} selection: ${resolved}`)
+      return resolved
     } catch (error: any) {
-      console.warn(`Could not resolve HeyGen ${kind}; using configured ID directly:`, error?.message || error)
-      return value
+      if (value) {
+        console.warn(`Could not resolve HeyGen ${kind}; using configured ID directly:`, error?.message || error)
+        return value
+      }
+      throw new Error(`Could not automatically select a HeyGen ${kind === 'avatars' ? 'avatar' : 'voice'}: ${error?.message || error}`)
     }
   }
 
