@@ -126,7 +126,17 @@ function validateDecodedMedia(file: string, kind: 'video' | 'photo') {
     '-v', 'error', '-select_streams', 'v:0',
     '-show_entries', 'stream=codec_name,width,height,pix_fmt', '-of', 'json', file
   ], { encoding: 'utf8' })
-  if (probe.status !== 0) return false
+  if (probe.error?.code === 'ENOENT') {
+    throw new Error('ffprobe is not installed. Install ffmpeg/ffprobe before running media validation.')
+  }
+  if (probe.status !== 0) {
+    console.log('Media validation failed', {
+      file: path.basename(file),
+      kind,
+      reason: String(probe.stderr || 'ffprobe failed').trim()
+    })
+    return false
+  }
   try {
     const data = JSON.parse(probe.stdout || '{}')
     const stream = data.streams?.[0]
