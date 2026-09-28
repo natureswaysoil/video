@@ -16,6 +16,9 @@ function probeImage(file: string) {
     ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,width,height', '-of', 'json', file],
     { encoding: 'utf8' }
   )
+  if (probe.error?.code === 'ENOENT') {
+    return { ok: false, width: 0, height: 0, reason: 'ffprobe is not installed; install ffmpeg/ffprobe before validating product images' }
+  }
   if (probe.status !== 0) {
     return { ok: false, width: 0, height: 0, reason: String(probe.stderr || 'ffprobe failed').trim() }
   }
