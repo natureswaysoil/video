@@ -416,8 +416,6 @@ async function uploadMediaForHeyGen(file: string, index: number): Promise<string
 
 async function renderHeyGenVideo(product: Product, scenePlan: any): Promise<string> {
   if (!hasValue('HEYGEN_API_KEY')) throw new Error('HEYGEN_API_KEY is required when VIDEO_PROVIDER=heygen')
-  if (!hasValue('HEYGEN_DEFAULT_AVATAR')) throw new Error('HEYGEN_DEFAULT_AVATAR is required when VIDEO_PROVIDER=heygen')
-  if (!hasValue('HEYGEN_DEFAULT_VOICE')) throw new Error('HEYGEN_DEFAULT_VOICE is required when VIDEO_PROVIDER=heygen')
 
   const { scenes } = await collectSceneFiles(product, scenePlan)
   const heygenScenes: any[] = []
