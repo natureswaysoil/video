@@ -14,6 +14,7 @@ import { buildSceneQueryPriority, fetchBrollForScene } from './lib/pexels-media'
 import { downloadProductImage, productOverlayText } from './lib/product-assets'
 import { ensureDir, hasUsableFile, safeFileName } from './lib/video-utils'
 import { createNarration } from './lib/video-provider'
+import { createClientWithSecrets as createHeyGenClient } from '../src/heygen'
 import { formatCaption } from './lib/caption-formatter'
 import { postToTikTok, postToTwitter, fetchBasicMetrics } from './lib/social-platforms'
 import { postToFacebookGroups } from './lib/facebook-groups'
@@ -80,6 +81,9 @@ const SECRET_NAMES = [
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
   'PEXELS_API_KEY',
+  'HEYGEN_API_KEY',
+  'HEYGEN_DEFAULT_AVATAR',
+  'HEYGEN_DEFAULT_VOICE',
   'YT_CLIENT_ID',
   'YT_CLIENT_SECRET',
   'YT_REFRESH_TOKEN',
@@ -388,6 +392,71 @@ async function uploadVideoForSocial(videoFileOrUrl: string): Promise<string> {
   return publicUrl
 }
 
+
+async function uploadMediaForHeyGen(file: string, index: number): Promise<string> {
+  if (isHttpUrl(file)) return file
+  const bucketName = publicBucketName()
+  const storage = new Storage()
+  const ext = path.extname(file).toLowerCase() || '.bin'
+  const objectName = `heygen-assets/${Date.now()}-${index + 1}-${safeFileName(path.basename(file), ext.replace('.', '') || 'bin')}`
+  const contentType =
+    ext === '.png' ? 'image/png' :
+    ext === '.webp' ? 'image/webp' :
+    /\.jpe?g$/i.test(ext) ? 'image/jpeg' :
+    'video/mp4'
+  await storage.bucket(bucketName).upload(file, {
+    destination: objectName,
+    resumable: false,
+    metadata: { contentType, cacheControl: 'public, max-age=604800' }
+  })
+  const publicUrl = `${publicBucketUrlBase(bucketName)}/${objectName.split('/').map(encodeURIComponent).join('/')}`
+  log('Uploaded HeyGen scene media', { index: index + 1, objectName, publicUrl })
+  return publicUrl
+}
+
+async function renderHeyGenVideo(product: Product, scenePlan: any): Promise<string> {
+  if (!hasValue('HEYGEN_API_KEY')) throw new Error('HEYGEN_API_KEY is required when VIDEO_PROVIDER=heygen')
+  if (!hasValue('HEYGEN_DEFAULT_AVATAR')) throw new Error('HEYGEN_DEFAULT_AVATAR is required when VIDEO_PROVIDER=heygen')
+  if (!hasValue('HEYGEN_DEFAULT_VOICE')) throw new Error('HEYGEN_DEFAULT_VOICE is required when VIDEO_PROVIDER=heygen')
+
+  const { scenes } = await collectSceneFiles(product, scenePlan)
+  const heygenScenes: any[] = []
+  for (let index = 0; index < scenes.length; index++) {
+    const media = scenes[index]
+    const scene = scenePlan.scenes?.[index] || {}
+    const url = await uploadMediaForHeyGen(media.file, index)
+    heygenScenes.push({
+      seconds: String(media.seconds || scene.seconds || 6),
+      avatarText: String(scene.voiceover || scenePlan.fullVoiceover || product.description || product.name).trim(),
+      ...(media.kind === 'video' ? { brollUrl: url } : { imageUrl: url })
+    })
+  }
+
+  if (!heygenScenes.length) throw new Error('No usable HeyGen scenes were prepared')
+
+  const heygen = await createHeyGenClient()
+  const videoId = await heygen.createVideoJob({
+    title: product.name,
+    script: scenePlan.fullVoiceover,
+    avatar: process.env.HEYGEN_DEFAULT_AVATAR,
+    voice: process.env.HEYGEN_DEFAULT_VOICE,
+    scenes: heygenScenes
+  })
+  log('HeyGen video submitted', { videoId, product: product.name, scenes: heygenScenes.length })
+
+  const videoUrl = await heygen.pollJobForVideoUrl(videoId, {
+    timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1200000),
+    intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000)
+  })
+
+  ensureDir(OUTPUT_DIR)
+  const output = path.resolve(OUTPUT_DIR, `${safeFileName(product.name)}-heygen-${Date.now()}.mp4`)
+  const response = await axios.get(videoUrl, { responseType: 'arraybuffer', timeout: 180000 })
+  fs.writeFileSync(output, Buffer.from(response.data))
+  log('HeyGen video downloaded', { videoId, videoUrl, output })
+  return output
+}
+
 function createThumbnail(videoFile: string, product: Product): string {
   ensureDir(OUTPUT_DIR)
   const output = path.resolve(OUTPUT_DIR, `${safeFileName(`${product.name}-thumbnail`, 'jpg')}`)
@@ -622,7 +691,9 @@ async function main() {
     })
     return
   }
-  const videoFile = await renderVideo(product, profile, scenePlan)
+  const videoFile = process.env.VIDEO_PROVIDER === 'heygen'
+    ? await renderHeyGenVideo(product, scenePlan)
+    : await renderVideo(product, profile, scenePlan)
   const quality = validateMarketingVideo(videoFile)
   log('Marketing video passed pre-upload quality gate', quality)
   const thumbnailFile = createThumbnail(videoFile, product)
