@@ -570,7 +570,7 @@ function runExistingPoster(product: any) {
     ROTATION_STATE_FILE: process.env.SHEET_ROTATION_STATE_FILE || 'data/sheet-row-rotation-state.json',
     USE_OPENAI_SCENE_PLAN: 'false',
     VIDEO_STYLE: 'broll_ken_burns',
-    VIDEO_PROVIDER: 'openai_tts'
+    VIDEO_PROVIDER: 'heygen'
   }
 
   execSync('npx ts-node --transpile-only scripts/post-scheduled.ts', {
