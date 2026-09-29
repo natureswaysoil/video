@@ -644,7 +644,13 @@ async function collectSceneFiles(product: Product, scenePlan: any) {
     log('No media source available for scene', { index: index + 1, name: scene.name, queries: sceneQueries(scene, product, index) })
   }
 
-  if (!scenes.length) throw new Error('No b-roll or product images available. Add files to footage/, add productImageUrl, or configure PEXELS_API_KEY.')
+  if (!scenes.length) {
+    throw new Error(
+      `No usable media was collected for ${product.id || product.name}. ` +
+      `Product image available: ${Boolean(productImage)}. PEXELS_API_KEY loaded: ${hasValue('PEXELS_API_KEY')}. ` +
+      `Check the preceding product-image and Pexels validation messages for the exact rejection reason.`
+    )
+  }
   return { scenes, productImage }
 }
 
@@ -673,9 +679,19 @@ async function renderVideo(product: Product, profile: CreativeProfile, scenePlan
   return videoFile
 }
 
+function requireMediaTools() {
+  for (const tool of ['ffmpeg', 'ffprobe']) {
+    const check = execSync(`command -v ${tool} || true`, { encoding: 'utf8', shell: '/bin/bash' }).trim()
+    if (!check) {
+      throw new Error(`${tool} is not installed or not on PATH. In Google Cloud Shell run: sudo apt-get update && sudo apt-get install -y ffmpeg`)
+    }
+  }
+}
+
 async function main() {
   process.env.VIDEO_STYLE = String(process.env.VIDEO_STYLE || 'broll_ken_burns').toLowerCase()
   process.env.VIDEO_PROVIDER = String(process.env.VIDEO_PROVIDER || 'openai_tts').toLowerCase()
+  requireMediaTools()
   await loadSecrets()
   await restoreRotationStateFromGcs()
   const products = loadProducts()
