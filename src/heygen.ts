@@ -179,8 +179,17 @@ export class HeyGenClient {
         throw new Error(`Scene ${index + 1} has no real image or video background. Refusing to create a blank/green-screen marketing video.`)
       }
       return {
-        character: { type: 'avatar', avatar_id: avatarId, avatar_style: 'normal' },
-        voice: { type: 'text', input_text: text, voice_id: voiceId, speed: 1.0 },
+        character: {
+          type: 'avatar',
+          avatar_id: avatarId,
+          avatar_style: process.env.HEYGEN_AVATAR_STYLE || 'circle',
+          scale: Number(process.env.HEYGEN_AVATAR_SCALE || 0.28),
+          offset: {
+            x: Number(process.env.HEYGEN_AVATAR_OFFSET_X || 0.34),
+            y: Number(process.env.HEYGEN_AVATAR_OFFSET_Y || 0.30)
+          }
+        },
+        voice: { type: 'text', input_text: text, voice_id: voiceId, speed: Number(process.env.HEYGEN_VOICE_SPEED || 1.0) },
         background,
       }
     })
