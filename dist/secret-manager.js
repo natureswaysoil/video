@@ -25,6 +25,9 @@ exports.DEFAULT_SECRET_NAMES = [
     'HEYGEN_DEFAULT_AVATAR',
     'HEYGEN_DEFAULT_VOICE',
     'HEYGEN_WEBHOOK_URL',
+    'ELEVENLABS_API_KEY',
+    'ELEVENLABS_VOICE_ID',
+    'ELEVENLABS_MODEL_ID',
     'INSTAGRAM_ACCESS_TOKEN',
     'INSTAGRAM_USER_ID',
     'YOUTUBE_CLIENT_ID',
@@ -55,24 +58,23 @@ function hasLikelyAdc() {
     return Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS ||
         process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
         process.env.GOOGLE_CREDENTIALS ||
-        process.env.K_SERVICE || // Cloud Run Services
-        process.env.CLOUD_RUN_JOB || // Cloud Run Jobs
+        process.env.K_SERVICE ||
+        process.env.CLOUD_RUN_JOB ||
         process.env.FUNCTION_TARGET ||
         process.env.GAE_SERVICE);
 }
 function normalizeSeparators(value) {
     return value.trim().replace(/[\s]+/g, '_').replace(/[-_]+/g, '_');
 }
-/**
- * Generate likely Secret Manager naming variants for a requested env key.
- * Priority order starts with UPPERCASE_UNDERSCORE, then lowercase-hyphen.
- */
 function buildSecretNameCandidates(secretName) {
     const normalized = normalizeSeparators(secretName);
     const upperUnderscore = normalized.toUpperCase();
     const lowerHyphen = normalized.toLowerCase().replace(/_/g, '-');
     const lowerUnderscore = normalized.toLowerCase();
     const asProvided = secretName.trim();
+    const aliases = secretName === 'ELEVENLABS_API_KEY'
+        ? ['ElevenLabs_Key', 'elevenlabs-key', 'elevenlabs_key']
+        : [];
     const candidates = [
         upperUnderscore,
         lowerHyphen,
@@ -81,6 +83,7 @@ function buildSecretNameCandidates(secretName) {
         asProvided.replace(/_/g, '-'),
         lowerUnderscore,
         normalized,
+        ...aliases,
     ];
     return [...new Set(candidates.filter(Boolean))];
 }
@@ -100,7 +103,6 @@ async function loadSecretToEnv(secretName) {
     if (loaded.has(secretName))
         return !!process.env[secretName];
     const candidates = buildSecretNameCandidates(secretName);
-    // Always try existing env vars first (supports mixed naming in local/dev runs).
     for (const candidate of candidates) {
         if (process.env[candidate]) {
             process.env[secretName] = process.env[candidate];
@@ -138,9 +140,8 @@ async function loadSecretToEnv(secretName) {
             return true;
         }
         catch (error) {
-            if (isNotFoundError(error)) {
+            if (isNotFoundError(error))
                 continue;
-            }
             if (isPermissionDeniedError(error)) {
                 console.warn(`Permission denied while loading secret ${candidate}:`, error?.message || error);
                 loaded.add(secretName);

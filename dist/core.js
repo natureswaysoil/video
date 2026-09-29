@@ -66,6 +66,7 @@ async function processCsvUrl(csvUrl) {
         }
         logger.info('Processing CSV from URL', 'Core', { csvUrl });
         const cacheKey = `csv:${csvUrl}`;
+        const parsedCacheKey = `csv:parsed:${csvUrl}`;
         const cached = urlCache.get(cacheKey);
         let data;
         if (cached) {
@@ -87,7 +88,11 @@ async function processCsvUrl(csvUrl) {
             data = response.data;
             urlCache.set(cacheKey, data, 300);
         }
-        const parsedRows = (0, csv_parser_1.parseCsv)(data);
+        const cachedParsed = urlCache.get(parsedCacheKey);
+        const parsedRows = cachedParsed && cachedParsed.source === data ? cachedParsed.rows : (0, csv_parser_1.parseCsv)(data);
+        if (!cachedParsed || cachedParsed.source !== data) {
+            urlCache.set(parsedCacheKey, { source: data, rows: parsedRows }, 300);
+        }
         if (parsedRows.length < 2) {
             logger.warn('CSV has no data rows', 'Core', { csvUrl, rowCount: parsedRows.length });
             return { skipped: true, rows: [] };

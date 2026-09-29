@@ -60,6 +60,7 @@ export async function processCsvUrl(csvUrl: string): Promise<{
     logger.info('Processing CSV from URL', 'Core', { csvUrl })
 
     const cacheKey = `csv:${csvUrl}`
+    const parsedCacheKey = `csv:parsed:${csvUrl}`
     const cached = urlCache.get<string>(cacheKey)
 
     let data: string
@@ -85,7 +86,11 @@ export async function processCsvUrl(csvUrl: string): Promise<{
       urlCache.set(cacheKey, data, 300)
     }
 
-    const parsedRows = parseCsv(data)
+    const cachedParsed = urlCache.get<{ source: string; rows: string[][] }>(parsedCacheKey)
+    const parsedRows = cachedParsed && cachedParsed.source === data ? cachedParsed.rows : parseCsv(data)
+    if (!cachedParsed || cachedParsed.source !== data) {
+      urlCache.set(parsedCacheKey, { source: data, rows: parsedRows }, 300)
+    }
     if (parsedRows.length < 2) {
       logger.warn('CSV has no data rows', 'Core', { csvUrl, rowCount: parsedRows.length })
       return { skipped: true, rows: [] }
