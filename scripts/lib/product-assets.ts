@@ -126,18 +126,26 @@ export function productImageSources(product: any) {
     console.log('Generic site image ignored for product scene', { productId: product.id, source: explicit })
   }
 
+  // Prefer the maintained Nature's Way Soil catalog image for the exact
+  // product ID before trying Amazon. This prevents a different product-family
+  // image from appearing in an automated ad.
+  const exactProductId = String(product.id || '').trim()
+  if (/^NWS_[A-Z0-9]+$/i.test(exactProductId)) {
+    sources.push(`https://raw.githubusercontent.com/natureswaysoil/best/main/public/images/products/${exactProductId}/main.jpg`)
+  }
+
   const asin = asinFromProduct(product)
   if (asin) {
     sources.push(`https://m.media-amazon.com/images/P/${asin}.01._SCLZZZZZZZ_.jpg`)
   }
 
-  // Amazon's legacy ASIN image endpoint now commonly returns a 1x1 tracking
-  // GIF. Fall back to the maintained product catalog in the website repo.
-  // Variant rows (for example NWS_026, a 32 oz humic/fulvic product) can reuse
-  // the corresponding product-family image instead of losing the product card.
-  const catalogId = catalogFallbackProductId(product)
-  if (catalogId) {
-    sources.push(`https://raw.githubusercontent.com/natureswaysoil/best/main/public/images/products/${catalogId}/main.jpg`)
+  // Only use a product-family fallback when there is no exact NWS product ID.
+  // This avoids showing the wrong bottle/product in a generated marketing video.
+  if (!/^NWS_[A-Z0-9]+$/i.test(exactProductId)) {
+    const catalogId = catalogFallbackProductId(product)
+    if (catalogId) {
+      sources.push(`https://raw.githubusercontent.com/natureswaysoil/best/main/public/images/products/${catalogId}/main.jpg`)
+    }
   }
 
   return [...new Set(sources.filter(Boolean))]
