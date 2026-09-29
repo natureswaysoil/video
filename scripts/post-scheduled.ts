@@ -414,10 +414,32 @@ async function uploadMediaForHeyGen(file: string, index: number): Promise<string
   return publicUrl
 }
 
+async function normalizeHeyGenAudio(videoFile: string): Promise<string> {
+  const normalized = videoFile.replace(/\.mp4$/i, '-normalized.mp4')
+  execSync(
+    `ffmpeg -y -loglevel error -i "${videoFile}" -c:v copy -af "loudnorm=I=-16:TP=-1.5:LRA=11" -c:a aac -b:a 192k "${normalized}"`,
+    { stdio: 'inherit' }
+  )
+  if (!hasUsableFile(normalized)) throw new Error('HeyGen audio normalization did not produce a usable video')
+  try { fs.unlinkSync(videoFile) } catch {}
+  try {
+    fs.renameSync(normalized, videoFile)
+    return videoFile
+  } catch {
+    return normalized
+  }
+}
+
 async function renderHeyGenVideo(product: Product, scenePlan: any): Promise<string> {
   if (!hasValue('HEYGEN_API_KEY')) throw new Error('HEYGEN_API_KEY is required when VIDEO_PROVIDER=heygen')
 
-  const { scenes } = await collectSceneFiles(product, scenePlan)
+  const { scenes, productImage } = await collectSceneFiles(product, scenePlan)
+  if (!productImage) {
+    throw new Error(`A valid product image is required for HeyGen videos. Fix the image source for ${product.id || product.name} before publishing.`)
+  }
+  if (!scenes.some((scene: RenderScene) => scene.source === 'product_image')) {
+    throw new Error(`HeyGen video for ${product.id || product.name} has no product-image scene. Refusing to render.`)
+  }
   const heygenScenes: any[] = []
   for (let index = 0; index < scenes.length; index++) {
     const media = scenes[index]
@@ -452,7 +474,9 @@ async function renderHeyGenVideo(product: Product, scenePlan: any): Promise<stri
   const response = await axios.get(videoUrl, { responseType: 'arraybuffer', timeout: 180000 })
   fs.writeFileSync(output, Buffer.from(response.data))
   log('HeyGen video downloaded', { videoId, videoUrl, output })
-  return output
+  const normalizedOutput = await normalizeHeyGenAudio(output)
+  log('Normalized HeyGen narration loudness', { targetIntegratedLoudness: '-16 LUFS', output: normalizedOutput })
+  return normalizedOutput
 }
 
 function createThumbnail(videoFile: string, product: Product): string {
