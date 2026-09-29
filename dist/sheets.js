@@ -2,6 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.markRowPosted = markRowPosted;
 exports.writeColumnValues = writeColumnValues;
+exports.buildRowFieldBatchData = buildRowFieldBatchData;
+exports.writeRowFieldsBatch = writeRowFieldsBatch;
 exports.writeColumnLetterValues = writeColumnLetterValues;
 exports.resetPostedColumn = resetPostedColumn;
 const googleapis_1 = require("googleapis");
@@ -11,6 +13,7 @@ const logger_2 = require("./logger");
 const google_auth_1 = require("./google-auth");
 const logger = (0, logger_1.getLogger)();
 const metrics = (0, logger_2.getMetrics)();
+const sheetNameCache = new Map();
 async function markRowPosted(params) {
     const startTime = Date.now();
     try {
@@ -162,6 +165,94 @@ async function writeColumnValues(params) {
         throw new errors_1.AppError(`Failed to write column values: ${error.message || String(error)}`, errors_1.ErrorCode.SHEETS_API_ERROR, 500, true, { spreadsheetId: params.spreadsheetId, columnName: params.columnName }, error instanceof Error ? error : undefined);
     }
 }
+function buildRowFieldBatchData(params) {
+    const { sheetName, headers, rowNumber, updates } = params;
+    const data = [];
+    const mutableHeaders = [...headers];
+    for (const [columnName, value] of Object.entries(updates)) {
+        if (typeof value !== 'string' || value.length === 0)
+            continue;
+        let colIndex = mutableHeaders.indexOf(columnName);
+        if (colIndex === -1) {
+            colIndex = mutableHeaders.length;
+            mutableHeaders.push(columnName);
+            const headerCell = a1(sheetName, 1, colIndex + 1);
+            data.push({ range: headerCell, values: [[columnName]] });
+        }
+        const cell = a1(sheetName, rowNumber, colIndex + 1);
+        data.push({ range: cell, values: [[value]] });
+    }
+    return data;
+}
+async function writeRowFieldsBatch(params) {
+    const startTime = Date.now();
+    try {
+        const { spreadsheetId, sheetGid, headers, rowNumber, updates } = params;
+        if (!spreadsheetId || !headers || !rowNumber || !updates) {
+            throw new errors_1.AppError('Missing required parameters for writeRowFieldsBatch', errors_1.ErrorCode.VALIDATION_ERROR, 400, true, {
+                hasSpreadsheetId: !!spreadsheetId,
+                headersCount: headers?.length || 0,
+                rowNumber,
+                updateCount: Object.keys(updates || {}).length,
+            });
+        }
+        logger.debug('Writing row fields in batch', 'Sheets', {
+            spreadsheetId,
+            rowNumber,
+            updateCount: Object.keys(updates).length,
+        });
+        const authClient = await (0, google_auth_1.createGoogleAuthClient)(['https://www.googleapis.com/auth/spreadsheets']);
+        const sheets = googleapis_1.google.sheets({ version: 'v4', auth: authClient });
+        const sheetName = await resolveSheetName(sheets, spreadsheetId, sheetGid);
+        const data = buildRowFieldBatchData({ sheetName, headers, rowNumber, updates });
+        if (data.length === 0) {
+            logger.debug('No row field data to write', 'Sheets', { spreadsheetId, rowNumber });
+            return;
+        }
+        await (0, errors_1.withRetry)(async () => {
+            await sheets.spreadsheets.values.batchUpdate({
+                spreadsheetId,
+                requestBody: {
+                    valueInputOption: 'RAW',
+                    data,
+                },
+            });
+        }, {
+            maxRetries: 3,
+            onRetry: (error, attempt) => {
+                logger.warn('Retrying writeRowFieldsBatch', 'Sheets', {
+                    attempt,
+                    spreadsheetId,
+                    rowNumber,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            },
+        });
+        const duration = Date.now() - startTime;
+        metrics.incrementCounter('sheets.write_row_fields_batch.success');
+        metrics.recordHistogram('sheets.write_row_fields_batch.duration', duration);
+        logger.debug('Successfully wrote row fields in batch', 'Sheets', {
+            spreadsheetId,
+            rowNumber,
+            cellsWritten: data.length,
+            duration,
+        });
+    }
+    catch (error) {
+        const duration = Date.now() - startTime;
+        metrics.incrementCounter('sheets.write_row_fields_batch.error');
+        metrics.recordHistogram('sheets.write_row_fields_batch.error_duration', duration);
+        logger.error('Failed to write row fields in batch', 'Sheets', {
+            spreadsheetId: params.spreadsheetId,
+            rowNumber: params.rowNumber,
+            duration,
+        }, error);
+        if (error instanceof errors_1.AppError) {
+            throw error;
+        }
+        throw new errors_1.AppError(`Failed to write row fields in batch: ${error.message || String(error)}`, errors_1.ErrorCode.SHEETS_API_ERROR, 500, true, { spreadsheetId: params.spreadsheetId, rowNumber: params.rowNumber }, error instanceof Error ? error : undefined);
+    }
+}
 async function writeColumnLetterValues(params) {
     const startTime = Date.now();
     try {
@@ -240,10 +331,16 @@ async function resolveSheetName(sheets, spreadsheetId, gid) {
     try {
         if (!gid)
             return process.env.GS_SHEET_NAME || 'Product_Automation';
+        const cacheKey = `${spreadsheetId}:${String(gid)}`;
+        const cached = sheetNameCache.get(cacheKey);
+        if (cached)
+            return cached;
         const meta = await sheets.spreadsheets.get({ spreadsheetId });
         const targetId = Number(gid);
         const found = meta.data.sheets?.find((s) => s.properties?.sheetId === targetId);
-        return found?.properties?.title || process.env.GS_SHEET_NAME || 'Product_Automation';
+        const resolved = found?.properties?.title || process.env.GS_SHEET_NAME || 'Product_Automation';
+        sheetNameCache.set(cacheKey, resolved);
+        return resolved;
     }
     catch (error) {
         logger.warn('Failed to resolve sheet name, using default', 'Sheets', {

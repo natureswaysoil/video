@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.settlePlatformResults = settlePlatformResults;
 require("dotenv/config");
 const secret_manager_1 = require("./secret-manager");
 const secret_manager_2 = require("@google-cloud/secret-manager");
@@ -37,10 +38,13 @@ function pickFirstNonEmpty(record, keys) {
     return '';
 }
 function getVideoState(record) {
+    const rawMode = pickFirstNonEmpty(record, ['DID_MODE', 'Did_Mode', 'D_ID_MODE', 'video_mode']);
+    const videoMode = rawMode === 'talks' || rawMode === 'clips' ? rawMode : undefined;
     return {
         videoId: pickFirstNonEmpty(record, ['Video_ID', 'DID_VIDEO_ID', 'D_ID_VIDEO_ID', 'video_id']),
         videoUrl: pickFirstNonEmpty(record, ['Video_URL', 'Video URL', 'video_url', 'VideoURL']),
         videoStatus: pickFirstNonEmpty(record, ['Video_Status', 'DID_VIDEO_STATUS', 'D_ID_VIDEO_STATUS', 'video_status']),
+        videoMode,
     };
 }
 function extractSpreadsheetIdFromCsv(csvUrl) {
@@ -95,16 +99,17 @@ async function loadSecretToEnv(secretName) {
         console.warn(`Could not load secret ${secretName}:`, error?.message || error);
     }
 }
-async function writeRowFields(csvUrl, headers, rowNumber, updates, dryRun = false) {
+async function writeRowFields(sheetContext, headers, rowNumber, updates, dryRun = false) {
     if (dryRun) {
         console.log('DRY_RUN_LOG_ONLY=true — skipping Google Sheets writeback', { rowNumber, updates });
         return;
     }
-    const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
-    const sheetGid = extractGidFromCsv(csvUrl);
-    for (const [columnName, value] of Object.entries(updates)) {
-        await (0, sheets_1.writeColumnValues)({ spreadsheetId, sheetGid, headers, columnName, rows: [{ rowNumber, value }] });
-    }
+    const { spreadsheetId, sheetGid } = sheetContext;
+    await (0, sheets_1.writeRowFieldsBatch)({ spreadsheetId, sheetGid, headers, rowNumber, updates });
+}
+async function settlePlatformResults(tasks) {
+    const results = await Promise.allSettled(tasks.map((task) => task()));
+    return results.some((result) => result.status === 'fulfilled' && result.value === true);
 }
 async function postToEnabledPlatforms(params) {
     const { videoUrl, product, enabledPlatforms, dryRun } = params;
@@ -117,79 +122,104 @@ async function postToEnabledPlatforms(params) {
         return { anySucceeded: false };
     }
     const config = (0, config_validator_1.getConfig)();
-    let anySucceeded = false;
+    const tasks = [];
     if (shouldPost('instagram')) {
         if (config.INSTAGRAM_ACCESS_TOKEN && config.INSTAGRAM_USER_ID) {
-            try {
-                await (0, instagram_1.postToInstagram)(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, config.INSTAGRAM_USER_ID);
-                anySucceeded = true;
-            }
-            catch (e) {
-                console.error('❌ Instagram post failed:', e?.message || e);
-            }
+            const accessToken = config.INSTAGRAM_ACCESS_TOKEN;
+            const instagramUserId = config.INSTAGRAM_USER_ID;
+            tasks.push(async () => {
+                try {
+                    await (0, instagram_1.postToInstagram)(videoUrl, caption, accessToken, instagramUserId);
+                    return true;
+                }
+                catch (e) {
+                    console.error('❌ Instagram post failed:', e?.message || e);
+                    return false;
+                }
+            });
         }
         else
             console.log('⚠️ Instagram credentials not configured (INSTAGRAM_ACCESS_TOKEN, INSTAGRAM_USER_ID)');
     }
     if (shouldPost('twitter')) {
         if (config.TWITTER_BEARER_TOKEN || (config.TWITTER_API_KEY && config.TWITTER_API_SECRET && config.TWITTER_ACCESS_TOKEN && config.TWITTER_ACCESS_SECRET)) {
-            try {
-                await (0, twitter_1.postToTwitter)(videoUrl, caption || title, config.TWITTER_BEARER_TOKEN);
-                anySucceeded = true;
-            }
-            catch (e) {
-                console.error('❌ Twitter post failed:', e?.message || e);
-            }
+            tasks.push(async () => {
+                try {
+                    await (0, twitter_1.postToTwitter)(videoUrl, caption || title, config.TWITTER_BEARER_TOKEN);
+                    return true;
+                }
+                catch (e) {
+                    console.error('❌ Twitter post failed:', e?.message || e);
+                    return false;
+                }
+            });
         }
         else
             console.log('⚠️ Twitter credentials not configured');
     }
     if (shouldPost('pinterest')) {
         if (config.PINTEREST_ACCESS_TOKEN && config.PINTEREST_BOARD_ID) {
-            try {
-                await (0, pinterest_1.postToPinterest)(videoUrl, caption, config.PINTEREST_ACCESS_TOKEN, config.PINTEREST_BOARD_ID);
-                anySucceeded = true;
-            }
-            catch (e) {
-                console.error('❌ Pinterest post failed:', e?.message || e);
-            }
+            const pinterestToken = config.PINTEREST_ACCESS_TOKEN;
+            const pinterestBoardId = config.PINTEREST_BOARD_ID;
+            tasks.push(async () => {
+                try {
+                    await (0, pinterest_1.postToPinterest)(videoUrl, caption, pinterestToken, pinterestBoardId);
+                    return true;
+                }
+                catch (e) {
+                    console.error('❌ Pinterest post failed:', e?.message || e);
+                    return false;
+                }
+            });
         }
         else
             console.log('⚠️ Pinterest credentials not configured (PINTEREST_ACCESS_TOKEN, PINTEREST_BOARD_ID)');
     }
     if (shouldPost('youtube')) {
         if (config.YOUTUBE_CLIENT_ID && config.YOUTUBE_CLIENT_SECRET && config.YOUTUBE_REFRESH_TOKEN) {
-            try {
-                await (0, youtube_1.postToYouTube)(videoUrl, caption, config.YOUTUBE_CLIENT_ID, config.YOUTUBE_CLIENT_SECRET, config.YOUTUBE_REFRESH_TOKEN);
-                anySucceeded = true;
-            }
-            catch (e) {
-                console.error('❌ YouTube post failed:', e?.message || e);
-            }
+            const youtubeClientId = config.YOUTUBE_CLIENT_ID;
+            const youtubeClientSecret = config.YOUTUBE_CLIENT_SECRET;
+            const youtubeRefreshToken = config.YOUTUBE_REFRESH_TOKEN;
+            tasks.push(async () => {
+                try {
+                    await (0, youtube_1.postToYouTube)(videoUrl, caption, youtubeClientId, youtubeClientSecret, youtubeRefreshToken);
+                    return true;
+                }
+                catch (e) {
+                    console.error('❌ YouTube post failed:', e?.message || e);
+                    return false;
+                }
+            });
         }
         else
             console.log('⚠️ YouTube credentials not configured (YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN)');
     }
     if (shouldPost('facebook')) {
         if (config.FACEBOOK_PAGE_ACCESS_TOKEN && config.FACEBOOK_PAGE_ID) {
-            try {
-                await (0, facebook_1.postToFacebook)(videoUrl, caption || title, config.FACEBOOK_PAGE_ACCESS_TOKEN, config.FACEBOOK_PAGE_ID);
-                anySucceeded = true;
-            }
-            catch (e) {
-                console.error('❌ Facebook post failed:', e?.message || e);
-            }
+            const facebookPageAccessToken = config.FACEBOOK_PAGE_ACCESS_TOKEN;
+            const facebookPageId = config.FACEBOOK_PAGE_ID;
+            tasks.push(async () => {
+                try {
+                    await (0, facebook_1.postToFacebook)(videoUrl, caption || title, facebookPageAccessToken, facebookPageId);
+                    return true;
+                }
+                catch (e) {
+                    console.error('❌ Facebook post failed:', e?.message || e);
+                    return false;
+                }
+            });
         }
         else
             console.log('⚠️ Facebook credentials not configured (FACEBOOK_PAGE_ACCESS_TOKEN, FACEBOOK_PAGE_ID)');
     }
+    const anySucceeded = await settlePlatformResults(tasks);
     const skipped = allPlatforms.filter((platform) => !shouldPost(platform));
     if (skipped.length > 0)
         console.log('Skipped disabled platforms:', skipped.join(', '));
     return { anySucceeded };
 }
 async function createOrPollVideo(params) {
-    const { product, record, headers, rowNumber, csvUrl, alwaysGenerate, dryRun } = params;
+    const { product, record, headers, rowNumber, sheetContext, alwaysGenerate, dryRun } = params;
     const videoState = getVideoState(record);
     if (dryRun) {
         const title = String(product.title || product.name || product.Title || 'dry-run-product');
@@ -207,10 +237,10 @@ async function createOrPollVideo(params) {
         if (videoState.videoId) {
             try {
                 const refreshClient = await (0, did_1.createClientWithSecrets)();
-                const result = await refreshClient.getJobStatus(videoState.videoId);
+                const result = await refreshClient.getJobStatus(videoState.videoId, videoState.videoMode);
                 if ((result.status.includes('done') || result.status.includes('complete')) && result.videoUrl && !isVideoUrlExpired(result.videoUrl)) {
                     console.log('✅ Refreshed video URL from D-ID API');
-                    await writeRowFields(csvUrl, headers, rowNumber, { Video_URL: result.videoUrl, Video_Completed_At: new Date().toISOString() });
+                    await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: result.videoUrl, Video_Completed_At: new Date().toISOString(), DID_MODE: result.mode || videoState.videoMode || '' });
                     return result.videoUrl;
                 }
             }
@@ -219,21 +249,21 @@ async function createOrPollVideo(params) {
             }
         }
         console.log(`📹 Regenerating video for row ${rowNumber} (URL expired, refresh unavailable)`);
-        await writeRowFields(csvUrl, headers, rowNumber, { Video_URL: '', Video_ID: '', Video_Status: '' });
+        await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: '', Video_ID: '', Video_Status: '' });
     }
     const didClient = await (0, did_1.createClientWithSecrets)();
     if (!alwaysGenerate && videoState.videoId && (videoState.videoStatus || '').toLowerCase() === 'processing') {
         console.log(`⏳ Existing D-ID job found for row ${rowNumber}: ${videoState.videoId}`);
-        const videoUrl = await didClient.pollJobForVideoUrl(videoState.videoId, { timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000), intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000) });
-        await writeRowFields(csvUrl, headers, rowNumber, { Video_URL: videoUrl, Video_Status: 'completed', Video_Completed_At: new Date().toISOString() });
+        const videoUrl = await didClient.pollJobForVideoUrl(videoState.videoId, { timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000), intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000), modeHint: videoState.videoMode });
+        await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: videoUrl, Video_Status: 'completed', Video_Completed_At: new Date().toISOString() });
         return videoUrl;
     }
     const mapping = (0, did_adapter_1.mapProductToDidPayload)(record);
     const generatedScript = await (0, openai_1.generateScript)(product);
-    const videoId = await didClient.createVideoJob({ ...mapping.payload, script: generatedScript });
-    await writeRowFields(csvUrl, headers, rowNumber, { Video_ID: videoId, Video_Status: 'processing', DID_AVATAR: mapping.avatar, DID_VOICE: mapping.voice, DID_LENGTH_SECONDS: String(mapping.lengthSeconds), DID_MAPPING_REASON: mapping.reason, DID_MAPPED_AT: new Date().toISOString() });
-    const videoUrl = await didClient.pollJobForVideoUrl(videoId, { timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000), intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000) });
-    await writeRowFields(csvUrl, headers, rowNumber, { Video_URL: videoUrl, Video_Status: 'completed', Video_Completed_At: new Date().toISOString() });
+    const createdJob = await didClient.createVideoJobWithMode({ ...mapping.payload, script: generatedScript });
+    await writeRowFields(sheetContext, headers, rowNumber, { Video_ID: createdJob.jobId, Video_Status: 'processing', DID_MODE: createdJob.mode, DID_AVATAR: mapping.avatar, DID_VOICE: mapping.voice, DID_LENGTH_SECONDS: String(mapping.lengthSeconds), DID_MAPPING_REASON: mapping.reason, DID_MAPPED_AT: new Date().toISOString() });
+    const videoUrl = await didClient.pollJobForVideoUrl(createdJob.jobId, { timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000), intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000), modeHint: createdJob.mode });
+    await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: videoUrl, Video_Status: 'completed', Video_Completed_At: new Date().toISOString() });
     return videoUrl;
 }
 async function main() {
@@ -267,6 +297,10 @@ async function main() {
     auditLogger.logEvent({ level: 'INFO', category: 'SYSTEM', message: 'Video posting system started', details: { runOnce, dryRun, enabledPlatforms: enabledPlatformsEnv || 'all', pollIntervalMs: intervalMs } });
     const cycle = async () => {
         (0, health_server_1.updateStatus)({ status: 'processing', rowsProcessed: 0 });
+        const sheetContext = {
+            spreadsheetId: extractSpreadsheetIdFromCsv(csvUrl),
+            sheetGid: extractGidFromCsv(csvUrl),
+        };
         const result = await (0, core_1.processCsvUrl)(csvUrl);
         if (result.skipped || result.rows.length === 0) {
             (0, health_server_1.updateStatus)({ status: 'idle', rowsProcessed: 0 });
@@ -283,14 +317,12 @@ async function main() {
             console.log(`\n========== Processing Row ${rowNumber} ==========`);
             console.log('Product:', product?.title || product?.name || jobId);
             try {
-                const videoUrl = await createOrPollVideo({ product, record, headers, rowNumber, csvUrl, alwaysGenerate, dryRun });
+                const videoUrl = await createOrPollVideo({ product, record, headers, rowNumber, sheetContext, alwaysGenerate, dryRun });
                 const { anySucceeded } = await postToEnabledPlatforms({ videoUrl, product, enabledPlatforms, dryRun });
                 if (!anySucceeded && !dryRun)
                     throw new Error('No enabled platform post succeeded for this row');
                 if (anySucceeded) {
-                    const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
-                    const sheetGid = extractGidFromCsv(csvUrl);
-                    await (0, sheets_1.markRowPosted)({ spreadsheetId, sheetGid, rowNumber, headers });
+                    await (0, sheets_1.markRowPosted)({ spreadsheetId: sheetContext.spreadsheetId, sheetGid: sheetContext.sheetGid, rowNumber, headers });
                 }
                 else if (dryRun) {
                     console.log('DRY_RUN_LOG_ONLY=true — skipping Posted writeback', { rowNumber });
@@ -309,13 +341,11 @@ async function main() {
                 (0, health_server_1.incrementFailedPost)();
                 (0, health_server_1.addError)(error?.message || String(error));
                 auditLogger.logEvent({ level: 'ERROR', category: 'POSTING', message: 'Failed to process row', rowNumber, product: product?.title || product?.name, details: { error: error?.message || String(error) } });
-                await writeRowFields(csvUrl, headers, rowNumber, { Video_Status: 'failed', Last_Error: error?.message || String(error), Last_Error_At: new Date().toISOString() }, dryRun);
+                await writeRowFields(sheetContext, headers, rowNumber, { Video_Status: 'failed', Last_Error: error?.message || String(error), Last_Error_At: new Date().toISOString() }, dryRun);
             }
         }
         if (loopResetPosted && rowsThisCycle === 0 && !dryRun) {
-            const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl);
-            const sheetGid = extractGidFromCsv(csvUrl);
-            await (0, sheets_1.resetPostedColumn)({ spreadsheetId, sheetGid, totalRows: result.rows.length, headers: result.rows[0]?.headers || [] });
+            await (0, sheets_1.resetPostedColumn)({ spreadsheetId: sheetContext.spreadsheetId, sheetGid: sheetContext.sheetGid, totalRows: result.rows.length, headers: result.rows[0]?.headers || [] });
             seen.clear();
         }
         else if (loopResetPosted && dryRun)
@@ -328,5 +358,7 @@ async function main() {
             await sleep(intervalMs);
     } while (!runOnce);
 }
-process.on('SIGINT', async () => { (0, health_server_1.stopHealthServer)(); process.exit(0); });
-main().catch((error) => { console.error('Fatal error:', error); (0, health_server_1.addError)(error?.message || String(error)); (0, health_server_1.stopHealthServer)(); process.exit(1); });
+if (require.main === module) {
+    process.on('SIGINT', async () => { (0, health_server_1.stopHealthServer)(); process.exit(0); });
+    main().catch((error) => { console.error('Fatal error:', error); (0, health_server_1.addError)(error?.message || String(error)); (0, health_server_1.stopHealthServer)(); process.exit(1); });
+}
