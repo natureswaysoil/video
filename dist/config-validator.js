@@ -14,7 +14,16 @@ const envSchema = zod_1.z.object({
     OPENAI_MODEL: zod_1.z.string().default('gpt-4o-mini'),
     OPENAI_SYSTEM_PROMPT: zod_1.z.string().optional(),
     OPENAI_USER_TEMPLATE: zod_1.z.string().optional(),
-    // D-ID Configuration - D-ID is the only supported video generator
+    // HeyGen Configuration
+    HEYGEN_API_KEY: zod_1.z.string().optional(),
+    HEYGEN_API_ENDPOINT: zod_1.z.string().url().default('https://api.heygen.com'),
+    HEYGEN_DEFAULT_AVATAR: zod_1.z.string().optional(),
+    HEYGEN_DEFAULT_VOICE: zod_1.z.string().optional(),
+    HEYGEN_WEBHOOK_URL: zod_1.z.string().optional(),
+    HEYGEN_POLL_TIMEOUT_MS: zod_1.z.string().transform(Number).default('1500000'),
+    HEYGEN_POLL_INTERVAL_MS: zod_1.z.string().transform(Number).default('15000'),
+    PEXELS_API_KEY: zod_1.z.string().optional(),
+    // D-ID Configuration - retained as a fallback provider
     DID_API_KEY: zod_1.z.string().optional(),
     DID_API_ENDPOINT: zod_1.z.string().url().default('https://api.d-id.com'),
     DID_SOURCE_URL: zod_1.z.string().optional(),
@@ -68,10 +77,12 @@ const envSchema = zod_1.z.object({
     DRY_RUN: zod_1.z.string().default('false'),
     DRY_RUN_LOG_ONLY: zod_1.z.string().default('false'),
     ENABLE_PLATFORMS: zod_1.z.string().optional(),
+    VIDEO_PROVIDER: zod_1.z.enum(['did', 'heygen']).default('heygen'),
     // Webhook Configuration
     WEBHOOK_SECRET: zod_1.z.string().optional(),
     // Rate Limiting
     RATE_LIMIT_OPENAI: zod_1.z.string().transform(Number).default('10'),
+    RATE_LIMIT_HEYGEN: zod_1.z.string().transform(Number).default('5'),
     RATE_LIMIT_DID: zod_1.z.string().transform(Number).default('5'),
     RATE_LIMIT_TWITTER: zod_1.z.string().transform(Number).default('50'),
     RATE_LIMIT_YOUTUBE: zod_1.z.string().transform(Number).default('10'),
@@ -80,6 +91,7 @@ const envSchema = zod_1.z.object({
     RATE_LIMIT_PINTEREST: zod_1.z.string().transform(Number).default('5'),
     // Timeouts (in milliseconds)
     TIMEOUT_OPENAI: zod_1.z.string().transform(Number).default('30000'),
+    TIMEOUT_HEYGEN: zod_1.z.string().transform(Number).default('1200000'),
     TIMEOUT_DID: zod_1.z.string().transform(Number).default('1200000'),
     TIMEOUT_SOCIAL_POST: zod_1.z.string().transform(Number).default('60000'),
     // Memory Management

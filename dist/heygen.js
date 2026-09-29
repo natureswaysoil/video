@@ -48,6 +48,7 @@ const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const axios_1 = __importDefault(require("axios"));
 const openai_1 = __importDefault(require("openai"));
+const secret_manager_1 = require("./secret-manager");
 function asList(value) {
     if (Array.isArray(value))
         return value.map(String).map((v) => v.trim()).filter(Boolean);
@@ -191,19 +192,28 @@ class HeyGenClient {
             throw new Error(`HeyGen did not return a video ID: ${JSON.stringify(response.data)}`);
         return String(jobId);
     }
+    async getJobStatus(jobId) {
+        const response = await this.client.get('/v1/video_status.get', { params: { video_id: jobId } });
+        const data = response.data?.data || response.data || {};
+        return {
+            jobId,
+            status: String(data.status || '').toLowerCase(),
+            videoUrl: data.captioned_video_url || data.captionedVideoUrl || data.video_url || data.videoUrl || data.url,
+            error: data.error || data.error_message || data.failure_message,
+        };
+    }
     async pollJobForVideoUrl(jobId, options = {}) {
         const timeoutMs = options.timeoutMs ?? 20 * 60_000;
         const intervalMs = options.intervalMs ?? 15_000;
         const startedAt = Date.now();
         while (Date.now() - startedAt < timeoutMs) {
-            const response = await this.client.get('/v1/video_status.get', { params: { video_id: jobId } });
-            const data = response.data?.data || response.data || {};
-            const status = String(data.status || '').toLowerCase();
-            const videoUrl = data.captioned_video_url || data.captionedVideoUrl || data.video_url || data.videoUrl || data.url;
+            const result = await this.getJobStatus(jobId);
+            const status = result.status;
+            const videoUrl = result.videoUrl;
             if ((status === 'completed' || status === 'success') && videoUrl)
                 return String(videoUrl);
             if (status === 'failed' || status === 'error')
-                throw new Error(`HeyGen job failed: ${data.error || data.error_message || data.failure_message || 'unknown error'}`);
+                throw new Error(`HeyGen job failed: ${result.error || 'unknown error'}`);
             await new Promise((resolve) => setTimeout(resolve, intervalMs));
         }
         throw new Error(`HeyGen job ${jobId} timed out`);
@@ -211,6 +221,7 @@ class HeyGenClient {
 }
 exports.HeyGenClient = HeyGenClient;
 async function createClientWithSecrets() {
+    await (0, secret_manager_1.loadSecretToEnv)('HEYGEN_API_KEY');
     return new HeyGenClient(process.env.HEYGEN_API_KEY || '');
 }
 async function generateHeyGenVideo(input) { return generateOpenAIBlog(input); }

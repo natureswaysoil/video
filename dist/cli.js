@@ -13,7 +13,11 @@ const facebook_1 = require("./facebook");
 const config_validator_1 = require("./config-validator");
 const did_1 = require("./did");
 const did_adapter_1 = require("./did-adapter");
+const heygen_1 = require("./heygen");
+const heygen_adapter_1 = require("./heygen-adapter");
 const openai_1 = require("./openai");
+const pexels_1 = require("./pexels");
+const sales_video_strategy_1 = require("./sales-video-strategy");
 const sheets_1 = require("./sheets");
 const health_server_1 = require("./health-server");
 const audit_logger_1 = require("./audit-logger");
@@ -40,12 +44,30 @@ function pickFirstNonEmpty(record, keys) {
 function getVideoState(record) {
     const rawMode = pickFirstNonEmpty(record, ['DID_MODE', 'Did_Mode', 'D_ID_MODE', 'video_mode']);
     const videoMode = rawMode === 'talks' || rawMode === 'clips' ? rawMode : undefined;
+    const rawProvider = pickFirstNonEmpty(record, ['VIDEO_PROVIDER', 'Video_Provider', 'video_provider']).toLowerCase();
+    const provider = rawProvider === 'did' || rawProvider === 'heygen'
+        ? rawProvider
+        : videoMode
+            ? 'did'
+            : undefined;
     return {
         videoId: pickFirstNonEmpty(record, ['Video_ID', 'DID_VIDEO_ID', 'D_ID_VIDEO_ID', 'video_id']),
         videoUrl: pickFirstNonEmpty(record, ['Video_URL', 'Video URL', 'video_url', 'VideoURL']),
         videoStatus: pickFirstNonEmpty(record, ['Video_Status', 'DID_VIDEO_STATUS', 'D_ID_VIDEO_STATUS', 'video_status']),
         videoMode,
+        provider,
     };
+}
+function resolveVideoProvider(record, current) {
+    const rowProvider = pickFirstNonEmpty(record, ['VIDEO_PROVIDER', 'Video_Provider', 'video_provider']).toLowerCase();
+    if (rowProvider === 'did' || rowProvider === 'heygen')
+        return rowProvider;
+    const envProvider = String(process.env.VIDEO_PROVIDER || '').toLowerCase();
+    if (envProvider === 'did' || envProvider === 'heygen')
+        return envProvider;
+    if (process.env.HEYGEN_API_KEY || process.env.GCP_SECRET_HEYGEN_API_KEY || process.env.HEYGEN_DEFAULT_AVATAR)
+        return 'heygen';
+    return current || 'did';
 }
 function extractSpreadsheetIdFromCsv(csvUrl) {
     const match = csvUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -70,12 +92,127 @@ function isRowDeferred(record) {
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
+function splitIntoScenes(script, count) {
+    const sentences = script.match(/[^.!?]+[.!?]*/g)?.map((value) => value.trim()).filter(Boolean) ?? [script];
+    if (sentences.length <= count) {
+        while (sentences.length < count)
+            sentences.push(sentences[sentences.length - 1] || script);
+        return sentences;
+    }
+    const perScene = Math.ceil(sentences.length / count);
+    return Array.from({ length: count }, (_, index) => sentences.slice(index * perScene, (index + 1) * perScene).join(' ').trim()).filter(Boolean);
+}
+function forceSalesOpening(script, hook) {
+    if (!hook)
+        return script;
+    const sentences = script.match(/[^.!?]+[.!?]*/g)?.map((value) => value.trim()).filter(Boolean) || [];
+    if (!sentences.length)
+        return `${hook} ${script}`.trim();
+    sentences[0] = /[.!?]$/.test(hook) ? hook : `${hook}.`;
+    return sentences.join(' ');
+}
+function buildHeyGenQueries(record, title, visualHint, strategyQueries = []) {
+    const explicit = pickFirstNonEmpty(record, ['Broll_Query', 'B-Roll_Query', 'Pexels_Query']);
+    const hintTerms = visualHint.split(',').map((value) => value.trim()).filter(Boolean);
+    return [...new Set([explicit, ...strategyQueries, ...hintTerms.slice(0, 4).map((term) => `${title} ${term}`)].filter(Boolean))];
+}
+async function selectHeyGenBackgrounds(params) {
+    const { record, title, visualHint, strategyQueries = [] } = params;
+    const urls = [];
+    for (const query of buildHeyGenQueries(record, title, visualHint, strategyQueries)) {
+        if (urls.length >= 3)
+            break;
+        try {
+            const match = await (0, pexels_1.searchPexelsVideo)(query, { orientation: 'portrait', minDurationSeconds: 6 });
+            if (match?.url && !urls.includes(match.url))
+                urls.push(match.url);
+        }
+        catch (error) {
+            console.warn(`⚠️ Pexels lookup failed for query "${query}":`, error?.message || error);
+        }
+    }
+    return urls;
+}
+async function buildHeyGenVideoRequest(product, record) {
+    const title = String(product.title || product.name || product.Title || "Nature's Way Soil").trim();
+    const details = String(product.details || product.description || product.Description || product.caption || '').trim();
+    const baseProduct = { ...product, title, details };
+    const strategy = (0, sales_video_strategy_1.getSalesVideoStrategy)(baseProduct);
+    const salesProduct = (0, sales_video_strategy_1.applySalesVideoStrategy)(baseProduct);
+    const mapping = (0, heygen_adapter_1.mapProductToHeyGenPayload)(record);
+    let script = await (0, openai_1.generateScript)(salesProduct);
+    script = forceSalesOpening(script, strategy?.hook);
+    const productImageUrl = pickFirstNonEmpty(record, ['Image_URL', 'image_url', 'Product_Image_URL', 'product_image_url', 'Main_Image_URL', 'main_image_url', 'Background_Image_URL', 'background_image_url', 'Hero_Image_URL', 'hero_image_url']);
+    const backgroundUrls = await selectHeyGenBackgrounds({
+        record,
+        title,
+        visualHint: mapping.visualHint,
+        strategyQueries: Array.isArray(salesProduct.brollQueries) ? salesProduct.brollQueries : [],
+    });
+    const [hookText, proofText, ctaText] = splitIntoScenes(script, 3);
+    const heroBackground = backgroundUrls[0] || backgroundUrls[1] || backgroundUrls[2];
+    const proofBackground = backgroundUrls[1] || backgroundUrls[0] || backgroundUrls[2];
+    const ctaBackground = backgroundUrls[2] || backgroundUrls[1] || backgroundUrls[0];
+    if (!productImageUrl && !heroBackground && !proofBackground && !ctaBackground) {
+        throw new Error('No product image or portrait b-roll available for HeyGen video generation');
+    }
+    return {
+        script,
+        mapping,
+        payload: {
+            ...mapping.payload,
+            avatar: mapping.avatar || 'Plowman',
+            script,
+            title,
+            imageUrl: productImageUrl || undefined,
+            scenes: [
+                { seconds: '8', avatarText: hookText, brollUrl: heroBackground, imageUrl: heroBackground ? undefined : productImageUrl || undefined },
+                productImageUrl
+                    ? { seconds: '10', avatarText: proofText, imageUrl: productImageUrl }
+                    : { seconds: '10', avatarText: proofText, brollUrl: proofBackground || heroBackground },
+                { seconds: '8', avatarText: ctaText, brollUrl: ctaBackground || proofBackground || heroBackground, imageUrl: ctaBackground || proofBackground || heroBackground ? undefined : productImageUrl || undefined },
+            ],
+            meta: {
+                ...(mapping.payload.meta || {}),
+                productTitle: title,
+                provider: 'heygen',
+                strategyHook: strategy?.hook || undefined,
+                pexelsBackgroundCount: backgroundUrls.length,
+            },
+        },
+    };
+}
 function isVideoUrlExpired(url) {
     const match = url.match(/[?&]Expires=(\d+)/);
     if (!match)
         return false;
     const expiresEpochSec = parseInt(match[1], 10);
     return Number.isFinite(expiresEpochSec) && Date.now() >= expiresEpochSec * 1000;
+}
+async function getVideoStatus(provider, videoId, videoMode) {
+    if (provider === 'heygen') {
+        const client = await (0, heygen_1.createClientWithSecrets)();
+        const result = await client.getJobStatus(videoId);
+        return { status: result.status, videoUrl: result.videoUrl, mode: undefined };
+    }
+    const client = await (0, did_1.createClientWithSecrets)();
+    const result = await client.getJobStatus(videoId, videoMode);
+    return { status: result.status, videoUrl: result.videoUrl, mode: result.mode };
+}
+async function pollVideoUrl(provider, videoId, videoMode) {
+    if (provider === 'heygen') {
+        const client = await (0, heygen_1.createClientWithSecrets)();
+        return client.pollJobForVideoUrl(videoId, {
+            timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
+            intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
+        });
+    }
+    const client = await (0, did_1.createClientWithSecrets)();
+    return client.pollJobForVideoUrl(videoId, {
+        timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000),
+        intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000),
+        modeHint: videoMode,
+    });
 }
 async function loadSecretToEnv(secretName) {
     if (process.env[secretName])
@@ -221,14 +358,18 @@ async function postToEnabledPlatforms(params) {
 async function createOrPollVideo(params) {
     const { product, record, headers, rowNumber, sheetContext, alwaysGenerate, dryRun } = params;
     const videoState = getVideoState(record);
+    const provider = resolveVideoProvider(record, videoState.provider);
     if (dryRun) {
         const title = String(product.title || product.name || product.Title || 'dry-run-product');
-        const generatedScript = await (0, openai_1.generateScript)(product);
+        const generatedScript = provider === 'heygen'
+            ? (await buildHeyGenVideoRequest(product, record)).script
+            : await (0, openai_1.generateScript)(product);
         const dryVideoUrl = videoState.videoUrl && !isVideoUrlExpired(videoState.videoUrl) ? videoState.videoUrl : `https://example.com/dry-run/${encodeURIComponent(title)}.mp4`;
-        console.log('DRY_RUN_LOG_ONLY=true — skipping D-ID refresh/generation', { rowNumber, product: title, existingVideoUrl: videoState.videoUrl || null, dryVideoUrl, scriptPreview: generatedScript.slice(0, 220) });
+        console.log('DRY_RUN_LOG_ONLY=true — skipping video refresh/generation', { provider, rowNumber, product: title, existingVideoUrl: videoState.videoUrl || null, dryVideoUrl, scriptPreview: generatedScript.slice(0, 220) });
         return dryVideoUrl;
     }
-    if (videoState.videoUrl && !alwaysGenerate) {
+    const providerChanged = !!videoState.provider && videoState.provider !== provider;
+    if (videoState.videoUrl && !alwaysGenerate && !providerChanged) {
         if (!isVideoUrlExpired(videoState.videoUrl)) {
             console.log('✅ Using existing video:', videoState.videoUrl);
             return videoState.videoUrl;
@@ -236,34 +377,58 @@ async function createOrPollVideo(params) {
         console.log(`⚠️ Stored video URL has expired for row ${rowNumber} — attempting to refresh`);
         if (videoState.videoId) {
             try {
-                const refreshClient = await (0, did_1.createClientWithSecrets)();
-                const result = await refreshClient.getJobStatus(videoState.videoId, videoState.videoMode);
-                if ((result.status.includes('done') || result.status.includes('complete')) && result.videoUrl && !isVideoUrlExpired(result.videoUrl)) {
-                    console.log('✅ Refreshed video URL from D-ID API');
-                    await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: result.videoUrl, Video_Completed_At: new Date().toISOString(), DID_MODE: result.mode || videoState.videoMode || '' });
+                const result = await getVideoStatus(provider, videoState.videoId, videoState.videoMode);
+                if ((result.status.includes('done') || result.status.includes('complete') || result.status === 'success') && result.videoUrl && !isVideoUrlExpired(result.videoUrl)) {
+                    console.log(`✅ Refreshed video URL from ${provider === 'heygen' ? 'HeyGen' : 'D-ID'} API`);
+                    await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: result.videoUrl, Video_Completed_At: new Date().toISOString(), DID_MODE: result.mode || videoState.videoMode || '', VIDEO_PROVIDER: provider });
                     return result.videoUrl;
                 }
             }
             catch (refreshError) {
-                console.log(`⚠️ Could not refresh URL from D-ID: ${getErrorMessage(refreshError)}`);
+                console.log(`⚠️ Could not refresh URL from ${provider === 'heygen' ? 'HeyGen' : 'D-ID'}: ${getErrorMessage(refreshError)}`);
             }
         }
         console.log(`📹 Regenerating video for row ${rowNumber} (URL expired, refresh unavailable)`);
         await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: '', Video_ID: '', Video_Status: '' });
     }
-    const didClient = await (0, did_1.createClientWithSecrets)();
-    if (!alwaysGenerate && videoState.videoId && (videoState.videoStatus || '').toLowerCase() === 'processing') {
-        console.log(`⏳ Existing D-ID job found for row ${rowNumber}: ${videoState.videoId}`);
-        const videoUrl = await didClient.pollJobForVideoUrl(videoState.videoId, { timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000), intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000), modeHint: videoState.videoMode });
-        await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: videoUrl, Video_Status: 'completed', Video_Completed_At: new Date().toISOString() });
+    else if (providerChanged) {
+        console.log(`📹 Video provider changed from ${videoState.provider} to ${provider}; regenerating row ${rowNumber}`);
+        await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: '', Video_ID: '', Video_Status: '', VIDEO_PROVIDER: provider });
+    }
+    if (!alwaysGenerate && !providerChanged && videoState.videoId && (videoState.videoStatus || '').toLowerCase() === 'processing') {
+        console.log(`⏳ Existing ${provider === 'heygen' ? 'HeyGen' : 'D-ID'} job found for row ${rowNumber}: ${videoState.videoId}`);
+        const videoUrl = await pollVideoUrl(provider, videoState.videoId, videoState.videoMode);
+        await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: videoUrl, Video_Status: 'completed', Video_Completed_At: new Date().toISOString(), VIDEO_PROVIDER: provider });
         return videoUrl;
     }
+    if (provider === 'heygen') {
+        const { payload, mapping } = await buildHeyGenVideoRequest(product, record);
+        const heygenClient = await (0, heygen_1.createClientWithSecrets)();
+        const jobId = await heygenClient.createVideoJob(payload);
+        await writeRowFields(sheetContext, headers, rowNumber, {
+            Video_ID: jobId,
+            Video_Status: 'processing',
+            VIDEO_PROVIDER: 'heygen',
+            HEYGEN_AVATAR: mapping.avatar,
+            HEYGEN_VOICE: mapping.voice,
+            HEYGEN_LENGTH_SECONDS: String(mapping.lengthSeconds),
+            HEYGEN_MAPPING_REASON: mapping.reason,
+            HEYGEN_MAPPED_AT: new Date().toISOString(),
+        });
+        const videoUrl = await heygenClient.pollJobForVideoUrl(jobId, {
+            timeoutMs: Number(process.env.HEYGEN_POLL_TIMEOUT_MS || 1500000),
+            intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15000),
+        });
+        await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: videoUrl, Video_Status: 'completed', Video_Completed_At: new Date().toISOString(), VIDEO_PROVIDER: 'heygen' });
+        return videoUrl;
+    }
+    const didClient = await (0, did_1.createClientWithSecrets)();
     const mapping = (0, did_adapter_1.mapProductToDidPayload)(record);
     const generatedScript = await (0, openai_1.generateScript)(product);
     const createdJob = await didClient.createVideoJobWithMode({ ...mapping.payload, script: generatedScript });
-    await writeRowFields(sheetContext, headers, rowNumber, { Video_ID: createdJob.jobId, Video_Status: 'processing', DID_MODE: createdJob.mode, DID_AVATAR: mapping.avatar, DID_VOICE: mapping.voice, DID_LENGTH_SECONDS: String(mapping.lengthSeconds), DID_MAPPING_REASON: mapping.reason, DID_MAPPED_AT: new Date().toISOString() });
+    await writeRowFields(sheetContext, headers, rowNumber, { Video_ID: createdJob.jobId, Video_Status: 'processing', VIDEO_PROVIDER: 'did', DID_MODE: createdJob.mode, DID_AVATAR: mapping.avatar, DID_VOICE: mapping.voice, DID_LENGTH_SECONDS: String(mapping.lengthSeconds), DID_MAPPING_REASON: mapping.reason, DID_MAPPED_AT: new Date().toISOString() });
     const videoUrl = await didClient.pollJobForVideoUrl(createdJob.jobId, { timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000), intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000), modeHint: createdJob.mode });
-    await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: videoUrl, Video_Status: 'completed', Video_Completed_At: new Date().toISOString() });
+    await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: videoUrl, Video_Status: 'completed', Video_Completed_At: new Date().toISOString(), VIDEO_PROVIDER: 'did' });
     return videoUrl;
 }
 async function main() {

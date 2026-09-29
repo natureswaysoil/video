@@ -55,7 +55,7 @@ function mapProductToHeyGenPayload(row) {
             break;
         }
     }
-    const avatar = first(row, ['HEYGEN_AVATAR', 'HeyGen_Avatar', 'Avatar_ID']) || process.env.HEYGEN_DEFAULT_AVATAR || '';
+    const avatar = first(row, ['HEYGEN_AVATAR', 'HeyGen_Avatar', 'Avatar_ID']) || process.env.HEYGEN_DEFAULT_AVATAR || 'Plowman';
     const voice = first(row, ['HEYGEN_VOICE', 'HeyGen_Voice', 'Voice_ID']) || process.env.HEYGEN_DEFAULT_VOICE || '';
     const title = first(row, ['Title', 'title', 'Product', 'product', 'Name', 'name']) || "Nature's Way Soil product";
     const details = first(row, ['Product Description', 'description', 'Description', 'Details', 'details', 'caption', 'Caption']);
