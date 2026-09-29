@@ -6,6 +6,7 @@ import { createGoogleAuthClient } from './google-auth'
 
 const logger = getLogger()
 const metrics = getMetrics()
+const sheetNameCache = new Map<string, string>()
 
 export async function markRowPosted(params: {
   spreadsheetId: string
@@ -240,6 +241,141 @@ export async function writeColumnValues(params: {
   }
 }
 
+export function buildRowFieldBatchData(params: {
+  sheetName: string
+  headers: string[]
+  rowNumber: number
+  updates: Record<string, string>
+}): any[] {
+  const { sheetName, headers, rowNumber, updates } = params
+  const data: any[] = []
+  const mutableHeaders = [...headers]
+
+  for (const [columnName, value] of Object.entries(updates)) {
+    if (typeof value !== 'string' || value.length === 0) continue
+
+    let colIndex = mutableHeaders.indexOf(columnName)
+    if (colIndex === -1) {
+      colIndex = mutableHeaders.length
+      mutableHeaders.push(columnName)
+      const headerCell = a1(sheetName, 1, colIndex + 1)
+      data.push({ range: headerCell, values: [[columnName]] })
+    }
+
+    const cell = a1(sheetName, rowNumber, colIndex + 1)
+    data.push({ range: cell, values: [[value]] })
+  }
+
+  return data
+}
+
+export async function writeRowFieldsBatch(params: {
+  spreadsheetId: string
+  sheetGid?: string | number
+  headers: string[]
+  rowNumber: number
+  updates: Record<string, string>
+}) {
+  const startTime = Date.now()
+
+  try {
+    const { spreadsheetId, sheetGid, headers, rowNumber, updates } = params
+
+    if (!spreadsheetId || !headers || !rowNumber || !updates) {
+      throw new AppError(
+        'Missing required parameters for writeRowFieldsBatch',
+        ErrorCode.VALIDATION_ERROR,
+        400,
+        true,
+        {
+          hasSpreadsheetId: !!spreadsheetId,
+          headersCount: headers?.length || 0,
+          rowNumber,
+          updateCount: Object.keys(updates || {}).length,
+        }
+      )
+    }
+
+    logger.debug('Writing row fields in batch', 'Sheets', {
+      spreadsheetId,
+      rowNumber,
+      updateCount: Object.keys(updates).length,
+    })
+
+    const authClient = await createGoogleAuthClient(['https://www.googleapis.com/auth/spreadsheets'])
+    const sheets = google.sheets({ version: 'v4', auth: authClient })
+    const sheetName = await resolveSheetName(sheets, spreadsheetId, sheetGid)
+    const data = buildRowFieldBatchData({ sheetName, headers, rowNumber, updates })
+
+    if (data.length === 0) {
+      logger.debug('No row field data to write', 'Sheets', { spreadsheetId, rowNumber })
+      return
+    }
+
+    await withRetry(
+      async () => {
+        await sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            valueInputOption: 'RAW',
+            data,
+          },
+        })
+      },
+      {
+        maxRetries: 3,
+        onRetry: (error, attempt) => {
+          logger.warn('Retrying writeRowFieldsBatch', 'Sheets', {
+            attempt,
+            spreadsheetId,
+            rowNumber,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        },
+      }
+    )
+
+    const duration = Date.now() - startTime
+    metrics.incrementCounter('sheets.write_row_fields_batch.success')
+    metrics.recordHistogram('sheets.write_row_fields_batch.duration', duration)
+
+    logger.debug('Successfully wrote row fields in batch', 'Sheets', {
+      spreadsheetId,
+      rowNumber,
+      cellsWritten: data.length,
+      duration,
+    })
+  } catch (error: any) {
+    const duration = Date.now() - startTime
+    metrics.incrementCounter('sheets.write_row_fields_batch.error')
+    metrics.recordHistogram('sheets.write_row_fields_batch.error_duration', duration)
+
+    logger.error(
+      'Failed to write row fields in batch',
+      'Sheets',
+      {
+        spreadsheetId: params.spreadsheetId,
+        rowNumber: params.rowNumber,
+        duration,
+      },
+      error
+    )
+
+    if (error instanceof AppError) {
+      throw error
+    }
+
+    throw new AppError(
+      `Failed to write row fields in batch: ${error.message || String(error)}`,
+      ErrorCode.SHEETS_API_ERROR,
+      500,
+      true,
+      { spreadsheetId: params.spreadsheetId, rowNumber: params.rowNumber },
+      error instanceof Error ? error : undefined
+    )
+  }
+}
+
 export async function writeColumnLetterValues(params: {
   spreadsheetId: string
   sheetGid?: string | number
@@ -354,11 +490,16 @@ async function resolveSheetName(
 ): Promise<string> {
   try {
     if (!gid) return process.env.GS_SHEET_NAME || 'Product_Automation'
-    
+    const cacheKey = `${spreadsheetId}:${String(gid)}`
+    const cached = sheetNameCache.get(cacheKey)
+    if (cached) return cached
+
     const meta = await sheets.spreadsheets.get({ spreadsheetId })
     const targetId = Number(gid)
     const found = meta.data.sheets?.find((s: any) => s.properties?.sheetId === targetId)
-    return found?.properties?.title || process.env.GS_SHEET_NAME || 'Product_Automation'
+    const resolved = found?.properties?.title || process.env.GS_SHEET_NAME || 'Product_Automation'
+    sheetNameCache.set(cacheKey, resolved)
+    return resolved
   } catch (error) {
     logger.warn('Failed to resolve sheet name, using default', 'Sheets', {
       spreadsheetId,

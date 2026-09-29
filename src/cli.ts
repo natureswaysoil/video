@@ -11,7 +11,7 @@ import { getConfig } from './config-validator'
 import { createClientWithSecrets as createDidClient } from './did'
 import { mapProductToDidPayload } from './did-adapter'
 import { generateScript } from './openai'
-import { markRowPosted, writeColumnValues, resetPostedColumn } from './sheets'
+import { markRowPosted, writeRowFieldsBatch, resetPostedColumn } from './sheets'
 import {
   startHealthServer,
   stopHealthServer,
@@ -31,8 +31,9 @@ async function bootstrapSecrets() {
 
 const auditLogger = getAuditLogger()
 
-type VideoState = { videoId?: string; videoUrl?: string; videoStatus?: string }
+type VideoState = { videoId?: string; videoUrl?: string; videoStatus?: string; videoMode?: 'talks' | 'clips' }
 type Platform = 'instagram' | 'twitter' | 'pinterest' | 'youtube' | 'facebook'
+type SheetWriteContext = { spreadsheetId: string; sheetGid?: string }
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -48,10 +49,13 @@ function pickFirstNonEmpty(record: Record<string, any> | undefined, keys: string
 }
 
 function getVideoState(record: Record<string, any> | undefined): VideoState {
+  const rawMode = pickFirstNonEmpty(record, ['DID_MODE', 'Did_Mode', 'D_ID_MODE', 'video_mode'])
+  const videoMode = rawMode === 'talks' || rawMode === 'clips' ? rawMode : undefined
   return {
     videoId: pickFirstNonEmpty(record, ['Video_ID', 'DID_VIDEO_ID', 'D_ID_VIDEO_ID', 'video_id']),
     videoUrl: pickFirstNonEmpty(record, ['Video_URL', 'Video URL', 'video_url', 'VideoURL']),
     videoStatus: pickFirstNonEmpty(record, ['Video_Status', 'DID_VIDEO_STATUS', 'D_ID_VIDEO_STATUS', 'video_status']),
+    videoMode,
   }
 }
 
@@ -107,16 +111,18 @@ async function loadSecretToEnv(secretName: string): Promise<void> {
   }
 }
 
-async function writeRowFields(csvUrl: string, headers: string[], rowNumber: number, updates: Record<string, string>, dryRun = false): Promise<void> {
+async function writeRowFields(sheetContext: SheetWriteContext, headers: string[], rowNumber: number, updates: Record<string, string>, dryRun = false): Promise<void> {
   if (dryRun) {
     console.log('DRY_RUN_LOG_ONLY=true — skipping Google Sheets writeback', { rowNumber, updates })
     return
   }
-  const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
-  const sheetGid = extractGidFromCsv(csvUrl)
-  for (const [columnName, value] of Object.entries(updates)) {
-    await writeColumnValues({ spreadsheetId, sheetGid, headers, columnName, rows: [{ rowNumber, value }] })
-  }
+  const { spreadsheetId, sheetGid } = sheetContext
+  await writeRowFieldsBatch({ spreadsheetId, sheetGid, headers, rowNumber, updates })
+}
+
+export async function settlePlatformResults(tasks: Array<() => Promise<boolean>>): Promise<boolean> {
+  const results = await Promise.allSettled(tasks.map((task) => task()))
+  return results.some((result) => result.status === 'fulfilled' && result.value === true)
 }
 
 async function postToEnabledPlatforms(params: { videoUrl: string; product: Record<string, any>; enabledPlatforms: Set<string>; dryRun: boolean }): Promise<{ anySucceeded: boolean }> {
@@ -132,45 +138,96 @@ async function postToEnabledPlatforms(params: { videoUrl: string; product: Recor
   }
 
   const config = getConfig()
-  let anySucceeded = false
+  const tasks: Array<() => Promise<boolean>> = []
 
   if (shouldPost('instagram')) {
     if (config.INSTAGRAM_ACCESS_TOKEN && config.INSTAGRAM_USER_ID) {
-      try { await postToInstagram(videoUrl, caption, config.INSTAGRAM_ACCESS_TOKEN, config.INSTAGRAM_USER_ID); anySucceeded = true } catch (e: any) { console.error('❌ Instagram post failed:', e?.message || e) }
+      const accessToken = config.INSTAGRAM_ACCESS_TOKEN
+      const instagramUserId = config.INSTAGRAM_USER_ID
+      tasks.push(async () => {
+        try {
+          await postToInstagram(videoUrl, caption, accessToken, instagramUserId)
+          return true
+        } catch (e: any) {
+          console.error('❌ Instagram post failed:', e?.message || e)
+          return false
+        }
+      })
     } else console.log('⚠️ Instagram credentials not configured (INSTAGRAM_ACCESS_TOKEN, INSTAGRAM_USER_ID)')
   }
 
   if (shouldPost('twitter')) {
     if (config.TWITTER_BEARER_TOKEN || (config.TWITTER_API_KEY && config.TWITTER_API_SECRET && config.TWITTER_ACCESS_TOKEN && config.TWITTER_ACCESS_SECRET)) {
-      try { await postToTwitter(videoUrl, caption || title, config.TWITTER_BEARER_TOKEN); anySucceeded = true } catch (e: any) { console.error('❌ Twitter post failed:', e?.message || e) }
+      tasks.push(async () => {
+        try {
+          await postToTwitter(videoUrl, caption || title, config.TWITTER_BEARER_TOKEN)
+          return true
+        } catch (e: any) {
+          console.error('❌ Twitter post failed:', e?.message || e)
+          return false
+        }
+      })
     } else console.log('⚠️ Twitter credentials not configured')
   }
 
   if (shouldPost('pinterest')) {
     if (config.PINTEREST_ACCESS_TOKEN && config.PINTEREST_BOARD_ID) {
-      try { await postToPinterest(videoUrl, caption, config.PINTEREST_ACCESS_TOKEN, config.PINTEREST_BOARD_ID); anySucceeded = true } catch (e: any) { console.error('❌ Pinterest post failed:', e?.message || e) }
+      const pinterestToken = config.PINTEREST_ACCESS_TOKEN
+      const pinterestBoardId = config.PINTEREST_BOARD_ID
+      tasks.push(async () => {
+        try {
+          await postToPinterest(videoUrl, caption, pinterestToken, pinterestBoardId)
+          return true
+        } catch (e: any) {
+          console.error('❌ Pinterest post failed:', e?.message || e)
+          return false
+        }
+      })
     } else console.log('⚠️ Pinterest credentials not configured (PINTEREST_ACCESS_TOKEN, PINTEREST_BOARD_ID)')
   }
 
   if (shouldPost('youtube')) {
     if (config.YOUTUBE_CLIENT_ID && config.YOUTUBE_CLIENT_SECRET && config.YOUTUBE_REFRESH_TOKEN) {
-      try { await postToYouTube(videoUrl, caption, config.YOUTUBE_CLIENT_ID, config.YOUTUBE_CLIENT_SECRET, config.YOUTUBE_REFRESH_TOKEN); anySucceeded = true } catch (e: any) { console.error('❌ YouTube post failed:', e?.message || e) }
+      const youtubeClientId = config.YOUTUBE_CLIENT_ID
+      const youtubeClientSecret = config.YOUTUBE_CLIENT_SECRET
+      const youtubeRefreshToken = config.YOUTUBE_REFRESH_TOKEN
+      tasks.push(async () => {
+        try {
+          await postToYouTube(videoUrl, caption, youtubeClientId, youtubeClientSecret, youtubeRefreshToken)
+          return true
+        } catch (e: any) {
+          console.error('❌ YouTube post failed:', e?.message || e)
+          return false
+        }
+      })
     } else console.log('⚠️ YouTube credentials not configured (YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN)')
   }
 
   if (shouldPost('facebook')) {
     if (config.FACEBOOK_PAGE_ACCESS_TOKEN && config.FACEBOOK_PAGE_ID) {
-      try { await postToFacebook(videoUrl, caption || title, config.FACEBOOK_PAGE_ACCESS_TOKEN, config.FACEBOOK_PAGE_ID); anySucceeded = true } catch (e: any) { console.error('❌ Facebook post failed:', e?.message || e) }
+      const facebookPageAccessToken = config.FACEBOOK_PAGE_ACCESS_TOKEN
+      const facebookPageId = config.FACEBOOK_PAGE_ID
+      tasks.push(async () => {
+        try {
+          await postToFacebook(videoUrl, caption || title, facebookPageAccessToken, facebookPageId)
+          return true
+        } catch (e: any) {
+          console.error('❌ Facebook post failed:', e?.message || e)
+          return false
+        }
+      })
     } else console.log('⚠️ Facebook credentials not configured (FACEBOOK_PAGE_ACCESS_TOKEN, FACEBOOK_PAGE_ID)')
   }
+
+  const anySucceeded = await settlePlatformResults(tasks)
 
   const skipped = allPlatforms.filter((platform) => !shouldPost(platform))
   if (skipped.length > 0) console.log('Skipped disabled platforms:', skipped.join(', '))
   return { anySucceeded }
 }
 
-async function createOrPollVideo(params: { product: Record<string, any>; record: Record<string, any>; headers: string[]; rowNumber: number; csvUrl: string; alwaysGenerate: boolean; dryRun: boolean }): Promise<string> {
-  const { product, record, headers, rowNumber, csvUrl, alwaysGenerate, dryRun } = params
+async function createOrPollVideo(params: { product: Record<string, any>; record: Record<string, any>; headers: string[]; rowNumber: number; sheetContext: SheetWriteContext; alwaysGenerate: boolean; dryRun: boolean }): Promise<string> {
+  const { product, record, headers, rowNumber, sheetContext, alwaysGenerate, dryRun } = params
   const videoState = getVideoState(record)
 
   if (dryRun) {
@@ -190,10 +247,10 @@ async function createOrPollVideo(params: { product: Record<string, any>; record:
     if (videoState.videoId) {
       try {
         const refreshClient = await createDidClient()
-        const result = await refreshClient.getJobStatus(videoState.videoId)
+        const result = await refreshClient.getJobStatus(videoState.videoId, videoState.videoMode)
         if ((result.status.includes('done') || result.status.includes('complete')) && result.videoUrl && !isVideoUrlExpired(result.videoUrl)) {
           console.log('✅ Refreshed video URL from D-ID API')
-          await writeRowFields(csvUrl, headers, rowNumber, { Video_URL: result.videoUrl, Video_Completed_At: new Date().toISOString() })
+          await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: result.videoUrl, Video_Completed_At: new Date().toISOString(), DID_MODE: result.mode || videoState.videoMode || '' })
           return result.videoUrl
         }
       } catch (refreshError) {
@@ -201,24 +258,24 @@ async function createOrPollVideo(params: { product: Record<string, any>; record:
       }
     }
     console.log(`📹 Regenerating video for row ${rowNumber} (URL expired, refresh unavailable)`)
-    await writeRowFields(csvUrl, headers, rowNumber, { Video_URL: '', Video_ID: '', Video_Status: '' })
+    await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: '', Video_ID: '', Video_Status: '' })
   }
 
   const didClient = await createDidClient()
 
   if (!alwaysGenerate && videoState.videoId && (videoState.videoStatus || '').toLowerCase() === 'processing') {
     console.log(`⏳ Existing D-ID job found for row ${rowNumber}: ${videoState.videoId}`)
-    const videoUrl = await didClient.pollJobForVideoUrl(videoState.videoId, { timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000), intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000) })
-    await writeRowFields(csvUrl, headers, rowNumber, { Video_URL: videoUrl, Video_Status: 'completed', Video_Completed_At: new Date().toISOString() })
+    const videoUrl = await didClient.pollJobForVideoUrl(videoState.videoId, { timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000), intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000), modeHint: videoState.videoMode })
+    await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: videoUrl, Video_Status: 'completed', Video_Completed_At: new Date().toISOString() })
     return videoUrl
   }
 
   const mapping = mapProductToDidPayload(record)
   const generatedScript = await generateScript(product)
-  const videoId = await didClient.createVideoJob({ ...mapping.payload, script: generatedScript })
-  await writeRowFields(csvUrl, headers, rowNumber, { Video_ID: videoId, Video_Status: 'processing', DID_AVATAR: mapping.avatar, DID_VOICE: mapping.voice, DID_LENGTH_SECONDS: String(mapping.lengthSeconds), DID_MAPPING_REASON: mapping.reason, DID_MAPPED_AT: new Date().toISOString() })
-  const videoUrl = await didClient.pollJobForVideoUrl(videoId, { timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000), intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000) })
-  await writeRowFields(csvUrl, headers, rowNumber, { Video_URL: videoUrl, Video_Status: 'completed', Video_Completed_At: new Date().toISOString() })
+  const createdJob = await didClient.createVideoJobWithMode({ ...mapping.payload, script: generatedScript })
+  await writeRowFields(sheetContext, headers, rowNumber, { Video_ID: createdJob.jobId, Video_Status: 'processing', DID_MODE: createdJob.mode, DID_AVATAR: mapping.avatar, DID_VOICE: mapping.voice, DID_LENGTH_SECONDS: String(mapping.lengthSeconds), DID_MAPPING_REASON: mapping.reason, DID_MAPPED_AT: new Date().toISOString() })
+  const videoUrl = await didClient.pollJobForVideoUrl(createdJob.jobId, { timeoutMs: Number(process.env.DID_POLL_TIMEOUT_MS || 1500000), intervalMs: Number(process.env.DID_POLL_INTERVAL_MS || 15000), modeHint: createdJob.mode })
+  await writeRowFields(sheetContext, headers, rowNumber, { Video_URL: videoUrl, Video_Status: 'completed', Video_Completed_At: new Date().toISOString() })
   return videoUrl
 }
 
@@ -247,6 +304,10 @@ async function main(): Promise<void> {
 
   const cycle = async (): Promise<void> => {
     updateStatus({ status: 'processing', rowsProcessed: 0 })
+    const sheetContext: SheetWriteContext = {
+      spreadsheetId: extractSpreadsheetIdFromCsv(csvUrl),
+      sheetGid: extractGidFromCsv(csvUrl),
+    }
     const result = await processCsvUrl(csvUrl)
     if (result.skipped || result.rows.length === 0) { updateStatus({ status: 'idle', rowsProcessed: 0 }); return }
 
@@ -259,14 +320,12 @@ async function main(): Promise<void> {
       console.log('Product:', product?.title || product?.name || jobId)
 
       try {
-        const videoUrl = await createOrPollVideo({ product, record, headers, rowNumber, csvUrl, alwaysGenerate, dryRun })
+        const videoUrl = await createOrPollVideo({ product, record, headers, rowNumber, sheetContext, alwaysGenerate, dryRun })
         const { anySucceeded } = await postToEnabledPlatforms({ videoUrl, product, enabledPlatforms, dryRun })
         if (!anySucceeded && !dryRun) throw new Error('No enabled platform post succeeded for this row')
 
         if (anySucceeded) {
-          const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
-          const sheetGid = extractGidFromCsv(csvUrl)
-          await markRowPosted({ spreadsheetId, sheetGid, rowNumber, headers })
+          await markRowPosted({ spreadsheetId: sheetContext.spreadsheetId, sheetGid: sheetContext.sheetGid, rowNumber, headers })
         } else if (dryRun) {
           console.log('DRY_RUN_LOG_ONLY=true — skipping Posted writeback', { rowNumber })
         } else {
@@ -277,14 +336,12 @@ async function main(): Promise<void> {
       } catch (error: any) {
         seen.add(jobId); rowsThisCycle++; incrementFailedPost(); addError(error?.message || String(error))
         auditLogger.logEvent({ level: 'ERROR', category: 'POSTING', message: 'Failed to process row', rowNumber, product: product?.title || product?.name, details: { error: error?.message || String(error) } })
-        await writeRowFields(csvUrl, headers, rowNumber, { Video_Status: 'failed', Last_Error: error?.message || String(error), Last_Error_At: new Date().toISOString() }, dryRun)
+        await writeRowFields(sheetContext, headers, rowNumber, { Video_Status: 'failed', Last_Error: error?.message || String(error), Last_Error_At: new Date().toISOString() }, dryRun)
       }
     }
 
     if (loopResetPosted && rowsThisCycle === 0 && !dryRun) {
-      const spreadsheetId = extractSpreadsheetIdFromCsv(csvUrl)
-      const sheetGid = extractGidFromCsv(csvUrl)
-      await resetPostedColumn({ spreadsheetId, sheetGid, totalRows: result.rows.length, headers: result.rows[0]?.headers || [] })
+      await resetPostedColumn({ spreadsheetId: sheetContext.spreadsheetId, sheetGid: sheetContext.sheetGid, totalRows: result.rows.length, headers: result.rows[0]?.headers || [] })
       seen.clear()
     } else if (loopResetPosted && dryRun) console.log('DRY_RUN_LOG_ONLY=true — skipping loop reset writeback')
     updateStatus({ status: 'idle', rowsProcessed: rowsThisCycle })
@@ -293,5 +350,7 @@ async function main(): Promise<void> {
   do { await cycle(); if (!runOnce) await sleep(intervalMs) } while (!runOnce)
 }
 
-process.on('SIGINT', async () => { stopHealthServer(); process.exit(0) })
-main().catch((error) => { console.error('Fatal error:', error); addError(error?.message || String(error)); stopHealthServer(); process.exit(1) })
+if (require.main === module) {
+  process.on('SIGINT', async () => { stopHealthServer(); process.exit(0) })
+  main().catch((error) => { console.error('Fatal error:', error); addError(error?.message || String(error)); stopHealthServer(); process.exit(1) })
+}

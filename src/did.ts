@@ -31,6 +31,11 @@ export type DidJobResult = {
   error?: string
 }
 
+export type DidCreatedJob = {
+  jobId: string
+  mode: 'talks' | 'clips'
+}
+
 export class DidClient {
   private axios: AxiosInstance
 
@@ -50,7 +55,7 @@ export class DidClient {
     })
   }
 
-  async createVideoJob(payload: DidVideoPayload): Promise<string> {
+  async createVideoJobWithMode(payload: DidVideoPayload): Promise<DidCreatedJob> {
     const config = getConfig()
     const useClips = !!payload.presenterId
 
@@ -69,6 +74,7 @@ export class DidClient {
         }
 
     const endpoint = useClips ? '/clips' : '/talks'
+    const mode: 'talks' | 'clips' = useClips ? 'clips' : 'talks'
 
     const jobId = await rateLimiters.execute('did', async () => {
       return withRetry(async () => {
@@ -81,7 +87,12 @@ export class DidClient {
 
     metrics.incrementCounter('did.create.success')
     logger.info('Created D-ID job', 'D-ID', { jobId })
-    return jobId
+    return { jobId, mode }
+  }
+
+  async createVideoJob(payload: DidVideoPayload): Promise<string> {
+    const created = await this.createVideoJobWithMode(payload)
+    return created.jobId
   }
 
   async getJobStatus(jobId: string, modeHint?: 'talks' | 'clips'): Promise<DidJobResult> {
