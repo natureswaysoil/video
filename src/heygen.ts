@@ -2,6 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import axios, { AxiosInstance } from 'axios'
 import OpenAI from 'openai'
+import { loadSecretToEnv } from './secret-manager'
 
 export type BlogVideoInput = {
   title?: string
@@ -34,6 +35,13 @@ export type BlogVideoResult = {
   markdown?: string
   brollQueries?: string[]
   ctaUrl?: string
+}
+
+export type HeyGenJobResult = {
+  jobId: string
+  status: string
+  videoUrl?: string
+  error?: string
 }
 
 function asList(value: string[] | string | undefined): string[] {
@@ -181,18 +189,27 @@ export class HeyGenClient {
     return String(jobId)
   }
 
+  async getJobStatus(jobId: string): Promise<HeyGenJobResult> {
+    const response = await this.client.get('/v1/video_status.get', { params: { video_id: jobId } })
+    const data = response.data?.data || response.data || {}
+    return {
+      jobId,
+      status: String(data.status || '').toLowerCase(),
+      videoUrl: data.captioned_video_url || data.captionedVideoUrl || data.video_url || data.videoUrl || data.url,
+      error: data.error || data.error_message || data.failure_message,
+    }
+  }
+
   async pollJobForVideoUrl(jobId: string, options: { timeoutMs?: number; intervalMs?: number } = {}): Promise<string> {
     const timeoutMs = options.timeoutMs ?? 20 * 60_000
     const intervalMs = options.intervalMs ?? 15_000
     const startedAt = Date.now()
-
     while (Date.now() - startedAt < timeoutMs) {
-      const response = await this.client.get('/v1/video_status.get', { params: { video_id: jobId } })
-      const data = response.data?.data || response.data || {}
-      const status = String(data.status || '').toLowerCase()
-      const videoUrl = data.captioned_video_url || data.captionedVideoUrl || data.video_url || data.videoUrl || data.url
+      const result = await this.getJobStatus(jobId)
+      const status = result.status
+      const videoUrl = result.videoUrl
       if ((status === 'completed' || status === 'success') && videoUrl) return String(videoUrl)
-      if (status === 'failed' || status === 'error') throw new Error(`HeyGen job failed: ${data.error || data.error_message || data.failure_message || 'unknown error'}`)
+      if (status === 'failed' || status === 'error') throw new Error(`HeyGen job failed: ${result.error || 'unknown error'}`)
       await new Promise((resolve) => setTimeout(resolve, intervalMs))
     }
 
@@ -201,6 +218,7 @@ export class HeyGenClient {
 }
 
 export async function createClientWithSecrets(): Promise<HeyGenClient> {
+  await loadSecretToEnv('HEYGEN_API_KEY')
   return new HeyGenClient(process.env.HEYGEN_API_KEY || '')
 }
 

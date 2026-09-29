@@ -5,16 +5,16 @@
 Turns your Google Sheet product catalog into reviewable product videos using:
 
 - OpenAI for conversion-focused scripts
-- D-ID for avatar/talking product videos
+- HeyGen for higher-quality avatar/talking product videos
 - Product-specific templates for Dog Urine, Hay/Pasture, Biochar, Kelp, Bone Meal, and Fruit & Bloom
 - Claim-safety checks before scripts and captions are used
 - Google Sheets writeback for video status and posted status
 
-## D-ID is the only video generator
+## Video generation providers
 
-This repository is standardized on D-ID. Do not add HeyGen configuration, tests, or documentation back into the main workflow unless the project intentionally changes video vendors later.
+The main workflow now prefers HeyGen when credentials are available and falls back to D-ID only when explicitly selected or when HeyGen is not configured.
 
-Use D-ID talks with a source image URL or D-ID clips with a presenter ID.
+Use `VIDEO_PROVIDER=heygen` for the higher-quality multi-scene avatar path. The default avatar is `Plowman` unless a sheet row or environment override provides a different HeyGen avatar.
 
 ## Correct platform variable names
 
@@ -47,4 +47,4 @@ The system should operate as a repeatable video marketing engine, not just a cod
 
 Amazon PPC optimizer folders should be moved to a separate repository, such as `natureswaysoil/amazon-ppc-optimizer`, or retained only as archived reference material. The production video deployment should stay focused on the video engine.
 
-**Status**: D-ID-only video generation with stronger CSV parsing, claim-safety module, product-specific templates, and Vercel build correction.
+**Status**: HeyGen-first video generation with stronger CSV parsing, claim-safety module, product-specific templates, and Vercel build correction.

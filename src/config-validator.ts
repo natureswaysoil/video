@@ -11,7 +11,17 @@ const envSchema = z.object({
   OPENAI_SYSTEM_PROMPT: z.string().optional(),
   OPENAI_USER_TEMPLATE: z.string().optional(),
 
-  // D-ID Configuration - D-ID is the only supported video generator
+  // HeyGen Configuration
+  HEYGEN_API_KEY: z.string().optional(),
+  HEYGEN_API_ENDPOINT: z.string().url().default('https://api.heygen.com'),
+  HEYGEN_DEFAULT_AVATAR: z.string().optional(),
+  HEYGEN_DEFAULT_VOICE: z.string().optional(),
+  HEYGEN_WEBHOOK_URL: z.string().optional(),
+  HEYGEN_POLL_TIMEOUT_MS: z.string().transform(Number).default('1500000'),
+  HEYGEN_POLL_INTERVAL_MS: z.string().transform(Number).default('15000'),
+  PEXELS_API_KEY: z.string().optional(),
+
+  // D-ID Configuration - retained as a fallback provider
   DID_API_KEY: z.string().optional(),
   DID_API_ENDPOINT: z.string().url().default('https://api.d-id.com'),
   DID_SOURCE_URL: z.string().optional(),
@@ -74,12 +84,14 @@ const envSchema = z.object({
   DRY_RUN: z.string().default('false'),
   DRY_RUN_LOG_ONLY: z.string().default('false'),
   ENABLE_PLATFORMS: z.string().optional(),
+  VIDEO_PROVIDER: z.enum(['did', 'heygen']).default('heygen'),
 
   // Webhook Configuration
   WEBHOOK_SECRET: z.string().optional(),
 
   // Rate Limiting
   RATE_LIMIT_OPENAI: z.string().transform(Number).default('10'),
+  RATE_LIMIT_HEYGEN: z.string().transform(Number).default('5'),
   RATE_LIMIT_DID: z.string().transform(Number).default('5'),
   RATE_LIMIT_TWITTER: z.string().transform(Number).default('50'),
   RATE_LIMIT_YOUTUBE: z.string().transform(Number).default('10'),
@@ -89,6 +101,7 @@ const envSchema = z.object({
 
   // Timeouts (in milliseconds)
   TIMEOUT_OPENAI: z.string().transform(Number).default('30000'),
+  TIMEOUT_HEYGEN: z.string().transform(Number).default('1200000'),
   TIMEOUT_DID: z.string().transform(Number).default('1200000'),
   TIMEOUT_SOCIAL_POST: z.string().transform(Number).default('60000'),
 
