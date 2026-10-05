@@ -62,9 +62,10 @@ jobs:
       # TikTok and X are enabled too; their posting modules skip cleanly when
       # credentials are not configured rather than blocking the core platforms.
       ENABLE_PLATFORMS: youtube,instagram,facebook,facebook_groups,tiktok,twitter
-      CI_MANDATORY_PLATFORMS: 'false'
+      CI_MANDATORY_PLATFORMS: 'all'
       YT_PRIVACY_STATUS: public
       DRY_RUN_LOG_ONLY: 'false'
+      VIDEO_PROVIDER: heygen
       GCS_PUBLIC_BUCKET: natureswaysoil-social-videos
       VIDEO_PUBLIC_BUCKET: natureswaysoil-social-videos
       VIDEO_PUBLIC_URL_BASE: https://storage.googleapis.com/natureswaysoil-social-videos
