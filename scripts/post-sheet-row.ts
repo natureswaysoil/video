@@ -23,6 +23,9 @@ const DEFAULT_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1dtUYrSy18
 const SECRET_NAMES = [
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
+  'HEYGEN_API_KEY',
+  'HEYGEN_DEFAULT_AVATAR',
+  'HEYGEN_DEFAULT_VOICE',
   'PEXELS_API_KEY',
   'YT_CLIENT_ID',
   'YT_CLIENT_SECRET',
@@ -569,8 +572,8 @@ function runExistingPoster(product: any) {
     NEXT_PRODUCT_PREFERRED_ID: product.id,
     ROTATION_STATE_FILE: process.env.SHEET_ROTATION_STATE_FILE || 'data/sheet-row-rotation-state.json',
     USE_OPENAI_SCENE_PLAN: 'false',
-    VIDEO_STYLE: 'broll_ken_burns',
-    VIDEO_PROVIDER: 'openai_tts'
+    VIDEO_STYLE: 'heygen',
+    VIDEO_PROVIDER: 'heygen'
   }
 
   execSync('npx ts-node --transpile-only scripts/post-scheduled.ts', {

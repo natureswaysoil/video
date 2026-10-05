@@ -8,12 +8,11 @@ import { execSync } from 'child_process'
 import { google } from 'googleapis'
 import { Storage } from '@google-cloud/storage'
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager'
-import { composeVerticalAd } from './lib/ffmpeg-compositor'
 import { validateMarketingVideo } from './lib/video-quality-gate'
 import { buildSceneQueryPriority, fetchBrollForScene } from './lib/pexels-media'
 import { downloadProductImage, productOverlayText } from './lib/product-assets'
 import { ensureDir, hasUsableFile, safeFileName } from './lib/video-utils'
-import { createNarration } from './lib/video-provider'
+import { createClientWithSecrets as createHeyGenClient } from '../src/heygen'
 import { formatCaption } from './lib/caption-formatter'
 import { postToTikTok, postToTwitter, fetchBasicMetrics } from './lib/social-platforms'
 import { postToFacebookGroups } from './lib/facebook-groups'
@@ -79,6 +78,9 @@ const VIDEO_ANALYTICS_FILE = path.resolve(ROOT, process.env.VIDEO_ANALYTICS_FILE
 const SECRET_NAMES = [
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
+  'HEYGEN_API_KEY',
+  'HEYGEN_DEFAULT_AVATAR',
+  'HEYGEN_DEFAULT_VOICE',
   'PEXELS_API_KEY',
   'YT_CLIENT_ID',
   'YT_CLIENT_SECRET',
@@ -562,29 +564,87 @@ function hookText(product: Product, scenePlan: any) {
   return String(firstScene?.caption || firstScene?.name || product.name).slice(0, 80).toUpperCase()
 }
 
-async function renderVideo(product: Product, profile: CreativeProfile, scenePlan: any): Promise<string> {
-  const { scenes, productImage } = await collectSceneFiles(product, scenePlan)
-  const voiceoverFile = await createNarration(product, scenePlan, profile, TEMP_DIR)
-  const videoFile = await composeVerticalAd({
-    outputName: `${safeFileName(product.name)}-scheduled.mp4`,
-    scenes,
-    productImage,
-    voiceoverFile,
-    captionText: hookText(product, scenePlan),
-    overlayText: `${productOverlayText(product)}\nSHOP NATURESWAYSOIL.COM`
+async function uploadAssetForHeyGen(file: string, index: number): Promise<string> {
+  const bucketName = publicBucketName()
+  const storage = new Storage()
+  const ext = path.extname(file).toLowerCase()
+  const contentType =
+    ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' :
+    ext === '.png' ? 'image/png' :
+    ext === '.webp' ? 'image/webp' :
+    ext === '.mov' ? 'video/quicktime' :
+    ext === '.webm' ? 'video/webm' :
+    'video/mp4'
+  const objectName = `heygen-inputs/${Date.now()}-${index + 1}-${path.basename(file)}`
+  await storage.bucket(bucketName).upload(file, {
+    destination: objectName,
+    resumable: false,
+    metadata: { contentType, cacheControl: 'public, max-age=604800' }
   })
-  log('Rendered b-roll Ken Burns video', {
+  if (String(process.env.GCS_MAKE_OBJECT_PUBLIC || '').toLowerCase() === 'true') {
+    await storage.bucket(bucketName).file(objectName).makePublic()
+  }
+  return `${publicBucketUrlBase(bucketName)}/${objectName.split('/').map(encodeURIComponent).join('/')}`
+}
+
+async function downloadHeyGenVideo(videoUrl: string, product: Product): Promise<string> {
+  ensureDir(OUTPUT_DIR)
+  const output = path.resolve(OUTPUT_DIR, `${safeFileName(product.name)}-heygen-${Date.now()}.mp4`)
+  const response = await axios.get(videoUrl, { responseType: 'arraybuffer', timeout: 180000 })
+  fs.writeFileSync(output, Buffer.from(response.data))
+  if (!hasUsableFile(output)) throw new Error('HeyGen returned a video URL but the downloaded MP4 is missing or empty')
+  return output
+}
+
+async function renderVideo(product: Product, profile: CreativeProfile, scenePlan: any): Promise<{ videoFile: string; generation: any }> {
+  if (!hasValue('HEYGEN_API_KEY')) throw new Error('HEYGEN_API_KEY is required; HeyGen is the only production video generator')
+  if (!hasValue('HEYGEN_DEFAULT_AVATAR')) throw new Error('HEYGEN_DEFAULT_AVATAR is required')
+  if (!hasValue('HEYGEN_DEFAULT_VOICE')) throw new Error('HEYGEN_DEFAULT_VOICE is required')
+
+  const { scenes } = await collectSceneFiles(product, scenePlan)
+  const heygenScenes = []
+  for (const [index, scene] of scenes.entries()) {
+    const assetUrl = await uploadAssetForHeyGen(scene.file, index)
+    const planned = scenePlan.scenes?.[index] || {}
+    const avatarText = String(planned.voiceover || scenePlan.fullVoiceover || product.description || product.name).trim()
+    heygenScenes.push({
+      avatarText,
+      ...(scene.kind === 'video' ? { brollUrl: assetUrl } : { imageUrl: assetUrl })
+    })
+  }
+
+  const client = await createHeyGenClient()
+  log('HEYGEN_GENERATION_STARTED', { productId: product.id, productName: product.name, scenes: heygenScenes.length })
+  const jobId = await client.createVideoJob({
+    title: product.name,
+    script: scenePlan.fullVoiceover,
+    avatar: process.env.HEYGEN_DEFAULT_AVATAR,
+    voice: process.env.HEYGEN_DEFAULT_VOICE,
+    scenes: heygenScenes
+  })
+  log('HEYGEN_JOB_CREATED', { jobId })
+  const videoUrl = await client.pollJobForVideoUrl(jobId, {
+    timeoutMs: Number(process.env.HEYGEN_TIMEOUT_MS || 25 * 60_000),
+    intervalMs: Number(process.env.HEYGEN_POLL_INTERVAL_MS || 15_000)
+  })
+  log('HEYGEN_GENERATION_COMPLETED', { jobId, videoUrl })
+  const videoFile = await downloadHeyGenVideo(videoUrl, product)
+  return {
     videoFile,
-    scenes: scenes.map((scene) => ({ kind: scene.kind, source: scene.source, query: scene.query, seconds: scene.seconds })),
-    productImage: !!productImage,
-    hasNarration: !!voiceoverFile
-  })
-  return videoFile
+    generation: {
+      provider: 'heygen',
+      jobId,
+      status: 'completed',
+      videoUrl,
+      avatar: process.env.HEYGEN_DEFAULT_AVATAR,
+      voice: process.env.HEYGEN_DEFAULT_VOICE
+    }
+  }
 }
 
 async function main() {
-  process.env.VIDEO_STYLE = String(process.env.VIDEO_STYLE || 'broll_ken_burns').toLowerCase()
-  process.env.VIDEO_PROVIDER = String(process.env.VIDEO_PROVIDER || 'openai_tts').toLowerCase()
+  process.env.VIDEO_STYLE = 'heygen'
+  process.env.VIDEO_PROVIDER = 'heygen'
   await loadSecrets()
   await restoreRotationStateFromGcs()
   const products = loadProducts()
@@ -622,7 +682,9 @@ async function main() {
     })
     return
   }
-  const videoFile = await renderVideo(product, profile, scenePlan)
+  const rendered = await renderVideo(product, profile, scenePlan)
+  const videoFile = rendered.videoFile
+  const generation = rendered.generation
   const quality = validateMarketingVideo(videoFile)
   log('Marketing video passed pre-upload quality gate', quality)
   const thumbnailFile = createThumbnail(videoFile, product)
@@ -753,9 +815,52 @@ async function main() {
   }
 
   if (posted === 0) throw new Error('No platform posts succeeded')
-  // Only now that at least one platform succeeded do we advance the cross-run cursor in GCS.
+
+  const receiptDir = path.resolve(ROOT, 'data/post-receipts')
+  ensureDir(receiptDir)
+  const receipt = {
+    createdAt: new Date().toISOString(),
+    productId: product.id,
+    productName: product.name,
+    generation,
+    quality,
+    platforms,
+    platformSuccess,
+    platformErrors,
+    videoIds,
+    publicVideoUrl,
+    postedCount: posted
+  }
+  const receiptFile = path.resolve(receiptDir, `${Date.now()}-${safeFileName(product.id || product.name, 'json')}.json`)
+  writeJson(receiptFile, receipt)
+  log('VIDEO_POST_VERIFICATION_RECEIPT', { receiptFile, ...receipt })
+
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    const summary = [
+      "## Nature's Way Soil Video Verification",
+      '',
+      `- Product: **${product.name}**`,
+      '- Generator: **HeyGen**',
+      `- HeyGen job: \`${generation.jobId}\``,
+      `- HeyGen status: **${generation.status}**`,
+      '- Quality gate: **PASS**',
+      '',
+      '### Publishing',
+      ...platforms.map((platform) => {
+        const ok = !!platformSuccess[platform]
+        const idKey = platform === 'youtube' ? 'youtubeId' : platform === 'instagram' ? 'instagramId' : platform === 'facebook' ? 'facebookId' : ''
+        const id = idKey ? videoIds[idKey] : ''
+        return `- ${ok ? 'PASS' : 'FAIL'} ${platform}${id ? ` - ${id}` : ''}${!ok && platformErrors[platform] ? ` - ${platformErrors[platform]}` : ''}`
+      }),
+      '',
+      `- Receipt: \`${path.relative(ROOT, receiptFile)}\``
+    ]
+    fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary.join('\n') + '\n')
+  }
+
+  // Only now that required posting succeeded do we advance the cross-run cursor in GCS.
   await persistRotationStateToGcs()
-  log('Scheduled post completed', { posted, videoFile, publicVideoUrl, thumbnailFile, videoIds, metrics })
+  log('Scheduled post completed', { posted, videoFile, publicVideoUrl, thumbnailFile, videoIds, metrics, generation })
 }
 
 main().catch((error) => { console.error('Scheduled post failed:', error?.message || error); process.exit(1) })
