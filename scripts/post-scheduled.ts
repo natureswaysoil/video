@@ -815,7 +815,50 @@ async function main() {
   }
 
   if (posted === 0) throw new Error('No platform posts succeeded')
-  // Only now that at least one platform succeeded do we advance the cross-run cursor in GCS.
+
+  const receiptDir = path.resolve(ROOT, 'data/post-receipts')
+  ensureDir(receiptDir)
+  const receipt = {
+    createdAt: new Date().toISOString(),
+    productId: product.id,
+    productName: product.name,
+    generation,
+    quality,
+    platforms,
+    platformSuccess,
+    platformErrors,
+    videoIds,
+    publicVideoUrl,
+    postedCount: posted
+  }
+  const receiptFile = path.resolve(receiptDir, `${Date.now()}-${safeFileName(product.id || product.name, 'json')}.json`)
+  writeJson(receiptFile, receipt)
+  log('VIDEO_POST_VERIFICATION_RECEIPT', { receiptFile, ...receipt })
+
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    const summary = [
+      "## Nature's Way Soil Video Verification",
+      '',
+      `- Product: **${product.name}**`,
+      '- Generator: **HeyGen**',
+      `- HeyGen job: \`${generation.jobId}\``,
+      `- HeyGen status: **${generation.status}**`,
+      '- Quality gate: **PASS**',
+      '',
+      '### Publishing',
+      ...platforms.map((platform) => {
+        const ok = !!platformSuccess[platform]
+        const idKey = platform === 'youtube' ? 'youtubeId' : platform === 'instagram' ? 'instagramId' : platform === 'facebook' ? 'facebookId' : ''
+        const id = idKey ? videoIds[idKey] : ''
+        return `- ${ok ? 'PASS' : 'FAIL'} ${platform}${id ? ` - ${id}` : ''}${!ok && platformErrors[platform] ? ` - ${platformErrors[platform]}` : ''}`
+      }),
+      '',
+      `- Receipt: \`${path.relative(ROOT, receiptFile)}\``
+    ]
+    fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary.join('\n') + '\n')
+  }
+
+  // Only now that required posting succeeded do we advance the cross-run cursor in GCS.
   await persistRotationStateToGcs()
   log('Scheduled post completed', { posted, videoFile, publicVideoUrl, thumbnailFile, videoIds, metrics, generation })
 }
