@@ -61,7 +61,7 @@ jobs:
       # Core placements: YouTube Shorts, Instagram Reels, Facebook/Reels and groups.
       # TikTok and X are enabled too; their posting modules skip cleanly when
       # credentials are not configured rather than blocking the core platforms.
-      ENABLE_PLATFORMS: youtube,instagram,facebook,facebook_groups,tiktok,twitter
+      ENABLE_PLATFORMS: youtube,instagram,facebook
       CI_MANDATORY_PLATFORMS: 'all'
       YT_PRIVACY_STATUS: public
       DRY_RUN_LOG_ONLY: 'false'
@@ -152,4 +152,12 @@ jobs:
         with:
           name: sheet-row-state
           path: data/sheet-row-state.json
+          if-no-files-found: ignore
+
+      - name: Upload video verification receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-post-receipts
+          path: data/post-receipts/
           if-no-files-found: ignore
