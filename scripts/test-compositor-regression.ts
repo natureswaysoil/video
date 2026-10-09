@@ -18,7 +18,8 @@ async function main() {
   try {
     process.chdir(dir)
     const footage = path.join(dir, 'footage.mp4')
-    const product = path.join(dir, 'product.png')
+    // JPEG uses a different image demuxer from PNG: stream_loop can stall at EOF.
+    const product = path.join(dir, 'product.jpg')
     const audio = path.join(dir, 'voice.wav')
     ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=size=360x640:rate=30', '-t', '2', '-c:v', 'libx264', '-threads', '2', footage])
     ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=size=300x500', '-frames:v', '1', '-threads', '1', product])
