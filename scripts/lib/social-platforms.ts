@@ -3,6 +3,7 @@ import { google } from 'googleapis'
 import { TwitterApi } from 'twitter-api-v2'
 import { addSecretVersion } from '../../src/secret-manager'
 import { twitterAuthMode } from './twitter-auth'
+import { waitForTikTokPublish } from './tiktok-publish-status'
 
 export { twitterAuthMode } from './twitter-auth'
 
@@ -116,9 +117,8 @@ export async function postToTwitter(videoFileOrUrl: string, caption: string) {
 
 export async function postToTikTok(videoUrl: string, caption: string) {
   const accessToken = process.env.TIKTOK_ACCESS_TOKEN
-  const openId = process.env.TIKTOK_OPEN_ID
-  if (!accessToken || !openId) {
-    console.log('TikTok posting skipped: missing TIKTOK_ACCESS_TOKEN or TIKTOK_OPEN_ID')
+  if (!accessToken) {
+    console.log('TikTok posting skipped: missing TIKTOK_ACCESS_TOKEN')
     return { skipped: true }
   }
   if (!/^https?:\/\//i.test(videoUrl)) throw new Error('TikTok posting requires a public HTTPS video URL')
@@ -132,7 +132,14 @@ export async function postToTikTok(videoUrl: string, caption: string) {
   const publishId = init.data?.data?.publish_id || init.data?.publish_id || ''
   if (!publishId) throw new Error(`TikTok init failed: ${JSON.stringify(init.data)}`)
 
-  return { platform: 'tiktok', publishId, status: init.data?.data?.status || init.data?.status || 'submitted' }
+  return waitForTikTokPublish(publishId, async () => {
+    const response = await axios.post(`https://${host}/v2/post/publish/status/fetch/`, {
+      publish_id: publishId
+    }, { headers: { Authorization: 'Bearer ' + accessToken }, timeout: 30000 })
+    const error = response.data?.error
+    if (error?.code && error.code !== 'ok') throw new Error(`TikTok status failed: ${error.code} ${error.message || ''}`)
+    return response.data?.data || {}
+  })
 }
 
 export async function postToFacebookReels(videoUrl: string, caption: string) {
