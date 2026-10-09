@@ -1,6 +1,12 @@
 name: Google Sheet Row Social Video Posting
 
 on:
+  workflow_call:
+    inputs:
+      marketing_campaign:
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       marketing_campaign:
@@ -23,6 +29,10 @@ on:
     - cron: '0 21 * * *'
     - cron: '0 22 * * *'
 
+concurrency:
+  group: sheet-row-social-posting
+  cancel-in-progress: false
+
 jobs:
   schedule-gate:
     runs-on: ubuntu-latest
@@ -33,14 +43,14 @@ jobs:
         id: gate
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" != "schedule" ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           eastern_hour="$(TZ=America/New_York date +%H)"
           case "$eastern_hour" in
-            08|11|14|17|20) echo "should_run=true" >> "$GITHUB_OUTPUT" ;;
-            *) echo "should_run=false" >> "$GITHUB_OUTPUT" ;;
+            08|11|14|17|20) echo "should_run=true" >> "$GITHUB_OUTPUT"; echo "Posting window: ${eastern_hour}:00 Eastern" >> "$GITHUB_STEP_SUMMARY" ;;
+            *) echo "should_run=false" >> "$GITHUB_OUTPUT"; echo "No post attempted: outside a scheduled Eastern posting window (${eastern_hour}:00)." >> "$GITHUB_STEP_SUMMARY" ;;
           esac
 
   post-sheet-row:
@@ -65,6 +75,7 @@ jobs:
       CI_MANDATORY_PLATFORMS: 'false'
       YT_PRIVACY_STATUS: public
       DRY_RUN_LOG_ONLY: 'false'
+      FFMPEG_TIMEOUT_MS: '300000'
       GCS_PUBLIC_BUCKET: natureswaysoil-social-videos
       VIDEO_PUBLIC_BUCKET: natureswaysoil-social-videos
       VIDEO_PUBLIC_URL_BASE: https://storage.googleapis.com/natureswaysoil-social-videos

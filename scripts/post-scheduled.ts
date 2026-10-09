@@ -694,7 +694,7 @@ async function main() {
       if (!skipped) posted++
       platformSuccess.tiktok = !skipped
       if (skipped) platformErrors.tiktok = 'TikTok posting skipped'
-      log('Posted to TikTok', result)
+      log(skipped ? 'TikTok posting skipped' : 'Posted to TikTok', result)
     } catch (error: any) {
       platformSuccess.tiktok = false
       platformErrors.tiktok = String(error?.message || error)
@@ -708,7 +708,7 @@ async function main() {
       if (!skipped) posted++
       platformSuccess.twitter = !skipped
       if (skipped) platformErrors.twitter = 'Twitter posting skipped'
-      log('Posted to Twitter', result)
+      log(skipped ? 'Twitter posting skipped' : 'Posted to Twitter', result)
     } catch (error: any) {
       platformSuccess.twitter = false
       platformErrors.twitter = String(error?.message || error)
@@ -743,6 +743,11 @@ async function main() {
     videoIds,
     analyticsFile: VIDEO_ANALYTICS_FILE
   })
+
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    const rows = platforms.map(platform => `| ${platform} | ${platformSuccess[platform] ? 'Posted' : 'Failed or skipped'} |`).join('\n')
+    fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n### Social publishing: ${product.id}\n\n| Platform | Result |\n| --- | --- |\n${rows}\n\nSuccessful post IDs: ${JSON.stringify(videoIds)}\n`)
+  }
 
   if (mandatoryPlatformMode) {
     const failedMandatory = platforms.filter((platform) => !platformSuccess[platform])
