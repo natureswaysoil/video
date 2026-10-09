@@ -1,6 +1,12 @@
 name: Google Sheet Row Social Video Posting
 
 on:
+  workflow_call:
+    inputs:
+      marketing_campaign:
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       marketing_campaign:
@@ -37,7 +43,7 @@ jobs:
         id: gate
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" != "schedule" ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
