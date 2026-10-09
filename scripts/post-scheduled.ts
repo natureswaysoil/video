@@ -1,3 +1,4 @@
+import { PostingSkippedError, publishingSummary } from './lib/publishing-summary'
 // @ts-nocheck
 import 'dotenv/config'
 import fs from 'fs'
@@ -399,7 +400,7 @@ async function postToYouTube(videoFileOrUrl: string, title: string, description:
   const clientId = pickEnv(['YT_CLIENT_ID', 'YOUTUBE_CLIENT_ID'])
   const clientSecret = pickEnv(['YT_CLIENT_SECRET', 'YOUTUBE_CLIENT_SECRET'])
   const refreshToken = pickEnv(['YT_REFRESH_TOKEN', 'YOUTUBE_REFRESH_TOKEN'])
-  if (!clientId || !clientSecret || !refreshToken) throw new Error('Missing YouTube OAuth credentials')
+  if (!clientId || !clientSecret || !refreshToken) throw new PostingSkippedError('Missing YouTube OAuth credentials')
   const oauth2Client = new google.auth.OAuth2({ clientId, clientSecret })
   oauth2Client.setCredentials({ refresh_token: refreshToken })
   const youtube = google.youtube({ version: 'v3', auth: oauth2Client })
@@ -422,7 +423,7 @@ async function postToYouTube(videoFileOrUrl: string, title: string, description:
 async function postToInstagram(publicVideoUrl: string, captionText: string): Promise<string> {
   const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN
   const igId = pickEnv(['INSTAGRAM_IG_ID', 'INSTAGRAM_USER_ID', 'INSTAGRAM_ACCOUNT_ID'])
-  if (!accessToken || !igId) throw new Error('Missing Instagram access token or IG ID')
+  if (!accessToken || !igId) throw new PostingSkippedError('Missing Instagram access token or IG ID')
   if (!isHttpUrl(publicVideoUrl)) throw new Error('Instagram requires a public HTTPS video URL.')
   const apiVersion = process.env.INSTAGRAM_API_VERSION || 'v20.0'
   const host = process.env.INSTAGRAM_API_HOST || 'graph.facebook.com'
@@ -447,7 +448,7 @@ async function postToInstagram(publicVideoUrl: string, captionText: string): Pro
 async function postToFacebook(publicVideoUrl: string, captionText: string): Promise<string> {
   const accessToken = pickEnv(['FB_PAGE_ACCESS_TOKEN', 'FACEBOOK_PAGE_ACCESS_TOKEN'])
   const pageId = pickEnv(['FB_PAGE_ID', 'FACEBOOK_PAGE_ID'])
-  if (!accessToken || !pageId) throw new Error('Missing Facebook page access token or page ID')
+  if (!accessToken || !pageId) throw new PostingSkippedError('Missing Facebook page access token or page ID')
   if (!isHttpUrl(publicVideoUrl)) throw new Error('Facebook requires a public HTTPS video URL.')
   const apiVersion = process.env.FACEBOOK_API_VERSION || process.env.INSTAGRAM_API_VERSION || 'v20.0'
   const host = process.env.FACEBOOK_API_HOST || 'graph.facebook.com'
@@ -648,6 +649,7 @@ async function main() {
   const videoIds: Record<string, string> = {}
   const platformSuccess: Record<string, boolean> = {}
   const platformErrors: Record<string, string> = {}
+  const platformSkipped = new Set<string>()
   if (platforms.includes('youtube')) {
     try {
       const id = await postToYouTube(videoFile, product.name, captions.youtube, thumbnailFile)
@@ -657,8 +659,9 @@ async function main() {
       log('Posted to YouTube', { id })
     } catch (error: any) {
       platformSuccess.youtube = false
+      if (error instanceof PostingSkippedError) platformSkipped.add('youtube')
       platformErrors.youtube = String(error?.message || error)
-      log('YouTube post failed', error?.message || error)
+      log(error instanceof PostingSkippedError ? 'YouTube posting skipped' : 'YouTube post failed', error?.message || error)
     }
   }
   if (platforms.includes('instagram')) {
@@ -670,8 +673,9 @@ async function main() {
       log('Posted to Instagram', { id })
     } catch (error: any) {
       platformSuccess.instagram = false
+      if (error instanceof PostingSkippedError) platformSkipped.add('instagram')
       platformErrors.instagram = String(error?.message || error)
-      log('Instagram post failed', error?.message || error)
+      log(error instanceof PostingSkippedError ? 'Instagram posting skipped' : 'Instagram post failed', error?.message || error)
     }
   }
   if (platforms.includes('facebook')) {
@@ -683,8 +687,9 @@ async function main() {
       log('Posted to Facebook', { id })
     } catch (error: any) {
       platformSuccess.facebook = false
+      if (error instanceof PostingSkippedError) platformSkipped.add('facebook')
       platformErrors.facebook = String(error?.message || error)
-      log('Facebook post failed', error?.message || error)
+      log(error instanceof PostingSkippedError ? 'Facebook posting skipped' : 'Facebook post failed', error?.message || error)
     }
   }
   if (platforms.includes('tiktok')) {
@@ -695,12 +700,13 @@ async function main() {
       platformSuccess.tiktok = !skipped
       if (!skipped) videoIds.tiktokPublishId = (result as any).publishId
       if (!skipped && (result as any).postIds?.length) videoIds.tiktokPostIds = (result as any).postIds.join(',')
-      if (skipped) platformErrors.tiktok = 'TikTok posting skipped'
+      if (skipped) { platformSkipped.add('tiktok'); platformErrors.tiktok = (result as any).reason || 'Missing posting credentials' }
       log(skipped ? 'TikTok posting skipped' : 'Posted to TikTok', result)
     } catch (error: any) {
       platformSuccess.tiktok = false
+      if (error instanceof PostingSkippedError) platformSkipped.add('tiktok')
       platformErrors.tiktok = String(error?.message || error)
-      log('TikTok post failed', error?.message || error)
+      log(error instanceof PostingSkippedError ? 'TikTok posting skipped' : 'TikTok post failed', error?.message || error)
     }
   }
   if (platforms.includes('twitter')) {
@@ -709,27 +715,37 @@ async function main() {
       const skipped = !!(result as any)?.skipped
       if (!skipped) posted++
       platformSuccess.twitter = !skipped
-      if (!skipped) videoIds.twitterId = (result as any).tweetId
-      if (skipped) platformErrors.twitter = 'Twitter posting skipped'
+      if (!skipped) { videoIds.twitterId = (result as any).tweetId; videoIds.twitterMediaId = (result as any).mediaId }
+      if (skipped) { platformSkipped.add('twitter'); platformErrors.twitter = (result as any).reason || 'Missing posting credentials' }
       log(skipped ? 'Twitter posting skipped' : 'Posted to Twitter', result)
     } catch (error: any) {
       platformSuccess.twitter = false
+      if (error instanceof PostingSkippedError) platformSkipped.add('twitter')
       platformErrors.twitter = String(error?.message || error)
-      log('Twitter post failed', error?.message || error)
+      log(error instanceof PostingSkippedError ? 'Twitter posting skipped' : 'Twitter post failed', error?.message || error)
     }
   }
   if (platforms.includes('facebook_groups')) {
     try {
       const results = await postToFacebookGroups(product, publicVideoUrl, captions.facebookGroups)
-      const successes = results.filter((item: any) => item.ok).length
+      const confirmed = results.filter((item: any) => item.ok && item.id)
+      for (const item of confirmed) {
+        const key = `facebookGroup_${item.groupId}`
+        videoIds[key] = [videoIds[key], String(item.id)].filter(Boolean).join(',')
+      }
+      const successes = confirmed.length
       if (successes > 0) posted += successes
       platformSuccess.facebook_groups = successes > 0
-      if (successes === 0) platformErrors.facebook_groups = 'No Facebook group posts succeeded'
+      const failures = results.filter((item: any) => !item.ok)
+      if (!results.length || (successes === 0 && failures.length && failures.every((item: any) => item.skipped))) platformSkipped.add('facebook_groups')
+      if (!results.length) platformErrors.facebook_groups = 'No configured allowed groups matched this product'
+      else if (failures.length) platformErrors.facebook_groups = failures.map((item: any) => `${item.groupId}: ${item.error || 'Post did not succeed'}`).join('; ')
       log('Facebook group posting completed', { attempts: results.length, successes })
     } catch (error: any) {
       platformSuccess.facebook_groups = false
+      if (error instanceof PostingSkippedError) platformSkipped.add('facebook_groups')
       platformErrors.facebook_groups = String(error?.message || error)
-      log('Facebook groups post failed', error?.message || error)
+      log(error instanceof PostingSkippedError ? 'Facebook groups posting skipped' : 'Facebook groups post failed', error?.message || error)
     }
   }
 
@@ -748,8 +764,7 @@ async function main() {
   })
 
   if (process.env.GITHUB_STEP_SUMMARY) {
-    const rows = platforms.map(platform => `| ${platform} | ${platformSuccess[platform] ? 'Posted' : 'Failed or skipped'} |`).join('\n')
-    fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n### Social publishing: ${product.id}\n\n| Platform | Result |\n| --- | --- |\n${rows}\n\nSuccessful post IDs: ${JSON.stringify(videoIds)}\n`)
+    fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, publishingSummary(product.id, platforms, platformSuccess, platformErrors, platformSkipped, videoIds))
   }
 
   if (mandatoryPlatformMode) {

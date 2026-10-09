@@ -3,16 +3,15 @@ import fs from 'fs'
 import path from 'path'
 import { execSync, spawnSync } from 'child_process'
 import { ensureDir, hasUsableFile, safeFileName } from './video-utils'
+import { runBoundedProcess } from './bounded-process'
 
-function run(cmd: string) {
+function run(args: string[]) {
   const timeoutMs = Number(process.env.FFMPEG_TIMEOUT_MS || 300000)
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1000) throw new Error('Invalid FFMPEG_TIMEOUT_MS')
   const started = Date.now()
   console.log('FFmpeg render started', { timeoutMs })
   try {
-    const result = spawnSync('sh', ['-c', `exec ${cmd}`], { stdio: 'inherit', timeout: timeoutMs, killSignal: 'SIGKILL' })
-    if (result.error) throw result.error
-    if (result.status !== 0) throw new Error(`FFmpeg exited with ${result.status ?? result.signal}`)
+    runBoundedProcess('ffmpeg', args, timeoutMs)
   } catch (error: any) {
     throw new Error(`FFMPEG_RENDER_FAILED after ${Date.now() - started}ms: ${error.message}`)
   }
@@ -134,18 +133,18 @@ function makeSceneClip(file: string, index: number, seconds: number, kind: strin
 
   if (resolvedKind === 'product') {
     run([
-      'ffmpeg -y -nostdin -loglevel error -filter_threads 2 -filter_complex_threads 2',
-      `-i "${file}"`,
-      `-filter_complex "` +
+      ...['-y', '-nostdin', '-loglevel', 'error', '-filter_threads', '2', '-filter_complex_threads', '2'],
+      '-i', file,
+      '-filter_complex',
         `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=40:2[bg];` +
         `[0:v]scale=-1:1500:force_original_aspect_ratio=decrease[fg];` +
         `[bg][fg]overlay=(W-w)/2:(H-h)/2,` +
         `zoompan=z='min(zoom+0.0012,1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=1080x1920:fps=30,` +
-        `format=yuv420p"`,
-      '-an -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -r 30',
-      `-frames:v ${frames}`,
-      `"${clip}"`
-    ].join(' '))
+        `format=yuv420p`,
+      ...['-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-r', '30'],
+      '-frames:v', String(frames),
+      clip
+    ])
     return clip
   }
 
@@ -156,25 +155,25 @@ function makeSceneClip(file: string, index: number, seconds: number, kind: strin
         ? `zoompan=z='1.12':x='(iw-iw/zoom)*on/${frames}':y='ih/2-(ih/zoom/2)'`
         : `zoompan=z='1.12':x='(iw-iw/zoom)*(1-on/${frames})':y='ih/2-(ih/zoom/2)'`
     run([
-      'ffmpeg -y -nostdin -loglevel error -filter_threads 2 -filter_complex_threads 2',
-      `-i "${file}"`,
-      `-vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,${move}:d=${frames}:s=1080x1920:fps=30,format=yuv420p"`,
-      '-an -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -r 30',
-      `-frames:v ${frames}`,
-      `"${clip}"`
-    ].join(' '))
+      ...['-y', '-nostdin', '-loglevel', 'error', '-filter_threads', '2', '-filter_complex_threads', '2'],
+      '-i', file,
+      '-vf', `scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,${move}:d=${frames}:s=1080x1920:fps=30,format=yuv420p`,
+      ...['-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-r', '30'],
+      '-frames:v', String(frames),
+      clip
+    ])
     return clip
   }
 
   run([
-    'ffmpeg -y -nostdin -loglevel error -filter_threads 2 -filter_complex_threads 2',
-    '-fflags +genpts -err_detect ignore_err',
-    `-stream_loop -1 -t ${duration}`,
-    `-i "${file}"`,
-    '-vf "fps=30,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,format=yuv420p"',
-    '-an -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -r 30 -movflags +faststart',
-    `"${clip}"`
-  ].join(' '))
+    ...['-y', '-nostdin', '-loglevel', 'error', '-filter_threads', '2', '-filter_complex_threads', '2'],
+    '-fflags', '+genpts', '-err_detect', 'ignore_err',
+    '-stream_loop', '-1', '-t', String(duration),
+    '-i', file,
+    '-vf', 'fps=30,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,format=yuv420p',
+    ...['-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-r', '30', '-movflags', '+faststart'],
+    clip
+  ])
   return clip
 }
 
@@ -275,13 +274,13 @@ export async function composeVerticalAd(input: any) {
   const concatList = path.resolve(outputDir, `concat-${Date.now()}.txt`)
   fs.writeFileSync(concatList, sceneClips.map((f: string) => `file '${f.replace(/'/g, "'\\''")}'`).join('\n'), 'utf8')
 
-  const inputs: string[] = [`-f concat -safe 0 -i "${concatList}"`]
+  const inputs: string[] = ['-f', 'concat', '-safe', '0', '-i', concatList]
   const chains: string[] = []
   let vlabel = '0:v'
   let nextInput = 1
 
   if (input.productImage && fs.existsSync(input.productImage)) {
-    inputs.push(`-loop 1 -framerate 30 -t ${scenesTotal.toFixed(3)} -i "${input.productImage}"`)
+    inputs.push('-loop', '1', '-framerate', '30', '-t', scenesTotal.toFixed(3), '-i', input.productImage)
     chains.push(`[${nextInput}:v]scale=360:-1[prod]`)
     chains.push(`[${vlabel}][prod]overlay=42:H-h-78:shortest=1:eof_action=endall:enable='between(t,1,999)'[vwm]`)
     vlabel = 'vwm'
@@ -301,11 +300,11 @@ export async function composeVerticalAd(input: any) {
   }
 
   const composed = path.resolve(outputDir, `composed-${Date.now()}.mp4`)
-  const QUALITY = `-t ${scenesTotal.toFixed(3)} -an -c:v libx264 -preset veryfast -crf 19 -pix_fmt yuv420p -r 30 -movflags +faststart`
+  const QUALITY = ['-t', scenesTotal.toFixed(3), '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p', '-r', '30', '-movflags', '+faststart']
   if (chains.length) {
-    run(['ffmpeg -y -nostdin -loglevel error -filter_threads 2 -filter_complex_threads 2', ...inputs, `-filter_complex "${chains.join(';')}"`, `-map "[${vlabel}]"`, QUALITY, `"${composed}"`].join(' '))
+    run([...['-y', '-nostdin', '-loglevel', 'error', '-filter_threads', '2', '-filter_complex_threads', '2'], ...inputs, '-filter_complex', chains.join(';'), '-map', `[${vlabel}]`, ...QUALITY, composed])
   } else {
-    run(['ffmpeg -y -nostdin -loglevel error -filter_threads 2 -filter_complex_threads 2', `-f concat -safe 0 -i "${concatList}"`, QUALITY, `"${composed}"`].join(' '))
+    run([...['-y', '-nostdin', '-loglevel', 'error', '-filter_threads', '2', '-filter_complex_threads', '2'], '-f', 'concat', '-safe', '0', '-i', concatList, ...QUALITY, composed])
   }
 
   const vDur = probeDuration(composed) || scenesTotal
@@ -316,11 +315,11 @@ export async function composeVerticalAd(input: any) {
     const out = path.resolve(outputDir, `final-${Date.now()}.mp4`)
     const t = vDur.toFixed(2)
     if (voiceoverFile && musicFile) {
-      run(['ffmpeg -y -nostdin -loglevel error -filter_threads 2 -filter_complex_threads 2', `-i "${working}"`, `-i "${voiceoverFile}"`, `-stream_loop -1 -i "${musicFile}"`, `-filter_complex "[1:a]apad,atrim=0:${t},asetpts=N/SR/TB[vo];[2:a]volume=0.16,atrim=0:${t},asetpts=N/SR/TB[mu];[vo][mu]amix=inputs=2:duration=first:dropout_transition=0[a]"`, '-map 0:v -map "[a]"', '-c:v copy -c:a aac -b:a 192k', `"${out}"`].join(' '))
+      run([...['-y', '-nostdin', '-loglevel', 'error', '-filter_threads', '2', '-filter_complex_threads', '2'], '-i', working, '-i', voiceoverFile, '-stream_loop', '-1', '-i', musicFile, '-filter_complex', `[1:a]apad,atrim=0:${t},asetpts=N/SR/TB[vo];[2:a]volume=0.16,atrim=0:${t},asetpts=N/SR/TB[mu];[vo][mu]amix=inputs=2:duration=first:dropout_transition=0[a]`, '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', out])
     } else if (voiceoverFile) {
-      run(['ffmpeg -y -nostdin -loglevel error -filter_threads 2 -filter_complex_threads 2', `-i "${working}"`, `-i "${voiceoverFile}"`, `-filter_complex "[1:a]apad,atrim=0:${t},asetpts=N/SR/TB[a]"`, '-map 0:v -map "[a]"', '-c:v copy -c:a aac -b:a 192k', `"${out}"`].join(' '))
+      run([...['-y', '-nostdin', '-loglevel', 'error', '-filter_threads', '2', '-filter_complex_threads', '2'], '-i', working, '-i', voiceoverFile, '-filter_complex', `[1:a]apad,atrim=0:${t},asetpts=N/SR/TB[a]`, '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', out])
     } else {
-      run(['ffmpeg -y -nostdin -loglevel error -filter_threads 2 -filter_complex_threads 2', `-i "${working}"`, `-stream_loop -1 -i "${musicFile}"`, `-filter_complex "[1:a]volume=0.22,atrim=0:${t},asetpts=N/SR/TB[a]"`, '-map 0:v -map "[a]"', '-c:v copy -c:a aac -b:a 192k', `"${out}"`].join(' '))
+      run([...['-y', '-nostdin', '-loglevel', 'error', '-filter_threads', '2', '-filter_complex_threads', '2'], '-i', working, '-stream_loop', '-1', '-i', musicFile, '-filter_complex', `[1:a]volume=0.22,atrim=0:${t},asetpts=N/SR/TB[a]`, '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', out])
     }
     working = out
   }

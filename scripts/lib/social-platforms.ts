@@ -76,7 +76,7 @@ async function createTwitterUserClient(): Promise<{ client: TwitterApi, authMode
 export async function postToTwitter(videoFileOrUrl: string, caption: string) {
   if (twitterAuthMode() === 'none') {
     console.log('Twitter posting skipped: missing OAuth 2.0 refresh credentials and OAuth 1.0a fallback credentials')
-    return { skipped: true }
+    return { skipped: true, reason: 'Missing Twitter user authentication credentials' }
   }
 
   // Resolve to a local file path; download if a URL was passed.
@@ -119,7 +119,7 @@ export async function postToTikTok(videoUrl: string, caption: string) {
   const accessToken = process.env.TIKTOK_ACCESS_TOKEN
   if (!accessToken) {
     console.log('TikTok posting skipped: missing TIKTOK_ACCESS_TOKEN')
-    return { skipped: true }
+    return { skipped: true, reason: 'Missing TIKTOK_ACCESS_TOKEN' }
   }
   if (!/^https?:\/\//i.test(videoUrl)) throw new Error('TikTok posting requires a public HTTPS video URL')
 
