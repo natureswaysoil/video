@@ -61,6 +61,10 @@ export async function postToFacebookGroups(product: any, publicVideoUrl: string,
 
   const results: any[] = []
   for (const route of routes) {
+    if (!process.env.FACEBOOK_GROUPS_ACCESS_TOKEN) {
+      results.push({ groupId: String(route.groupId), label: route.label, ok: false, skipped: true, error: 'Missing FACEBOOK_GROUPS_ACCESS_TOKEN' })
+      continue
+    }
     try {
       const id = await postToFacebookGroup(String(route.groupId), publicVideoUrl, captionText)
       results.push({ groupId: String(route.groupId), label: route.label, id, ok: true })

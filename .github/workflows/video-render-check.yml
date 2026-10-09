@@ -3,6 +3,11 @@ on:
   pull_request:
     paths:
       - scripts/lib/ffmpeg-compositor.ts
+      - scripts/lib/bounded-process.ts
+      - scripts/lib/publishing-summary.ts
+      - scripts/lib/facebook-groups.ts
+      - scripts/test-bounded-process.ts
+      - scripts/test-publishing-summary.ts
       - scripts/lib/video-quality-gate.ts
       - scripts/lib/social-platforms.ts
       - scripts/lib/tiktok-publish-status.ts
@@ -14,6 +19,16 @@ on:
     branches: [main]
     paths:
       - scripts/lib/ffmpeg-compositor.ts
+      - scripts/lib/video-quality-gate.ts
+      - scripts/lib/bounded-process.ts
+      - scripts/lib/publishing-summary.ts
+      - scripts/lib/facebook-groups.ts
+      - scripts/lib/social-platforms.ts
+      - scripts/lib/tiktok-publish-status.ts
+      - scripts/test-tiktok-publish-status.ts
+      - scripts/post-scheduled.ts
+      - scripts/test-bounded-process.ts
+      - scripts/test-publishing-summary.ts
       - scripts/test-compositor-regression.ts
       - .github/workflows/video-render-check.yml
 permissions:
@@ -31,12 +46,26 @@ jobs:
       - run: npm ci
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm run typecheck
+      - run: npx ts-node scripts/test-bounded-process.ts
+      - run: npx ts-node scripts/test-publishing-summary.ts
       - run: npx ts-node scripts/test-tiktok-publish-status.ts
       - run: npm run test:compositor
 
+  windows-process:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx ts-node scripts/test-bounded-process.ts
+
   verify-production-post:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: render
+    needs: [render, windows-process]
     permissions:
       contents: read
       id-token: write
