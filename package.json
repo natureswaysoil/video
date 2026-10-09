@@ -33,7 +33,8 @@
     "test:sheet-row": "DRY_RUN_LOG_ONLY=true NODE_OPTIONS=--max-old-space-size=2048 VIDEO_STYLE=broll_ken_burns ts-node --transpile-only scripts/post-sheet-row.ts",
     "leadpilot:test": "DRY_RUN_LOG_ONLY=true LEADPILOT_PUBLISH=false ts-node --transpile-only scripts/leadpilot-product-video.ts",
     "leadpilot:video": "LEADPILOT_PUBLISH=false ts-node --transpile-only scripts/leadpilot-product-video.ts",
-    "leadpilot:post": "LEADPILOT_PUBLISH=true LEADPILOT_PLATFORMS=youtube,facebook ts-node --transpile-only scripts/leadpilot-product-video.ts"
+    "leadpilot:post": "LEADPILOT_PUBLISH=true LEADPILOT_PLATFORMS=youtube,facebook ts-node --transpile-only scripts/leadpilot-product-video.ts",
+    "test:compositor": "ts-node --transpile-only scripts/test-compositor-regression.ts"
   },
   "dependencies": {
     "@google-cloud/secret-manager": "^6.1.1",

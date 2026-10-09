@@ -1,0 +1,30 @@
+name: Video render regression
+on:
+  pull_request:
+    paths:
+      - scripts/lib/ffmpeg-compositor.ts
+      - scripts/lib/video-quality-gate.ts
+      - scripts/test-compositor-regression.ts
+      - .github/workflows/video-render-check.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/lib/ffmpeg-compositor.ts
+      - scripts/test-compositor-regression.ts
+      - .github/workflows/video-render-check.yml
+permissions:
+  contents: read
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: npm run typecheck
+      - run: npm run test:compositor
