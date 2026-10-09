@@ -4,6 +4,10 @@ on:
     paths:
       - scripts/lib/ffmpeg-compositor.ts
       - scripts/lib/video-quality-gate.ts
+      - scripts/lib/social-platforms.ts
+      - scripts/lib/tiktok-publish-status.ts
+      - scripts/test-tiktok-publish-status.ts
+      - scripts/post-scheduled.ts
       - scripts/test-compositor-regression.ts
       - .github/workflows/video-render-check.yml
   push:
@@ -27,6 +31,7 @@ jobs:
       - run: npm ci
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm run typecheck
+      - run: npx ts-node scripts/test-tiktok-publish-status.ts
       - run: npm run test:compositor
 
   verify-production-post:

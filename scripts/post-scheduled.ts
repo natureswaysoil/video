@@ -693,6 +693,8 @@ async function main() {
       const skipped = !!(result as any)?.skipped
       if (!skipped) posted++
       platformSuccess.tiktok = !skipped
+      if (!skipped) videoIds.tiktokPublishId = (result as any).publishId
+      if (!skipped && (result as any).postIds?.length) videoIds.tiktokPostIds = (result as any).postIds.join(',')
       if (skipped) platformErrors.tiktok = 'TikTok posting skipped'
       log(skipped ? 'TikTok posting skipped' : 'Posted to TikTok', result)
     } catch (error: any) {
@@ -707,6 +709,7 @@ async function main() {
       const skipped = !!(result as any)?.skipped
       if (!skipped) posted++
       platformSuccess.twitter = !skipped
+      if (!skipped) videoIds.twitterId = (result as any).tweetId
       if (skipped) platformErrors.twitter = 'Twitter posting skipped'
       log(skipped ? 'Twitter posting skipped' : 'Posted to Twitter', result)
     } catch (error: any) {
