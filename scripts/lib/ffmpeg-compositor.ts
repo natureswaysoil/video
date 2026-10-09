@@ -281,7 +281,7 @@ export async function composeVerticalAd(input: any) {
   let nextInput = 1
 
   if (input.productImage && fs.existsSync(input.productImage)) {
-    inputs.push(`-stream_loop -1 -i "${input.productImage}"`)
+    inputs.push(`-loop 1 -framerate 30 -t ${scenesTotal.toFixed(3)} -i "${input.productImage}"`)
     chains.push(`[${nextInput}:v]scale=360:-1[prod]`)
     chains.push(`[${vlabel}][prod]overlay=42:H-h-78:shortest=1:eof_action=endall:enable='between(t,1,999)'[vwm]`)
     vlabel = 'vwm'
