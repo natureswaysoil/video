@@ -3,6 +3,7 @@ type MarketingPost = { channel: string, caption: string }
 export type ApprovedMarketingCampaign = {
   id: string
   productId: string
+  websiteUrl?: string
   productName: string
   audience: string
   angle: string
@@ -28,7 +29,7 @@ export function marketingProduct(campaign: ApprovedMarketingCampaign) {
     name: campaign.productName,
     description: [campaign.angle, ...campaign.factualClaims].join('. '),
     category: 'Nature’s Way Soil product',
-    websiteUrl: 'https://natureswaysoil.com',
+    websiteUrl: campaign.websiteUrl || 'https://natureswaysoil.com',
     amazonUrl: '',
     keywords: [campaign.audience, campaign.angle, ...campaign.factualClaims],
     brollQueries: campaign.videoBrief.brollQueries

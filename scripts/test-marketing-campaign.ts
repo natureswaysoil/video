@@ -15,3 +15,7 @@ assert.equal(marketingScenes(decoded)[4].useProductImage, true)
 assert.equal(marketingCaption(decoded, 'tiktok', 'fallback'), 'Approved social caption')
 assert.equal(marketingCaption(decoded, 'youtube', 'fallback'), 'Approved YouTube caption')
 console.log('Marketing campaign integration tests passed')
+
+const routed = marketingProduct({ ...campaign, websiteUrl: "https://www.natureswaysoil.com/product/NWS_023" })
+assert.equal(routed.websiteUrl, "https://www.natureswaysoil.com/product/NWS_023")
+assert.equal(marketingProduct(campaign).websiteUrl, "https://natureswaysoil.com")
