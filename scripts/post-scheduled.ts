@@ -54,6 +54,7 @@ type RenderScene = {
   seconds: number
   kind: 'video' | 'photo' | 'product'
   query?: string
+  caption?: string
   source?: 'product_image' | 'local' | 'pexels_video' | 'pexels_photo'
 }
 
@@ -521,14 +522,14 @@ async function collectSceneFiles(product: Product, scenePlan: any) {
     const scene = rawScene || {}
     const seconds = Number(scene.seconds || 6)
     if (scene.useProductImage && productImage) {
-      scenes.push({ file: productImage, seconds, kind: 'product', source: 'product_image' })
+      scenes.push({ file: productImage, seconds, kind: 'product', source: 'product_image', caption: scene.caption || '' })
       continue
     }
 
     const localFile = pickLocalForScene(scene, index)
     if (hasUsableFile(localFile)) {
       usedLocal.add(localFile)
-      scenes.push({ file: localFile, seconds, kind: inferSceneKind(localFile), source: 'local', query: sceneQueries(scene, product, index)[0] || '' })
+      scenes.push({ file: localFile, seconds, kind: inferSceneKind(localFile), source: 'local', caption: scene.caption || '', query: sceneQueries(scene, product, index)[0] || '' })
       continue
     }
 
@@ -539,7 +540,8 @@ async function collectSceneFiles(product: Product, scenePlan: any) {
         seconds,
         kind: fetched.kind,
         query: fetched.query,
-        source: fetched.kind === 'photo' ? 'pexels_photo' : 'pexels_video'
+        source: fetched.kind === 'photo' ? 'pexels_photo' : 'pexels_video',
+        caption: scene.caption || ''
       })
       continue
     }
@@ -548,7 +550,7 @@ async function collectSceneFiles(product: Product, scenePlan: any) {
     }
 
     if (productImage) {
-      scenes.push({ file: productImage, seconds, kind: 'product', source: 'product_image' })
+      scenes.push({ file: productImage, seconds, kind: 'product', source: 'product_image', caption: scene.caption || '' })
       continue
     }
     log('No media source available for scene', { index: index + 1, name: scene.name, queries: sceneQueries(scene, product, index) })
@@ -571,8 +573,9 @@ async function renderVideo(product: Product, profile: CreativeProfile, scenePlan
     scenes,
     productImage,
     voiceoverFile,
-    captionText: hookText(product, scenePlan),
-    overlayText: `${productOverlayText(product)}\nSHOP NATURESWAYSOIL.COM`
+    captionText: process.env.MARKETING_CAMPAIGN_B64 ? '' : hookText(product, scenePlan),
+    overlayText: process.env.MARKETING_CAMPAIGN_B64 ? '' : `${productOverlayText(product)}\nSHOP NATURESWAYSOIL.COM`,
+    timedSceneCaptions: Boolean(process.env.MARKETING_CAMPAIGN_B64)
   })
   log('Rendered b-roll Ken Burns video', {
     videoFile,
