@@ -210,6 +210,7 @@ function promoteRealScenes(scenes: any[]) {
     promoted[i] = {
       ...donor,
       seconds: promoted[i].seconds,
+      caption: promoted[i].caption,
       source: `${donor.source || 'real'}_promoted`,
       promotedFromProductScene: true
     }
@@ -297,6 +298,21 @@ export async function composeVerticalAd(input: any) {
     fs.writeFileSync(tf, String(input.captionText), 'utf8')
     chains.push(`[${vlabel}]drawtext=textfile='${tf}':${FONT}fontcolor=white:fontsize=52:borderw=4:bordercolor=black:x=(w-text_w)/2:y=h-260:box=1:boxcolor=black@0.25:boxborderw=18[vcap]`)
     vlabel = 'vcap'
+  }
+
+  if (input.timedSceneCaptions) {
+    let elapsed = 0
+    for (const [index, scene] of scenes.entries()) {
+      const start = elapsed
+      elapsed += scene.seconds
+      const caption = String(scene.caption || '').trim()
+      if (!caption) continue
+      const tf = path.resolve(outputDir, `scene-caption-${Date.now()}-${index}.txt`)
+      fs.writeFileSync(tf, caption, 'utf8')
+      const nextLabel = `vscene${index}`
+      chains.push(`[${vlabel}]drawtext=textfile='${tf}':${FONT}fontcolor=white:fontsize=48:borderw=4:bordercolor=black:x=(w-text_w)/2:y=h-260:box=1:boxcolor=black@0.35:boxborderw=18:enable='between(t,${start.toFixed(3)},${elapsed.toFixed(3)})'[${nextLabel}]`)
+      vlabel = nextLabel
+    }
   }
 
   const composed = path.resolve(outputDir, `composed-${Date.now()}.mp4`)

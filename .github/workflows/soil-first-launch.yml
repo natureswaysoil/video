@@ -8,7 +8,7 @@ permissions:
   contents: read
   id-token: write
 concurrency:
-  group: sheet-row-social-posting
+  group: soil-first-launch-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   post-sheet-row:
@@ -34,6 +34,7 @@ jobs:
       VIDEO_PUBLIC_BUCKET: natureswaysoil-social-videos
       VIDEO_PUBLIC_URL_BASE: https://storage.googleapis.com/natureswaysoil-social-videos
       TTS_VOICE: onyx
+      ROTATION_STATE_PERSIST_TO_GCS: 'false'
       POSTING_DRY_RUN: ${{ github.ref != 'refs/heads/main' }}
 
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
