@@ -1,0 +1,42 @@
+{
+  "id": "nws-soil-first-2026-10-v01",
+  "productId": "NWS_023",
+  "productName": "Nature's Way Soil Living Soil Revitalizer",
+  "audience": "home gardeners with raised beds and containers",
+  "angle": "Start with the soil",
+  "hook": "Start with the soil.",
+  "callToAction": "Explore Living Soil Revitalizer at Nature's Way Soil dot com.",
+  "factualClaims": [],
+  "videoBrief": {
+    "durationSeconds": 30,
+    "voiceover": "Planning your next garden project? Take a closer look at your soil-care routine. Meet Living Soil Revitalizer from Nature's Way Soil. Explore the product details and read the label before you begin. Explore Living Soil Revitalizer at Nature's Way Soil dot com.",
+    "overlayText": [
+      "Start with the soil.",
+      "Plan your next garden project",
+      "Living Soil Revitalizer",
+      "Read the label before use",
+      "natureswaysoil.com"
+    ],
+    "brollQueries": [
+      "hands holding garden soil",
+      "raised bed garden planning",
+      "garden soil close up",
+      "gardener reading product directions",
+      "container garden"
+    ]
+  },
+  "posts": [
+    {
+      "channel": "facebook",
+      "caption": "Start with the soil. Planning your next garden project? Meet Living Soil Revitalizer from Nature's Way Soil. Explore product details and directions: https://www.natureswaysoil.com/product/NWS_023?utm_source=facebook&utm_medium=organic_social&utm_campaign=soil_first_pilot&utm_content=V01"
+    },
+    {
+      "channel": "instagram",
+      "caption": "Start with the soil. What are you planning for your pots or raised beds? Explore Living Soil Revitalizer at natureswaysoil.com. #NaturesWaySoil #RaisedBedGardening #ContainerGardening"
+    },
+    {
+      "channel": "youtube",
+      "caption": "Start with the soil | Nature's Way Soil\n\nMeet Living Soil Revitalizer and explore the product details and directions at natureswaysoil.com. #Shorts #Gardening"
+    }
+  ]
+}
