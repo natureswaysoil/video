@@ -1,0 +1,109 @@
+name: Soil First Campaign Launch
+on:
+  push:
+    branches: [main, campaign/soil-first-three-channels]
+    paths:
+      - campaigns/soil-first/launch.json
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: sheet-row-social-posting
+  cancel-in-progress: false
+jobs:
+  post-sheet-row:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      USE_SECRET_MANAGER: 'true'
+      DEFAULT_GOOGLE_CLOUD_PROJECT: natureswaysoil-video
+      GOOGLE_CLOUD_PROJECT: natureswaysoil-video
+      SHEET_CSV_URL: https://docs.google.com/spreadsheets/d/1dtUYrSy18_D2updwCpVa5wXfgf0hzAXaiQTQqMQnrSc/export?format=csv&gid=916620075
+      SHEET_ROW_STATE_FILE: data/sheet-row-state.json
+      # This launch is limited to the three selected channels.
+      ENABLE_PLATFORMS: youtube,instagram,facebook
+      CI_MANDATORY_PLATFORMS: 'all'
+      YT_PRIVACY_STATUS: public
+      DRY_RUN_LOG_ONLY: 'false'
+      FFMPEG_TIMEOUT_MS: '300000'
+      GCS_PUBLIC_BUCKET: natureswaysoil-social-videos
+      VIDEO_PUBLIC_BUCKET: natureswaysoil-social-videos
+      VIDEO_PUBLIC_URL_BASE: https://storage.googleapis.com/natureswaysoil-social-videos
+      TTS_VOICE: onyx
+      POSTING_DRY_RUN: ${{ github.ref != 'refs/heads/main' }}
+
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Load authorized soil-first campaign
+        run: |
+          node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync('campaigns/soil-first/v01.json','utf8')); if(c.id!=='nws-soil-first-2026-10-v01') throw Error('Unexpected campaign'); fs.appendFileSync(process.env.GITHUB_ENV,'MARKETING_CAMPAIGN_B64='+Buffer.from(JSON.stringify(c)).toString('base64url')+'\n')"
+
+      - name: Authenticate to Google Cloud OIDC
+        if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ env.DEFAULT_GOOGLE_CLOUD_PROJECT }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Prepare Google ADC credentials
+        if: env.GOOGLE_APPLICATION_CREDENTIALS == ''
+        run: |
+          set -euo pipefail
+          CREDS_JSON="${GOOGLE_CREDENTIALS:-}"
+          if [ -z "$CREDS_JSON" ]; then
+            CREDS_JSON="${GOOGLE_SERVICE_ACCOUNT_JSON:-}"
+          fi
+          if [ -z "$CREDS_JSON" ]; then
+            echo "::error::No Google auth configured. Add GCP OIDC secrets or GOOGLE_CREDENTIALS / GOOGLE_SERVICE_ACCOUNT_JSON."
+            exit 1
+          fi
+          CREDS_PATH="$RUNNER_TEMP/gcp-service-account.json"
+          printf '%s' "$CREDS_JSON" > "$CREDS_PATH"
+          chmod 600 "$CREDS_PATH"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$CREDS_PATH" >> "$GITHUB_ENV"
+          echo "GOOGLE_CLOUD_PROJECT=$DEFAULT_GOOGLE_CLOUD_PROJECT" >> "$GITHUB_ENV"
+          echo "GCLOUD_PROJECT=$DEFAULT_GOOGLE_CLOUD_PROJECT" >> "$GITHUB_ENV"
+          echo "GCP_PROJECT=$DEFAULT_GOOGLE_CLOUD_PROJECT" >> "$GITHUB_ENV"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          test -f node_modules/gaxios/build/cjs/src/index.js
+
+      - name: Type-check production code
+        run: npm run typecheck
+
+      - name: Run Google Sheet row post
+        run: npm run post:sheet-row
+
+      - name: Save rendered campaign
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soil-first-video
+          path: output/
+          if-no-files-found: ignore
