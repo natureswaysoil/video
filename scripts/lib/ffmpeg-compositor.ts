@@ -232,6 +232,11 @@ function promoteRealScenes(scenes: any[]) {
   return promoted
 }
 
+// Timed scene captions sit inside the 9:16 safe zone shared by Reels, Shorts and
+// Facebook Reels: below the top 14% (~270px) and above the bottom 35% (~670px)
+// that platform UI covers. Box bottom = 1100 + 48 + 2*18 = 1184 < 1250.
+const SCENE_CAPTION_Y = Number(process.env.SCENE_CAPTION_Y || 1100)
+
 export async function composeVerticalAd(input: any) {
   const outputDir = path.resolve(process.cwd(), 'output')
   ensureDir(outputDir)
@@ -310,7 +315,7 @@ export async function composeVerticalAd(input: any) {
       const tf = path.resolve(outputDir, `scene-caption-${Date.now()}-${index}.txt`)
       fs.writeFileSync(tf, caption, 'utf8')
       const nextLabel = `vscene${index}`
-      chains.push(`[${vlabel}]drawtext=textfile='${tf}':${FONT}fontcolor=white:fontsize=48:borderw=4:bordercolor=black:x=(w-text_w)/2:y=h-260:box=1:boxcolor=black@0.35:boxborderw=18:enable='between(t,${start.toFixed(3)},${elapsed.toFixed(3)})'[${nextLabel}]`)
+      chains.push(`[${vlabel}]drawtext=textfile='${tf}':${FONT}fontcolor=white:fontsize=48:borderw=4:bordercolor=black:x=(w-text_w)/2:y=${SCENE_CAPTION_Y}:box=1:boxcolor=black@0.35:boxborderw=18:enable='between(t,${start.toFixed(3)},${elapsed.toFixed(3)})'[${nextLabel}]`)
       vlabel = nextLabel
     }
   }

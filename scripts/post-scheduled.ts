@@ -267,7 +267,7 @@ function curatedScenePlan(product: Product, profile: CreativeProfile): { fullVoi
     brollQuery: sceneQueries(scene, product, index)[0] || product.category,
     brollQueries: sceneQueries(scene, product, index),
     caption: scene.caption || scene.name || product.name,
-    useProductImage: Boolean(scene.useProductImage) || index === 1 || index === profile.scenes!.length - 1
+    useProductImage: Boolean(scene.useProductImage) || (!process.env.MARKETING_CAMPAIGN_B64 && (index === 1 || index === profile.scenes!.length - 1))
   }))
   const fallbackVoice = `${profile.hooks?.[0] || product.name}. ${product.description} ${profile.cta || 'See full product details at natureswaysoil.com.'}`
   const voiceover = scenes.map((scene) => scene.voiceover).filter(Boolean).join(' ') || fallbackVoice
@@ -571,7 +571,8 @@ async function renderVideo(product: Product, profile: CreativeProfile, scenePlan
   const videoFile = await composeVerticalAd({
     outputName: `${safeFileName(product.name)}-scheduled.mp4`,
     scenes,
-    productImage,
+    // Campaign end card already shows the brand art full-frame; a corner badge would duplicate it and sit under platform UI.
+    productImage: process.env.MARKETING_CAMPAIGN_B64 ? '' : productImage,
     voiceoverFile,
     captionText: process.env.MARKETING_CAMPAIGN_B64 ? '' : hookText(product, scenePlan),
     overlayText: process.env.MARKETING_CAMPAIGN_B64 ? '' : `${productOverlayText(product)}\nSHOP NATURESWAYSOIL.COM`,
@@ -655,7 +656,7 @@ async function main() {
   const platformSkipped = new Set<string>()
   if (platforms.includes('youtube')) {
     try {
-      const id = await postToYouTube(videoFile, product.name, captions.youtube, thumbnailFile)
+      const id = await postToYouTube(videoFile, process.env.MARKETING_CAMPAIGN_B64 ? (captions.youtube.split('\n')[0].trim() || product.name) : product.name, captions.youtube, thumbnailFile)
       posted++
       videoIds.youtubeId = id
       platformSuccess.youtube = true
