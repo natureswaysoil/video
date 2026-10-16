@@ -9,35 +9,39 @@
   "factualClaims": [],
   "videoBrief": {
     "durationSeconds": 30,
-    "voiceover": "Want to support your garden from the roots up? Meet Liquid Bone Meal Fertilizer from Nature's Way Soil. A liquid source of phosphorus and calcium for your garden soil. Shake well, dilute as directed, and apply to the root zone. See full product details at Nature's Way Soil dot com.",
+    "voiceover": "Want to give your flowers and vegetables a strong foundation? Meet Nature's Way Soil Liquid Bone Meal Fertilizer. With phosphorus and calcium to support your garden's nutrition. Apply as directed to support flowers, vegetables, and shrubs. Feed the roots. Support the blooms. Discover Nature's Way Soil at natureswaysoil.com.",
     "overlayText": [
-      "Feed the roots.",
-      "Garden season starts below.",
-      "Liquid Bone Meal Fertilizer",
-      "Mix and apply as directed",
-      "natureswaysoil.com"
+      "Feed the Roots. Support the Blooms.",
+      "Nature's Way Soil Liquid Bone Meal",
+      "Phosphorus + Calcium",
+      "Flowers · Vegetables · Shrubs",
+      "32 FL OZ — $29.99 | natureswaysoil.com"
     ],
     "brollQueries": [
-      "gardener preparing vegetable bed soil",
-      "flower garden close up outdoors",
-      "fertilizer bottle watering can garden",
-      "watering root zone garden plants",
-      "flourishing flower and vegetable garden"
-    ]
+      "pink flower garden close-up",
+      "gardener preparing soil in raised bed",
+      "gardener watering soil around flowers",
+      "vegetable garden plants and shrubs",
+      "pink tulip garden flowers"
+    ],
+    "editorNotes": "Use the supplied video as the edit base; replace any existing incorrect narration/subtitles and any unverified dilution instruction. Feature the authentic supplied label clearly near end, add $29.99 price. This JSON describes new script/overlays; production system does not yet consume owner-supplied VEED MP4 directly."
   },
   "posts": [
     {
       "channel": "facebook",
-      "caption": "Feed the roots. Support the blooms. Explore Nature's Way Soil Liquid Bone Meal Fertilizer, a liquid phosphorus-and-calcium product for root-zone applications. Read directions before use: https://www.natureswaysoil.com/product/NWS_012?utm_source=facebook&utm_medium=organic_social&utm_campaign=liquid_bone_meal_focus&utm_content=V01"
+      "caption": "Feed the roots. Support the blooms. 🌱 Nature's Way Soil Liquid Bone Meal Fertilizer for flowers, vegetables, and shrubs. 32 fl oz — $29.99. See label directions and product details: https://www.natureswaysoil.com/product/NWS_012?utm_source=facebook&utm_medium=organic_social&utm_campaign=liquid_bone_meal_focus&utm_content=V02"
     },
     {
       "channel": "instagram",
-      "caption": "Garden care starts at the roots. Liquid Bone Meal Fertilizer from Nature's Way Soil supplies phosphorus and calcium for root-zone feeding. See directions and details at natureswaysoil.com. #NaturesWaySoil #LiquidBoneMeal #GardenFertilizer #FlowerGardening"
+      "caption": "Feed the roots. Support the blooms. 🌸 Nature's Way Soil Liquid Bone Meal Fertilizer. Phosphorus + calcium for your garden nutrition routine. 32 fl oz • $29.99. Full directions at natureswaysoil.com. #NaturesWaySoil #LiquidBoneMeal #GardenFertilizer #FlowerGardening"
     },
     {
       "channel": "youtube",
-      "caption": "Liquid Bone Meal Fertilizer | Nature's Way Soil\n\nSupport your soil-care routine with a liquid phosphorus-and-calcium fertilizer. See label directions: https://www.natureswaysoil.com/product/NWS_012 #Shorts #Gardening #LiquidBoneMeal"
+      "caption": "Feed the Roots. Support the Blooms. | Nature's Way Soil Liquid Bone Meal\n\nLiquid Bone Meal Fertilizer with phosphorus and calcium. For flowers, vegetables, and shrubs when used as directed. 32 fl oz — $29.99. Read directions at https://www.natureswaysoil.com/product/NWS_012 #Shorts #Gardening #LiquidBoneMeal"
     }
   ],
-  "websiteUrl": "https://www.natureswaysoil.com/product/NWS_012"
+  "websiteUrl": "https://www.natureswaysoil.com/product/NWS_012",
+  "priceUSD": 29.99,
+  "size": "32 fl oz (946 mL)",
+  "videoAssetStatus": "Owner-provided 29.93 second vertical VEED video and authentic 32 fl oz front-label photo received in ChatGPT; NOT yet uploaded into repository or connected to the publishing workflow. Do not substitute generic bottle imagery."
 }
