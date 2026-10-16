@@ -1,4 +1,4 @@
-name: Soil First Campaign Launch
+name: Featured Product Campaign Launch
 on:
   push:
     branches: [main, campaign/soil-first-three-channels]
@@ -24,7 +24,7 @@ jobs:
       GOOGLE_CLOUD_PROJECT: natureswaysoil-video
       SHEET_CSV_URL: https://docs.google.com/spreadsheets/d/1dtUYrSy18_D2updwCpVa5wXfgf0hzAXaiQTQqMQnrSc/export?format=csv&gid=916620075
       SHEET_ROW_STATE_FILE: data/sheet-row-state.json
-      # This launch is limited to the three selected channels.
+      # Featured Liquid Bone Meal launch is limited to the three selected channels.
       ENABLE_PLATFORMS: youtube,instagram,facebook
       CI_MANDATORY_PLATFORMS: 'all'
       YT_PRIVACY_STATUS: public
@@ -48,7 +48,7 @@ jobs:
 
       - name: Load authorized soil-first campaign
         run: |
-          node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync('campaigns/soil-first/v01.json','utf8')); if(c.id!=='nws-soil-first-2026-10-v01') throw Error('Unexpected campaign'); fs.appendFileSync(process.env.GITHUB_ENV,'MARKETING_CAMPAIGN_B64='+Buffer.from(JSON.stringify(c)).toString('base64url')+'\n')"
+          node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync('campaigns/liquid-bone-meal/v01.json','utf8')); if(c.id!=='nws-liquid-bone-meal-2026-10-v01') throw Error('Unexpected campaign'); fs.appendFileSync(process.env.GITHUB_ENV,'MARKETING_CAMPAIGN_B64='+Buffer.from(JSON.stringify(c)).toString('base64url')+'\n')"
 
       - name: Authenticate to Google Cloud OIDC
         if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
