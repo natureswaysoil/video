@@ -594,7 +594,15 @@ async function main() {
   await restoreRotationStateFromGcs()
   const products = loadProducts()
   if (!products.length) throw new Error('No products configured')
-  const { product, variationIndex, variationCount } = pickProduct(products)
+  const selected = pickProduct(products)
+  const approvedAssetCampaign = decodeMarketingCampaign()
+  const product = approvedAssetCampaign ? {
+    ...selected.product,
+    id: approvedAssetCampaign.productId,
+    name: approvedAssetCampaign.productName,
+    websiteUrl: approvedAssetCampaign.websiteUrl || selected.product.websiteUrl
+  } : selected.product
+  const { variationIndex, variationCount } = selected
   // NOTE: rotation state is persisted to GCS only after a successful post (see end of main()).
   // Persisting here would advance/"burn" the cursor even when render or posting fails, silently
   // skipping that product on the next run.
@@ -627,7 +635,10 @@ async function main() {
     })
     return
   }
-  const videoFile = await renderVideo(product, profile, scenePlan)
+  const approvedVideoFile = process.env.APPROVED_VIDEO_FILE?.trim() || ''
+  if (approvedVideoFile && !approvedCampaign) throw new Error('APPROVED_VIDEO_FILE requires an approved MARKETING_CAMPAIGN_B64')
+  if (approvedVideoFile && !hasUsableFile(approvedVideoFile)) throw new Error('Approved MP4 is missing or empty: ' + approvedVideoFile)
+  const videoFile = approvedVideoFile || await renderVideo(product, profile, scenePlan)
   const quality = validateMarketingVideo(videoFile)
   log('Marketing video passed pre-upload quality gate', quality)
   const thumbnailFile = createThumbnail(videoFile, product)

@@ -1,4 +1,4 @@
-name: Soil First Campaign Launch
+name: Featured Product Campaign Launch
 on:
   push:
     branches: [main, campaign/soil-first-three-channels]
@@ -24,7 +24,7 @@ jobs:
       GOOGLE_CLOUD_PROJECT: natureswaysoil-video
       SHEET_CSV_URL: https://docs.google.com/spreadsheets/d/1dtUYrSy18_D2updwCpVa5wXfgf0hzAXaiQTQqMQnrSc/export?format=csv&gid=916620075
       SHEET_ROW_STATE_FILE: data/sheet-row-state.json
-      # This launch is limited to the three selected channels.
+      # Featured Liquid Bone Meal launch is limited to the three selected channels.
       ENABLE_PLATFORMS: youtube,instagram,facebook
       CI_MANDATORY_PLATFORMS: 'all'
       YT_PRIVACY_STATUS: public
@@ -35,7 +35,9 @@ jobs:
       VIDEO_PUBLIC_URL_BASE: https://storage.googleapis.com/natureswaysoil-social-videos
       TTS_VOICE: onyx
       ROTATION_STATE_PERSIST_TO_GCS: 'false'
-      POSTING_DRY_RUN: ${{ github.ref != 'refs/heads/main' }}
+      # Publishing intentionally blocked until uploaded-object verification and per-channel duplicate checks.
+      POSTING_DRY_RUN: 'true'
+      APPROVED_VIDEO_FILE: ${{ github.workspace }}/approved-liquid-bone-meal.mp4
 
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
       GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
@@ -46,9 +48,9 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Load authorized soil-first campaign
+      - name: Load authorized Liquid Bone Meal campaign
         run: |
-          node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync('campaigns/soil-first/v01.json','utf8')); if(c.id!=='nws-soil-first-2026-10-v01') throw Error('Unexpected campaign'); fs.appendFileSync(process.env.GITHUB_ENV,'MARKETING_CAMPAIGN_B64='+Buffer.from(JSON.stringify(c)).toString('base64url')+'\n')"
+          node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync('campaigns/liquid-bone-meal/v01.json','utf8')); if(c.id!=='nws-liquid-bone-meal-2026-10-v01') throw Error('Unexpected campaign'); fs.appendFileSync(process.env.GITHUB_ENV,'MARKETING_CAMPAIGN_B64='+Buffer.from(JSON.stringify(c)).toString('base64url')+'\n')"
 
       - name: Authenticate to Google Cloud OIDC
         if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
@@ -97,6 +99,13 @@ jobs:
 
       - name: Type-check production code
         run: npm run typecheck
+
+      - name: Fetch owner-approved Liquid Bone Meal MP4
+        run: |
+          set -euo pipefail
+          gcloud storage cp 'gs://natureswaysoil-social-videos/campaigns/liquid-bone-meal/Natures_Way_Soil_Liquid_Bone_Meal_29_99_Final.mp4' "$APPROVED_VIDEO_FILE"
+          test -s "$APPROVED_VIDEO_FILE"
+          ffprobe -v error -select_streams v:0 -show_entries stream=width,height,duration -of default=noprint_wrappers=1 "$APPROVED_VIDEO_FILE"
 
       - name: Run Google Sheet row post
         run: npm run post:sheet-row

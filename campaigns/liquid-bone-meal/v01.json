@@ -1,0 +1,47 @@
+{
+  "id": "nws-liquid-bone-meal-2026-10-v01",
+  "productId": "NWS_012",
+  "productName": "Nature's Way Soil Liquid Bone Meal Fertilizer",
+  "audience": "home gardeners growing flowers, vegetables, and container plants",
+  "angle": "Liquid bone meal for root-zone feeding and bloom-season soil nutrition",
+  "hook": "Feed the roots. Support the blooms.",
+  "callToAction": "Explore Liquid Bone Meal at Nature's Way Soil dot com.",
+  "factualClaims": [],
+  "videoBrief": {
+    "durationSeconds": 30,
+    "voiceover": "Want to give your flowers and vegetables a strong foundation? Meet Nature's Way Soil Liquid Bone Meal Fertilizer. With phosphorus and calcium to support your garden's nutrition. Apply as directed to support flowers, vegetables, and shrubs. Feed the roots. Support the blooms. Discover Nature's Way Soil at natureswaysoil.com.",
+    "overlayText": [
+      "Feed the Roots. Support the Blooms.",
+      "Nature's Way Soil Liquid Bone Meal",
+      "Phosphorus + Calcium",
+      "Flowers · Vegetables · Shrubs",
+      "32 FL OZ — $29.99 | natureswaysoil.com"
+    ],
+    "brollQueries": [
+      "pink flower garden close-up",
+      "gardener preparing soil in raised bed",
+      "gardener watering soil around flowers",
+      "vegetable garden plants and shrubs",
+      "pink tulip garden flowers"
+    ],
+    "editorNotes": "IMPORTANT: videoBrief.voiceover and overlayText are the proposed future reshoot script/storyboard, NOT the spoken audio or captions in the finished VEED edit. For the approved current asset, use owner-supplied VEED footage with 24-second original audio and the owner label / price end card from 24-30 seconds; do not overlay proposed script on the edited MP4. Publishing must remain inactive until verified asset is hosted and wired. Review embedded footage captions, application claims and current label before publish."
+  },
+  "posts": [
+    {
+      "channel": "facebook",
+      "caption": "Feed the roots. Support the blooms. 🌱 Nature's Way Soil Liquid Bone Meal Fertilizer for flowers, vegetables, and shrubs. 32 fl oz — $29.99. See label directions and product details: https://www.natureswaysoil.com/product/NWS_012?utm_source=facebook&utm_medium=organic_social&utm_campaign=liquid_bone_meal_focus&utm_content=V02"
+    },
+    {
+      "channel": "instagram",
+      "caption": "Feed the roots. Support the blooms. 🌸 Nature's Way Soil Liquid Bone Meal Fertilizer. Phosphorus + calcium for your garden nutrition routine. 32 fl oz • $29.99. Full directions at natureswaysoil.com. #NaturesWaySoil #LiquidBoneMeal #GardenFertilizer #FlowerGardening"
+    },
+    {
+      "channel": "youtube",
+      "caption": "Feed the Roots. Support the Blooms. | Nature's Way Soil Liquid Bone Meal\n\nLiquid Bone Meal Fertilizer with phosphorus and calcium. For flowers, vegetables, and shrubs when used as directed. 32 fl oz — $29.99. Read directions at https://www.natureswaysoil.com/product/NWS_012 #Shorts #Gardening #LiquidBoneMeal"
+    }
+  ],
+  "websiteUrl": "https://www.natureswaysoil.com/product/NWS_012",
+  "priceUSD": 29.99,
+  "size": "32 fl oz (946 mL)",
+  "videoAssetStatus": "30.000-second edited VEED MP4 created in ChatGPT: Natures_Way_Soil_Liquid_Bone_Meal_29_99_Final.mp4 (720x1280). Preserves original footage/narration through 24s, then uses owner-authentic front label and correct 32 FL OZ / $29.99 end card. MP4 is available as a conversation download, NOT uploaded into GitHub or connected to production pipeline. Do not regenerate using stock bottle images."
+}
