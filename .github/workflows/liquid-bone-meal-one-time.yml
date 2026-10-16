@@ -1,0 +1,83 @@
+name: Liquid Bone Meal - One-Time Social Publisher
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish finished Liquid Bone Meal video (false = preview only)"
+        type: boolean
+        required: true
+        default: false
+      prior_posts_checked:
+        description: "I checked existing FB, IG and YouTube posts for this exact campaign"
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: liquid-bone-meal-one-time-publisher
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: ${{ !inputs.publish || inputs.prior_posts_checked }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      USE_SECRET_MANAGER: 'true'
+      DEFAULT_GOOGLE_CLOUD_PROJECT: natureswaysoil-video
+      GOOGLE_CLOUD_PROJECT: natureswaysoil-video
+      ENABLE_PLATFORMS: youtube,instagram,facebook
+      CI_MANDATORY_PLATFORMS: all
+      YT_PRIVACY_STATUS: public
+      DRY_RUN_LOG_ONLY: 'false'
+      POSTING_DRY_RUN: ${{ inputs.publish && inputs.prior_posts_checked && 'false' || 'true' }}
+      ROTATION_STATE_PERSIST_TO_GCS: 'false'
+      GCS_PUBLIC_BUCKET: natureswaysoil-social-videos
+      VIDEO_PUBLIC_BUCKET: natureswaysoil-social-videos
+      VIDEO_PUBLIC_URL_BASE: https://storage.googleapis.com/natureswaysoil-social-videos
+      APPROVED_VIDEO_FILE: ${{ github.workspace }}/approved-liquid-bone-meal.mp4
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load approved campaign
+        run: |
+          node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync('campaigns/liquid-bone-meal/v01.json','utf8')); if(c.id!=='nws-liquid-bone-meal-2026-10-v01') throw Error('Unexpected campaign'); fs.appendFileSync(process.env.GITHUB_ENV,'MARKETING_CAMPAIGN_B64='+Buffer.from(JSON.stringify(c)).toString('base64url')+'\n')"
+      - name: Authenticate to Google Cloud OIDC
+        if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ env.DEFAULT_GOOGLE_CLOUD_PROJECT }}
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Prepare ADC fallback
+        if: env.GOOGLE_APPLICATION_CREDENTIALS == ''
+        run: |
+          set -euo pipefail
+          CREDS_JSON="${GOOGLE_CREDENTIALS:-${GOOGLE_SERVICE_ACCOUNT_JSON:-}}"
+          test -n "$CREDS_JSON" || { echo "::error::Missing Google authentication"; exit 1; }
+          printf '%s' "$CREDS_JSON" > "$RUNNER_TEMP/gcp-service-account.json"
+          chmod 600 "$RUNNER_TEMP/gcp-service-account.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/gcp-service-account.json" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies and ffmpeg
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Download approved MP4 only
+        run: |
+          set -euo pipefail
+          gcloud storage cp 'gs://natureswaysoil-social-videos/campaigns/liquid-bone-meal/Natures_Way_Soil_Liquid_Bone_Meal_29_99_Final.mp4' "$APPROVED_VIDEO_FILE"
+          test -s "$APPROVED_VIDEO_FILE"
+          ffprobe -v error -select_streams v:0 -show_entries stream=width,height,duration -of default=noprint_wrappers=1 "$APPROVED_VIDEO_FILE"
+      - name: Post only unreserved destinations
+        run: npm run post:sheet-row
