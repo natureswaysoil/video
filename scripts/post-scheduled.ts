@@ -1,3 +1,4 @@
+import { marketingReceipt } from './lib/marketing-receipt'
 import { PostingSkippedError, publishingSummary } from './lib/publishing-summary'
 // @ts-nocheck
 import 'dotenv/config'
@@ -764,6 +765,10 @@ async function main() {
     }
   }
 
+  if (process.env.MARKETING_JOB_ID && process.env.MARKETING_RESULT_PATH) {
+    const campaign = JSON.parse(Buffer.from(process.env.MARKETING_CAMPAIGN_B64 || '', 'base64url').toString('utf8'))
+    writeJson(process.env.MARKETING_RESULT_PATH, marketingReceipt(process.env.MARKETING_JOB_ID, campaign.id, platforms, platformSuccess, platformSkipped, videoIds))
+  }
   const metrics = await fetchBasicMetrics(videoIds)
   recordPerformance({
     productId: product.id,

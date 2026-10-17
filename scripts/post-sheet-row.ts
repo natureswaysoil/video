@@ -1,3 +1,4 @@
+import { claimMarketingJob } from './lib/marketing-job'
 // @ts-nocheck
 import 'dotenv/config'
 import fs from 'fs'
@@ -600,6 +601,12 @@ function advanceState(state: any, sheetIndex: number, product: any) {
 async function main() {
   await loadSecrets()
   const approvedCampaign = decodeMarketingCampaign()
+  if (approvedCampaign) {
+    const jobId = process.env.MARKETING_JOB_ID || ''
+    const bucket = pickEnv(['MARKETING_JOB_STATE_BUCKET', 'SHEET_ROW_STATE_GCS_BUCKET', 'GCS_PUBLIC_BUCKET', 'VIDEO_PUBLIC_BUCKET']) || DEFAULT_PUBLIC_VIDEO_BUCKET
+    // The generation-zero precondition is the cross-runner durable lock. Never delete it to retry.
+    await claimMarketingJob(jobId, approvedCampaign.id, Number(process.env.GITHUB_RUN_ATTEMPT || '1'), (key, value) => new Storage().bucket(bucket).file(key).save(value, { resumable: false, preconditionOpts: { ifGenerationMatch: 0 }, metadata: { contentType: 'application/json' } }))
+  }
   let row: SheetRow = {}
   let sheetIndex = -1
   let state: any = null
