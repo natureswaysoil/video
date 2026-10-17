@@ -1,14 +1,24 @@
 name: Google Sheet Row Social Video Posting
 
+run-name: ${{ inputs.marketing_job_id && format('marketing-job:{0}', inputs.marketing_job_id) || 'Google Sheet Row Social Video Posting' }}
+
 on:
   workflow_call:
     inputs:
+      marketing_job_id:
+        required: false
+        type: string
+        default: ''
       marketing_campaign:
         required: false
         type: string
         default: ''
   workflow_dispatch:
     inputs:
+      marketing_job_id:
+        required: false
+        type: string
+        default: ''
       marketing_campaign:
         description: Base64url-encoded approved marketing campaign (normally supplied by marketing-agent)
         required: false
@@ -79,6 +89,8 @@ jobs:
       GCS_PUBLIC_BUCKET: natureswaysoil-social-videos
       VIDEO_PUBLIC_BUCKET: natureswaysoil-social-videos
       VIDEO_PUBLIC_URL_BASE: https://storage.googleapis.com/natureswaysoil-social-videos
+      MARKETING_JOB_ID: ${{ inputs.marketing_job_id }}
+      MARKETING_RESULT_PATH: marketing-result.json
       MARKETING_CAMPAIGN_B64: ${{ inputs.marketing_campaign }}
 
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -148,6 +160,15 @@ jobs:
 
       - name: Run Google Sheet row post
         run: npm run post:sheet-row
+
+      - name: Upload marketing channel receipt
+        if: always() && inputs.marketing_job_id != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketing-result-${{ inputs.marketing_job_id }}
+          path: marketing-result.json
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Save sheet row state
         if: always()
