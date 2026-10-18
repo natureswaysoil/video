@@ -6,6 +6,7 @@ import pathlib
 import sys
 import time
 import urllib.request
+import urllib.error
 import urllib.parse
 BASE = 'https://natures-way-marketing-agent-784311047921.us-east1.run.app'
 STATE = pathlib.Path(os.environ.get('RUNNER_TEMP', '/tmp')) / 'marketing-worker-job.json'
@@ -67,5 +68,6 @@ if __name__ == '__main__':
     try:
         {'claim': claim, 'report': report}[sys.argv[1]]()
     except Exception as error:
-        print('Marketing worker failed: ' + type(error).__name__ + '. Do not replay an uncertain publishing job.', file=sys.stderr)
+        detail = 'HTTP ' + str(error.code) if isinstance(error, urllib.error.HTTPError) else type(error).__name__
+        print('Marketing worker failed: ' + detail + '. Do not replay an uncertain publishing job.', file=sys.stderr)
         raise SystemExit(1)

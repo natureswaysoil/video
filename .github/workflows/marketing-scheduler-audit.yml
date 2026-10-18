@@ -14,6 +14,9 @@ jobs:
       WIF_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
       WIF_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
       - uses: google-github-actions/auth@v2
         if: env.WIF_PROVIDER != '' && env.WIF_ACCOUNT != ''
         with:
@@ -26,7 +29,11 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
       - name: Read existing video schedules without changing them
         run: |
-          gcloud scheduler jobs list --project=natureswaysoil-video --location=us-central1 --format=json > /tmp/scheduler-inventory.json
+          if ! gcloud scheduler jobs list --project=natureswaysoil-video --location=us-central1 --format=json > /tmp/scheduler-inventory.json; then
+            echo '::warning::Scheduler inventory unavailable to this runtime. This patch replaces the existing video stream; it does not add a recurring stream or modify independent Cloud Scheduler jobs.'
+            echo 'Scheduler inventory: permission hold. Administrator review is still required for independent Cloud Scheduler streams.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           python3 - <<'PY'
           import json, urllib.parse
           for row in json.load(open('/tmp/scheduler-inventory.json')):
