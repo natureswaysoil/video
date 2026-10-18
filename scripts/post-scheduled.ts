@@ -577,6 +577,7 @@ async function renderVideo(product: Product, profile: CreativeProfile, scenePlan
     voiceoverFile,
     captionText: process.env.MARKETING_CAMPAIGN_B64 ? '' : hookText(product, scenePlan),
     overlayText: process.env.MARKETING_CAMPAIGN_B64 ? '' : `${productOverlayText(product)}\nSHOP NATURESWAYSOIL.COM`,
+    websiteText: 'NATURESWAYSOIL.COM',
     timedSceneCaptions: Boolean(process.env.MARKETING_CAMPAIGN_B64)
   })
   log('Rendered b-roll Ken Burns video', {

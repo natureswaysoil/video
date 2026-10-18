@@ -37,6 +37,7 @@ async function main() {
       voiceoverFile: audio,
       captionText: 'SOIL SUPPORT',
       overlayText: 'NATURES WAY SOIL',
+      websiteText: 'NATURESWAYSOIL.COM',
       outputName: 'regression.mp4'
     })
     const quality = validateMarketingVideo(file)
@@ -47,7 +48,8 @@ async function main() {
     console.log('Compositor regression passed', { elapsedMs: Date.now() - started, quality })
   } finally {
     process.chdir(originalCwd)
-    fs.rmSync(dir, { recursive: true, force: true })
+    if (process.env.COMPOSITOR_KEEP_FIXTURE === '1') console.log('Render fixture:', dir)
+    else fs.rmSync(dir, { recursive: true, force: true })
   }
 }
 main().catch(error => { console.error(error); process.exit(1) })

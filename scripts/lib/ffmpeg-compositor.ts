@@ -292,6 +292,13 @@ export async function composeVerticalAd(input: any) {
     vlabel = 'vwm'
     nextInput++
   }
+  // Keep the website visible throughout, inside the shared vertical-video safe area.
+  if (input.websiteText) {
+    const tf = path.resolve(outputDir, `website-${Date.now()}.txt`)
+    fs.writeFileSync(tf, String(input.websiteText), 'utf8')
+    chains.push(`[${vlabel}]drawtext=textfile='${tf}':${FONT}fontcolor=white:fontsize=44:borderw=2:bordercolor=black:x=(w-text_w)/2:y=310:box=1:boxcolor=black@0.65:boxborderw=16[vwebsite]`)
+    vlabel = 'vwebsite'
+  }
   if (input.overlayText) {
     const tf = path.resolve(outputDir, `ovl-${Date.now()}.txt`)
     fs.writeFileSync(tf, String(input.overlayText), 'utf8')
