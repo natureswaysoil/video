@@ -1,7 +1,7 @@
 name: Diagnose X billing access
 on:
   pull_request:
-    paths: ['scripts/diagnose-x-access.ts', '.github/workflows/x-access-diagnostic.yml']
+    paths: ['scripts/diagnose-x-access.ts', 'scripts/test-x-credit-diagnostic.ts', '.github/workflows/x-access-diagnostic.yml']
   push:
     branches: [main]
     paths: ['scripts/diagnose-x-access.ts']
@@ -9,7 +9,7 @@ permissions:
   contents: read
   id-token: write
 concurrency:
-  group: sheet-row-social-posting
+  group: x-credit-diagnostic-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 jobs:
   validate:
@@ -24,6 +24,7 @@ jobs:
         with:
           node-version: '22'
       - run: npm ci
+      - run: npx ts-node --type-check scripts/test-x-credit-diagnostic.ts
       - run: npx ts-node --type-check scripts/diagnose-x-access.ts
         env:
           X_DIAGNOSTIC_VALIDATE_ONLY: 'true'
