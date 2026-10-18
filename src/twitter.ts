@@ -1,3 +1,4 @@
+import { automaticXPostingAllowed, XPostingDisabledError } from './x-posting-policy'
 import axios from 'axios'
 import { TwitterApi } from 'twitter-api-v2'
 import { AppError, ErrorCode, fromAxiosError, withRetry } from './errors'
@@ -111,6 +112,8 @@ export async function postToTwitter(
   caption: string,
   bearerToken?: string
 ): Promise<string> {
+  // A rejected post must never be reported as a published post by legacy callers.
+  if (!automaticXPostingAllowed()) throw new XPostingDisabledError()
   const startTime = Date.now()
 
   try {
