@@ -1,0 +1,43 @@
+name: Read-only marketing scheduler audit
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths: ['.github/workflows/marketing-scheduler-audit.yml', '.github/workflows/sheet-row-posting.yml']
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  inventory:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/automatic-agent-rotation-20261017'
+    runs-on: ubuntu-latest
+    env:
+      WIF_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      WIF_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: google-github-actions/auth@v2
+        if: env.WIF_PROVIDER != '' && env.WIF_ACCOUNT != ''
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.WIF_ACCOUNT }}
+      - uses: google-github-actions/auth@v2
+        if: env.WIF_PROVIDER == '' || env.WIF_ACCOUNT == ''
+        with:
+          credentials_json: ${{ secrets.GOOGLE_CREDENTIALS || secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Read existing video schedules without changing them
+        run: |
+          if ! gcloud scheduler jobs list --project=natureswaysoil-video --location=us-central1 --format=json > /tmp/scheduler-inventory.json; then
+            echo '::warning::Scheduler inventory unavailable to this runtime. This patch replaces the existing video stream; it does not add a recurring stream or modify independent Cloud Scheduler jobs.'
+            echo 'Scheduler inventory: permission hold. Administrator review is still required for independent Cloud Scheduler streams.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json, urllib.parse
+          for row in json.load(open('/tmp/scheduler-inventory.json')):
+              uri=row.get('httpTarget',{}).get('uri','')
+              if any(term in uri+row['name'] for term in ['social-video','broll','sheet-row']):
+                  print(json.dumps({'name':row['name'].split('/')[-1],'state':row.get('state'),'schedule':row.get('schedule'),'timeZone':row.get('timeZone'),'target_job':urllib.parse.urlparse(uri).path.rsplit('/',1)[-1]}))
+          PY

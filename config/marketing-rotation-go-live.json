@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "version": 1,
+  "featuredProductId": "NWS_012",
+  "policy": "Liquid bone meal alternates with all 13 other reviewed catalog products",
+  "timeZone": "America/New_York",
+  "dailyHours": [8, 11, 14, 17, 20],
+  "activation": "One initial liquid bone meal campaign when this file lands on main after agent deployment"
+}

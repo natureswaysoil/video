@@ -63,11 +63,5 @@ jobs:
       - run: npm ci
       - run: npx ts-node scripts/test-bounded-process.ts
 
-  verify-production-post:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [render, windows-process]
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/sheet-row-posting.yml
-    secrets: inherit
+  # Production posting is owned by sheet-row-posting.yml's existing schedule
+  # and its explicit one-time activation file, not by render regression pushes.
