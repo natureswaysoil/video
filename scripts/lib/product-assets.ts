@@ -97,11 +97,12 @@ function asinFromProduct(product: any) {
 
 function catalogFallbackProductId(product: any) {
   const text = `${product.name || ''} ${product.description || ''}`.toLowerCase()
+  if (/^NWS_\d+$/.test(String(product.id || ''))) return product.id
   if (/dog|urine|pet odor|yellow spot/.test(text)) return 'NWS_014'
-  if (/humic|fulvic/.test(text)) return 'NWS_021'
+  if (/humic|fulvic/.test(text)) return 'NWS_011'
   if (/seaweed|kelp/.test(text)) return 'NWS_018'
-  if (/bone meal|phosphorus/.test(text)) return 'NWS_016'
-  if (/hydroponic|aquaponic/.test(text)) return 'NWS_011'
+  if (/bone meal|phosphorus/.test(text)) return 'NWS_012'
+  if (/hydroponic|aquaponic/.test(text)) return 'NWS_016'
   if (/compost|worm casting/.test(text)) return 'NWS_013'
   if (/biochar|activated charcoal/.test(text)) return 'NWS_002'
   return ''

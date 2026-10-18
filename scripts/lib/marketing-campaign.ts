@@ -3,6 +3,10 @@ type MarketingPost = { channel: string, caption: string }
 export type ApprovedMarketingCampaign = {
   id: string
   productId: string
+  schemaVersion?: number
+  productImageUrl?: string
+  asin?: string
+  sku?: string
   websiteUrl?: string
   productName: string
   audience: string
@@ -30,7 +34,9 @@ export function marketingProduct(campaign: ApprovedMarketingCampaign) {
     description: [campaign.angle, ...campaign.factualClaims].join('. '),
     category: 'Nature’s Way Soil product',
     websiteUrl: campaign.websiteUrl || 'https://natureswaysoil.com',
-    amazonUrl: '',
+    amazonUrl: campaign.asin ? `https://www.amazon.com/dp/${campaign.asin}` : '',
+    asin: campaign.asin || '',
+    productImageUrl: campaign.productImageUrl || '',
     keywords: [campaign.audience, campaign.angle, ...campaign.factualClaims],
     brollQueries: campaign.videoBrief.brollQueries
   }
@@ -40,16 +46,13 @@ export function marketingScenes(campaign: ApprovedMarketingCampaign) {
   const sentences = campaign.videoBrief.voiceover.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map(value => value.trim()).filter(Boolean) || [campaign.videoBrief.voiceover]
   const sceneCount = 5
   const buckets = Array.from({ length: sceneCount }, () => [] as string[])
-  sentences.forEach((sentence, index) => buckets[Math.min(sceneCount - 1, Math.floor(index * sceneCount / sentences.length))].push(sentence))
-  for (let index = 1; index < buckets.length; index++) {
-    if (!buckets[index].length) buckets[index].push(buckets[index - 1][buckets[index - 1].length - 1] || campaign.callToAction)
-  }
+  sentences.forEach((sentence, index) => buckets[Math.min(sceneCount - 1, Math.floor(index * (sceneCount - 1) / sentences.length))].push(sentence))
   const names = ['Hook', 'Problem', 'Solution', 'Use', 'CTA']
   const duration = Math.max(15, Math.min(60, Number(campaign.videoBrief.durationSeconds) || 30))
   return names.map((name, index) => ({
     name,
     seconds: Math.max(3, Math.round(duration / sceneCount)),
-    voiceover: index === 4 ? campaign.callToAction : buckets[index].join(' '),
+    voiceover: buckets[index].join(' '),
     brollQuery: campaign.videoBrief.brollQueries[index] || campaign.videoBrief.brollQueries[0] || campaign.angle,
     brollQueries: [campaign.videoBrief.brollQueries[index] || campaign.videoBrief.brollQueries[0] || campaign.angle],
     caption: campaign.videoBrief.overlayText[index] || (index === 0 ? campaign.hook : name),

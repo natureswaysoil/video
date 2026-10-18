@@ -3,6 +3,9 @@ name: Google Sheet Row Social Video Posting
 run-name: ${{ inputs.marketing_job_id && format('marketing-job:{0}', inputs.marketing_job_id) || 'Google Sheet Row Social Video Posting' }}
 
 on:
+  push:
+    branches: [main]
+    paths: ['config/marketing-rotation-go-live.json']
   workflow_call:
     inputs:
       marketing_job_id:
@@ -158,14 +161,26 @@ jobs:
       - name: Type-check production code
         run: npm run typecheck
 
-      - name: Run Google Sheet row post
+      - name: Claim a queued or automatically rotated campaign
+        if: inputs.marketing_campaign == ''
+        run: python3 scripts/marketing-worker.py claim
+
+      - name: Run approved product video
+        id: marketing_post
+        if: env.MARKETING_WORKER_CLAIMED == 'true' || inputs.marketing_campaign != ''
         run: npm run post:sheet-row
 
+      - name: Report per-platform receipts
+        if: always() && env.MARKETING_WORKER_CLAIMED == 'true'
+        env:
+          MARKETING_POST_OUTCOME: ${{ steps.marketing_post.outcome }}
+        run: python3 scripts/marketing-worker.py report
+
       - name: Upload marketing channel receipt
-        if: always() && inputs.marketing_job_id != ''
+        if: always() && env.MARKETING_JOB_ID != ''
         uses: actions/upload-artifact@v4
         with:
-          name: marketing-result-${{ inputs.marketing_job_id }}
+          name: marketing-result-${{ env.MARKETING_JOB_ID }}
           path: marketing-result.json
           if-no-files-found: ignore
           retention-days: 30
