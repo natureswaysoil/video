@@ -1,0 +1,93 @@
+name: Diagnose X billing access
+on:
+  pull_request:
+    paths: ['scripts/diagnose-x-access.ts', 'scripts/test-x-credit-diagnostic.ts', '.github/workflows/x-access-diagnostic.yml']
+  push:
+    branches: [main]
+    paths: ['scripts/diagnose-x-access.ts']
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: x-credit-diagnostic-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npx ts-node --type-check scripts/test-x-credit-diagnostic.ts
+      - run: npx ts-node --type-check scripts/diagnose-x-access.ts
+        env:
+          X_DIAGNOSTIC_VALIDATE_ONLY: 'true'
+  diagnose:
+    needs: validate
+    if: github.repository == 'natureswaysoil/video' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GOOGLE_CLOUD_PROJECT: natureswaysoil-video
+      DEFAULT_GOOGLE_CLOUD_PROJECT: natureswaysoil-video
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - name: Authenticate to Google Cloud OIDC
+        if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != ''
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ env.DEFAULT_GOOGLE_CLOUD_PROJECT }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Prepare Google ADC credentials
+        if: env.GOOGLE_APPLICATION_CREDENTIALS == ''
+        run: |
+          set -euo pipefail
+          CREDS_JSON="${GOOGLE_CREDENTIALS:-}"
+          if [ -z "$CREDS_JSON" ]; then
+            CREDS_JSON="${GOOGLE_SERVICE_ACCOUNT_JSON:-}"
+          fi
+          if [ -z "$CREDS_JSON" ]; then
+            echo "::error::No Google auth configured. Add GCP OIDC secrets or GOOGLE_CREDENTIALS / GOOGLE_SERVICE_ACCOUNT_JSON."
+            exit 1
+          fi
+          CREDS_PATH="$RUNNER_TEMP/gcp-service-account.json"
+          printf '%s' "$CREDS_JSON" > "$CREDS_PATH"
+          chmod 600 "$CREDS_PATH"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$CREDS_PATH" >> "$GITHUB_ENV"
+          echo "GOOGLE_CLOUD_PROJECT=$DEFAULT_GOOGLE_CLOUD_PROJECT" >> "$GITHUB_ENV"
+          echo "GCLOUD_PROJECT=$DEFAULT_GOOGLE_CLOUD_PROJECT" >> "$GITHUB_ENV"
+          echo "GCP_PROJECT=$DEFAULT_GOOGLE_CLOUD_PROJECT" >> "$GITHUB_ENV"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+
+      - run: npm ci
+      - name: Read X credit access without publishing
+        run: npx ts-node --type-check scripts/diagnose-x-access.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: x-access-diagnostic
+          path: x-access-diagnostic.json
+          if-no-files-found: ignore
+          retention-days: 30
