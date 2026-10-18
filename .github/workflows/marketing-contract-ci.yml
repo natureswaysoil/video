@@ -1,7 +1,7 @@
 name: Marketing contract checks
 on:
   pull_request:
-    paths: ['scripts/lib/marketing-*.ts', 'scripts/test-marketing-*.ts', 'scripts/post-sheet-row.ts', 'scripts/post-scheduled.ts', 'scripts/marketing-worker.py', 'scripts/test-automatic-marketing.ts', 'scripts/lib/product-assets.ts', '.github/workflows/marketing-contract-ci.yml', '.github/workflows/sheet-row-posting.yml']
+    paths: ['src/x-posting-policy.ts', 'src/twitter.ts', 'scripts/lib/social-platforms.ts', 'scripts/test-x-manual-posting.ts', 'scripts/lib/marketing-*.ts', 'scripts/test-marketing-*.ts', 'scripts/post-sheet-row.ts', 'scripts/post-scheduled.ts', 'scripts/marketing-worker.py', 'scripts/test-automatic-marketing.ts', 'scripts/lib/product-assets.ts', '.github/workflows/marketing-contract-ci.yml', '.github/workflows/sheet-row-posting.yml']
 permissions:
   contents: read
 jobs:
@@ -16,6 +16,7 @@ jobs:
           node-version: '22'
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
+      - run: npx ts-node --type-check scripts/test-x-manual-posting.ts
       - run: npx ts-node scripts/test-marketing-receipt.ts
       - run: npm run test:marketing-campaign
       - run: npx ts-node --transpile-only scripts/test-automatic-marketing.ts

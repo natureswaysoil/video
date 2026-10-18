@@ -1,3 +1,4 @@
+import { automaticXPostingAllowed, MANUAL_X_POSTING_REASON } from '../../src/x-posting-policy'
 import axios from 'axios'
 import { google } from 'googleapis'
 import { TwitterApi } from 'twitter-api-v2'
@@ -74,6 +75,9 @@ async function createTwitterUserClient(): Promise<{ client: TwitterApi, authMode
 }
 
 export async function postToTwitter(videoFileOrUrl: string, caption: string) {
+  // Stop before authentication, downloads, media uploads or paid API requests.
+  if (!automaticXPostingAllowed()) return { skipped: true, reason: MANUAL_X_POSTING_REASON }
+
   if (twitterAuthMode() === 'none') {
     console.log('Twitter posting skipped: missing OAuth 2.0 refresh credentials and OAuth 1.0a fallback credentials')
     return { skipped: true, reason: 'Missing Twitter user authentication credentials' }
