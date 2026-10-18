@@ -52,10 +52,19 @@ jobs:
     outputs:
       should_run: ${{ steps.gate.outputs.should_run }}
     steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push'
+        with:
+          lfs: false
       - name: Permit manual runs or five daily Eastern posting times
         id: gate
         shell: bash
         run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            python3 -c "import json; p=json.load(open('config/marketing-rotation-go-live.json')); assert p.get('enabled') is True and p.get('version') == 1 and p.get('featuredProductId') == 'NWS_012'"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "${{ github.event_name }}" != "schedule" ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
             exit 0
