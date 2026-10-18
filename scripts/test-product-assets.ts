@@ -10,8 +10,10 @@ const sources = productImageSources({
 
 assert.equal(sources[0], 'https://m.media-amazon.com/images/P/B0FFZRM6BD.01._SCLZZZZZZZ_.jpg')
 assert.ok(
-  sources.includes('https://raw.githubusercontent.com/natureswaysoil/best/main/public/images/products/NWS_021/main.jpg'),
+  sources.includes('https://raw.githubusercontent.com/natureswaysoil/best/main/public/images/products/NWS_011/main.jpg'),
   'expected maintained catalog fallback for humic/fulvic variants'
 )
 
+assert.ok(productImageSources({id:'variant-bone',name:'Liquid Bone Meal Fertilizer'}).some((s:string)=>s.includes('NWS_012/main.jpg')))
+assert.ok(productImageSources({id:'variant-hydro',name:'Organic Hydroponic Concentrate'}).some((s:string)=>s.includes('NWS_016/main.jpg')))
 console.log('Product asset fallback tests passed')

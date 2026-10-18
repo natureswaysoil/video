@@ -21,3 +21,4 @@ jobs:
       - run: npx ts-node --transpile-only scripts/test-automatic-marketing.ts
       - run: python3 -m py_compile scripts/marketing-worker.py
       - run: python3 -m unittest scripts/test_marketing_worker.py
+      - run: npm run test:product-assets

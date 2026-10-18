@@ -97,7 +97,7 @@ function asinFromProduct(product: any) {
 
 function catalogFallbackProductId(product: any) {
   const text = `${product.name || ''} ${product.description || ''}`.toLowerCase()
-  if (/^NWS_\d+$/.test(String(product.id || ''))) return product.id
+  if (new Set(['NWS_001','NWS_002','NWS_003','NWS_004','NWS_006','NWS_011','NWS_012','NWS_013','NWS_014','NWS_016','NWS_018','NWS_021','NWS_022','NWS_023']).has(String(product.id || ''))) return product.id
   if (/dog|urine|pet odor|yellow spot/.test(text)) return 'NWS_014'
   if (/humic|fulvic/.test(text)) return 'NWS_011'
   if (/seaweed|kelp/.test(text)) return 'NWS_018'
