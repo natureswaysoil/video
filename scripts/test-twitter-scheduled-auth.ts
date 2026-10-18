@@ -9,7 +9,7 @@ assert.equal(twitterAuthMode({
   TWITTER_API_SECRET: 'api-secret',
   TWITTER_ACCESS_TOKEN: 'access-token',
   TWITTER_ACCESS_SECRET: 'access-secret'
-}), 'oauth2-user', 'OAuth 2.0 refresh credentials must take priority')
+}), 'oauth1-user', 'The funded OAuth1 app must take priority over unrelated OAuth2 credentials')
 
 assert.equal(twitterAuthMode({
   TWITTER_API_KEY: 'api-key',

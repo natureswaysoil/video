@@ -7,6 +7,7 @@ import { XPostingDisabledError } from '../src/x-posting-policy'
 import { marketingReceipt } from './lib/marketing-receipt'
 
 async function main() {
+  delete process.env.X_PAID_POSTING_ENABLED
   let requests = 0
   const originals = { get: axios.get, post: axios.post, refresh: TwitterApi.prototype.refreshOAuth2Token }
   const forbidden = async (): Promise<never> => { requests++; throw new Error('No external request permitted') }
@@ -18,6 +19,7 @@ async function main() {
     // An otherwise usable OAuth setup must still stop before refreshing or
     // downloading a video; no post ID may be fabricated for either entry point.
     const result = await scheduledPost('https://example.invalid/video.mp4', 'Free posting only')
+    assert('skipped' in result)
     assert.strictEqual(result.skipped, true)
     assert(result.reason?.includes('@JamesJones90703'))
     assert(!('tweetId' in result))
