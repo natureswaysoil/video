@@ -43,7 +43,7 @@ export function marketingProduct(campaign: ApprovedMarketingCampaign) {
 }
 
 export function marketingScenes(campaign: ApprovedMarketingCampaign) {
-  const sentences = campaign.videoBrief.voiceover.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map(value => value.trim()).filter(Boolean) || [campaign.videoBrief.voiceover]
+  const sentences = campaign.videoBrief.voiceover.split(/(?<=[.!?])\s+/).map(value => value.trim()).filter(Boolean)
   const sceneCount = 5
   const buckets = Array.from({ length: sceneCount }, () => [] as string[])
   sentences.forEach((sentence, index) => buckets[Math.min(sceneCount - 1, Math.floor(index * (sceneCount - 1) / sentences.length))].push(sentence))
@@ -66,3 +66,4 @@ export function marketingCaption(campaign: ApprovedMarketingCampaign | null, cha
   const accepted = [channel, ...(aliases[channel] || [])]
   return campaign.posts.find(post => accepted.includes(post.channel))?.caption || fallback
 }
+
