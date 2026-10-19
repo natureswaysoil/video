@@ -200,42 +200,48 @@ jobs:
         if: always()
         env:
           POST_STEP_OUTCOME: ${{ steps.marketing_post.outcome }}
-          POST_STEP_CONCLUSION: ${{ steps.marketing_post.conclusion }}
           CLAIMED: ${{ env.MARKETING_WORKER_CLAIMED }}
           CAMPAIGN_INPUT: ${{ inputs.marketing_campaign != '' }}
           RESULT_FILE: ${{ env.MARKETING_RESULT_PATH }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$POST_STEP_OUTCOME" = "failure" ] || [ "$POST_STEP_CONCLUSION" = "failure" ]; then
+          if [ "$POST_STEP_OUTCOME" = "failure" ]; then
             echo "### Publishing failed" >> "$GITHUB_STEP_SUMMARY"
-            echo "The posting command failed. Check the posting step and per-platform receipts." >> "$GITHUB_STEP_SUMMARY"
-          elif [ "$POST_STEP_OUTCOME" = "success" ]; then
-            echo "### Posting command completed" >> "$GITHUB_STEP_SUMMARY"
-            echo "The posting command exited successfully. **Platform publication is not confirmed solely by this result.** Check receipts below." >> "$GITHUB_STEP_SUMMARY"
+            echo "The posting command failed. Review logs and platform receipts before retrying." >> "$GITHUB_STEP_SUMMARY"
           elif [ "$POST_STEP_OUTCOME" = "skipped" ] && [ "$CLAIMED" != "true" ] && [ "$CAMPAIGN_INPUT" != "true" ]; then
             echo "### No campaign available" >> "$GITHUB_STEP_SUMMARY"
-            echo "No queued or approved campaign was claimed; no posting command was executed." >> "$GITHUB_STEP_SUMMARY"
+            echo "No approved or queued campaign was claimed, so no post was attempted." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$POST_STEP_OUTCOME" = "success" ]; then
+            echo "### Posting command completed — publication unverified" >> "$GITHUB_STEP_SUMMARY"
+            echo "The posting process returned success, but a successful command is not proof that any platform published a video." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "### Publishing not completed" >> "$GITHUB_STEP_SUMMARY"
-            echo "The posting step was skipped or did not complete. Review preceding steps." >> "$GITHUB_STEP_SUMMARY"
+            echo "Review previous steps for why posting did not execute." >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -f "${RESULT_FILE:-marketing-result.json}" ]; then
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "### Per-platform receipt" >> "$GITHUB_STEP_SUMMARY"
-            echo '~~~json' >> "$GITHUB_STEP_SUMMARY"
+            echo "### Platform outcomes (receipt)" >> "$GITHUB_STEP_SUMMARY"
             python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import json, os
-          file = os.environ.get('RESULT_FILE') or 'marketing-result.json'
-          with open(file, encoding='utf-8') as f:
-              data = json.load(f)
-          # Show outcomes without inadvertently exposing access tokens, keys, or private URLs.
-          safe = {'status', 'platform', 'platforms', 'success', 'posted', 'failed', 'skipped', 'error', 'errors', 'message', 'reason'}
-          if isinstance(data, dict):
-              data = {k:v for k,v in data.items() if k.lower() in safe}
-          print(json.dumps(data, indent=2, ensure_ascii=True)[:4000])
+          import json,os
+          with open(os.environ.get('RESULT_FILE') or 'marketing-result.json',encoding='utf-8') as f:
+              record=json.load(f)
+          channels=record.get('channels',{}) if isinstance(record,dict) else {}
+          if not isinstance(channels,dict): channels={}
+          for platform,receipt in sorted(channels.items()):
+              if not isinstance(receipt,dict): continue
+              state=str(receipt.get('status') or ('posted' if receipt.get('success') is True else 'unverified')).lower()
+              if state in ('posted','published','success','completed') and receipt.get('success') is not False:
+                  result='Posted successfully'
+              elif state in ('failed','error') or receipt.get('success') is False:
+                  result='Publishing failed'
+              else:
+                  result='Not verified'
+              print('- '+''.join(c for c in str(platform) if c.isalnum() or c in '-_')[:40]+': '+result)
+          if not channels: print('No per-platform receipt entries were recorded.')
           PY
-            echo '~~~' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No marketing-result.json receipt was generated. Platform success has not been verified." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Save sheet row state
