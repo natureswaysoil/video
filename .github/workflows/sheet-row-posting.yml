@@ -48,7 +48,7 @@ concurrency:
 
 jobs:
   schedule-gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       should_run: ${{ steps.gate.outputs.should_run }}
     steps:
@@ -63,22 +63,24 @@ jobs:
           if [ "${{ github.event_name }}" = "push" ]; then
             python3 -c "import json; p=json.load(open('config/marketing-rotation-go-live.json')); assert p.get('enabled') is True and p.get('version') == 1 and p.get('featuredProductId') == 'NWS_012'"
             echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Posting status: eligible (configuration change)." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           if [ "${{ github.event_name }}" != "schedule" ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Posting status: eligible (manual or called workflow)." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           eastern_hour="$(TZ=America/New_York date +%H)"
           case "$eastern_hour" in
             08|11|14|17|20) echo "should_run=true" >> "$GITHUB_OUTPUT"; echo "Posting window: ${eastern_hour}:00 Eastern" >> "$GITHUB_STEP_SUMMARY" ;;
-            *) echo "should_run=false" >> "$GITHUB_OUTPUT"; echo "No post attempted: outside a scheduled Eastern posting window (${eastern_hour}:00)." >> "$GITHUB_STEP_SUMMARY" ;;
+            *) echo "should_run=false" >> "$GITHUB_OUTPUT"; echo "### Skipped — outside posting window" >> "$GITHUB_STEP_SUMMARY"; echo "No post attempted at ${eastern_hour}:00 Eastern." >> "$GITHUB_STEP_SUMMARY" ;;
           esac
 
   post-sheet-row:
     needs: schedule-gate
     if: needs.schedule-gate.outputs.should_run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: read
@@ -193,6 +195,48 @@ jobs:
           path: marketing-result.json
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: Summarize publishing outcome
+        if: always()
+        env:
+          POST_STEP_OUTCOME: ${{ steps.marketing_post.outcome }}
+          POST_STEP_CONCLUSION: ${{ steps.marketing_post.conclusion }}
+          CLAIMED: ${{ env.MARKETING_WORKER_CLAIMED }}
+          CAMPAIGN_INPUT: ${{ inputs.marketing_campaign != '' }}
+          RESULT_FILE: ${{ env.MARKETING_RESULT_PATH }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$POST_STEP_OUTCOME" = "failure" ] || [ "$POST_STEP_CONCLUSION" = "failure" ]; then
+            echo "### Publishing failed" >> "$GITHUB_STEP_SUMMARY"
+            echo "The posting command failed. Check the posting step and per-platform receipts." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$POST_STEP_OUTCOME" = "success" ]; then
+            echo "### Posting command completed" >> "$GITHUB_STEP_SUMMARY"
+            echo "The posting command exited successfully. **Platform publication is not confirmed solely by this result.** Check receipts below." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$POST_STEP_OUTCOME" = "skipped" ] && [ "$CLAIMED" != "true" ] && [ "$CAMPAIGN_INPUT" != "true" ]; then
+            echo "### No campaign available" >> "$GITHUB_STEP_SUMMARY"
+            echo "No queued or approved campaign was claimed; no posting command was executed." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Publishing not completed" >> "$GITHUB_STEP_SUMMARY"
+            echo "The posting step was skipped or did not complete. Review preceding steps." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f "${RESULT_FILE:-marketing-result.json}" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Per-platform receipt" >> "$GITHUB_STEP_SUMMARY"
+            echo '~~~json' >> "$GITHUB_STEP_SUMMARY"
+            python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          file = os.environ.get('RESULT_FILE') or 'marketing-result.json'
+          with open(file, encoding='utf-8') as f:
+              data = json.load(f)
+          # Show outcomes without inadvertently exposing access tokens, keys, or private URLs.
+          safe = {'status', 'platform', 'platforms', 'success', 'posted', 'failed', 'skipped', 'error', 'errors', 'message', 'reason'}
+          if isinstance(data, dict):
+              data = {k:v for k,v in data.items() if k.lower() in safe}
+          print(json.dumps(data, indent=2, ensure_ascii=True)[:4000])
+          PY
+            echo '~~~' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Save sheet row state
         if: always()
