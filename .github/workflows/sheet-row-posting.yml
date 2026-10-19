@@ -230,13 +230,16 @@ jobs:
           if not isinstance(channels,dict): channels={}
           for platform,receipt in sorted(channels.items()):
               if not isinstance(receipt,dict): continue
-              state=str(receipt.get('status') or ('posted' if receipt.get('success') is True else 'unverified')).lower()
-              if state in ('posted','published','success','completed') and receipt.get('success') is not False:
-                  result='Posted successfully'
-              elif state in ('failed','error') or receipt.get('success') is False:
+              state=str(receipt.get('status') or 'unverified').lower()
+              post_id=receipt.get('postId')
+              if state == 'published' and post_id:
+                  result='Posted successfully (post ID returned)'
+              elif state in ('failed','error'):
                   result='Publishing failed'
+              elif state == 'skipped':
+                  result='Skipped'
               else:
-                  result='Not verified'
+                  result='Publication unconfirmed'
               print('- '+''.join(c for c in str(platform) if c.isalnum() or c in '-_')[:40]+': '+result)
           if not channels: print('No per-platform receipt entries were recorded.')
           PY
