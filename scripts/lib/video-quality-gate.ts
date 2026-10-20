@@ -2,7 +2,7 @@
 import fs from 'fs'
 import { spawnSync } from 'child_process'
 
-function frameStats(frame: Buffer) {
+export function frameStats(frame: Buffer) {
   let green = 0
   let pixels = 0
   let minLuma = 255
@@ -49,7 +49,9 @@ function frameStats(frame: Buffer) {
     : 255
   const greenDominanceRange = green ? greenMaxDominance - greenMinDominance : 255
 
-  const flatWholeFrameGreen = greenRatio >= 0.90 && lumaRange < 65
+  // A real grass close-up can be >90% green with modest overall luma range.
+  // Never label it as a placeholder from coverage/luma alone; require the
+  // green pixels themselves to be chroma-key uniform.
   const uniformGreenBackdrop = greenRatio >= 0.70 && greenColorRange < 38 && greenDominanceRange < 28
 
   return {
@@ -59,7 +61,7 @@ function frameStats(frame: Buffer) {
     meanLuma: pixels ? lumaSum / pixels : 0,
     greenColorRange,
     greenDominanceRange,
-    greenPlaceholder: flatWholeFrameGreen || uniformGreenBackdrop
+    greenPlaceholder: uniformGreenBackdrop
   }
 }
 
@@ -86,7 +88,7 @@ export function validateMarketingVideo(file: string) {
   if (meanDb < -32 || maxDb < -12) throw new Error(`QUALITY_GATE: audio is too quiet (mean ${meanDb} dB, max ${maxDb} dB)`)
 
   // Sample a 16x16 grid once per second. Besides the original flat-frame test,
-  // frameStats now detects a uniform green BACKGROUND even when captions,
+  // frameStats detects a uniform green BACKGROUND even when captions,
   // product art, or a foreground subject add contrast to the overall frame.
   const grid = 16
   const frameBytes = grid * grid * 3
