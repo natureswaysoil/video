@@ -322,7 +322,7 @@ export async function composeVerticalAd(input: any) {
       const tf = path.resolve(outputDir, `scene-caption-${Date.now()}-${index}.txt`)
       fs.writeFileSync(tf, caption, 'utf8')
       const nextLabel = `vscene${index}`
-      chains.push(`[${vlabel}]drawtext=textfile='${tf}':${FONT}fontcolor=white:fontsize=48:borderw=4:bordercolor=black:x=(w-text_w)/2:y=${SCENE_CAPTION_Y}:box=1:boxcolor=black@0.35:boxborderw=18:enable='between(t,${start.toFixed(3)},${elapsed.toFixed(3)})'[${nextLabel}]`)
+      chains.push(`[${vlabel}]drawtext=textfile='${tf}':${FONT}fontcolor=white:fontsize=48:borderw=4:bordercolor=black:x=(w-text_w)/2:y=${SCENE_CAPTION_Y}:box=1:boxcolor=black@0.35:boxborderw=18:enable='gte(t,${start.toFixed(3)})*lt(t,${elapsed.toFixed(3)})'[${nextLabel}]`)
       vlabel = nextLabel
     }
   }
