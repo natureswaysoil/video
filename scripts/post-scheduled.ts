@@ -391,6 +391,41 @@ async function uploadVideoForSocial(videoFileOrUrl: string): Promise<string> {
   return publicUrl
 }
 
+// Fail-closed campaign publishing ledger. A reservation is never silently cleared
+// after API ambiguity: manual reconciliation is required before any retry.
+async function reserveCampaignPost(platform: string): Promise<{ skip: boolean, finish: (id: string) => Promise<void> }> {
+  const campaign = decodeMarketingCampaign()
+  if (!campaign || !process.env.APPROVED_VIDEO_FILE) return { skip: false, finish: async () => {} }
+  const objectName = `campaign-post-ledger/${campaign.id}/${platform}.json`
+  const file = new Storage().bucket(publicBucketName()).file(objectName)
+  const empty = async () => {}
+  try {
+    await file.save(JSON.stringify({ status: 'reserved', campaignId: campaign.id, platform, createdAt: new Date().toISOString() }), {
+      resumable: false,
+      contentType: 'application/json',
+      preconditionOpts: { ifGenerationMatch: 0 }
+    })
+  } catch (error: any) {
+    // Any ambiguity should block the post, not allow a duplicate.
+    if (Number(error?.code) === 412) {
+      log('Campaign destination already reserved or published; skipping to prevent duplicates', { platform, objectName })
+      return { skip: true, finish: empty }
+    }
+    throw error
+  }
+  return {
+    skip: false,
+    finish: async (id: string) => {
+      const [metadata] = await file.getMetadata()
+      await file.save(JSON.stringify({ status: 'published', campaignId: campaign.id, platform, id, publishedAt: new Date().toISOString() }), {
+        resumable: false,
+        contentType: 'application/json',
+        preconditionOpts: { ifGenerationMatch: Number(metadata.generation) }
+      })
+    }
+  }
+}
+
 function createThumbnail(videoFile: string, product: Product): string {
   ensureDir(OUTPUT_DIR)
   const output = path.resolve(OUTPUT_DIR, `${safeFileName(`${product.name}-thumbnail`, 'jpg')}`)
@@ -669,11 +704,18 @@ async function main() {
   const platformSkipped = new Set<string>()
   if (platforms.includes('youtube')) {
     try {
+      const reservation = await reserveCampaignPost('youtube')
+      if (reservation.skip) {
+        platformSuccess.youtube = true
+        platformSkipped.add('youtube')
+      } else {
       const id = await postToYouTube(videoFile, process.env.MARKETING_CAMPAIGN_B64 ? (captions.youtube.split('\n')[0].trim() || product.name) : product.name, captions.youtube, thumbnailFile)
       posted++
       videoIds.youtubeId = id
       platformSuccess.youtube = true
+      await reservation.finish(id)
       log('Posted to YouTube', { id })
+      }
     } catch (error: any) {
       platformSuccess.youtube = false
       if (error instanceof PostingSkippedError) platformSkipped.add('youtube')
@@ -683,11 +725,18 @@ async function main() {
   }
   if (platforms.includes('instagram')) {
     try {
+      const reservation = await reserveCampaignPost('instagram')
+      if (reservation.skip) {
+        platformSuccess.instagram = true
+        platformSkipped.add('instagram')
+      } else {
       const id = await postToInstagram(publicVideoUrl, captions.instagram)
       posted++
       videoIds.instagramId = id
       platformSuccess.instagram = true
+      await reservation.finish(id)
       log('Posted to Instagram', { id })
+      }
     } catch (error: any) {
       platformSuccess.instagram = false
       if (error instanceof PostingSkippedError) platformSkipped.add('instagram')
@@ -697,11 +746,18 @@ async function main() {
   }
   if (platforms.includes('facebook')) {
     try {
+      const reservation = await reserveCampaignPost('facebook')
+      if (reservation.skip) {
+        platformSuccess.facebook = true
+        platformSkipped.add('facebook')
+      } else {
       const id = await postToFacebook(publicVideoUrl, captions.facebook)
       posted++
       videoIds.facebookId = id
       platformSuccess.facebook = true
+      await reservation.finish(id)
       log('Posted to Facebook', { id })
+      }
     } catch (error: any) {
       platformSuccess.facebook = false
       if (error instanceof PostingSkippedError) platformSkipped.add('facebook')
