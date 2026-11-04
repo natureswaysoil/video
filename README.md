@@ -32,6 +32,18 @@ Use the names defined in `src/config-validator.ts`. In particular:
 - Type check: `npm run typecheck`
 - Build: `npm run build`
 
+### Scheduled sheet-row narration
+
+`npm run post:sheet-row` uses OpenAI TTS for narration. If OpenAI is unavailable
+(including exhausted API credits), it tries ElevenLabs using `ELEVENLABS_API_KEY`
+and optional `ELEVENLABS_VOICE_ID` / `ELEVENLABS_MODEL_ID`. These values can be
+provided through the environment or Google Secret Manager (including the existing
+`ElevenLabs_Key` alias). If neither provider produces audio, the command fails
+before rendering; the pre-upload audio quality gate remains enabled. Restore
+OpenAI billing or configure a funded ElevenLabs account to resolve quota failures.
+
+Run the offline narration regression checks with `npx ts-node scripts/test-narration.ts`.
+
 ## Quality control and commercialization
 
 The system should operate as a repeatable video marketing engine, not just a code repository. Current priorities:
