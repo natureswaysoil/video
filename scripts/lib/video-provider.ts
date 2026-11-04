@@ -4,7 +4,7 @@ export async function createNarration(product: any, scenePlan: any, profile: any
   const requested = String(process.env.VIDEO_PROVIDER || 'openai_tts').toLowerCase()
 
   if (requested !== 'openai_tts') {
-    console.log(`VIDEO_PROVIDER=${requested} requested but OpenAI TTS is enforced for this automation`)
+    console.log(`VIDEO_PROVIDER=${requested} requested; using OpenAI TTS with a configured ElevenLabs fallback`)
   }
 
   return await generateVoiceover(product, scenePlan, profile, outDir)
