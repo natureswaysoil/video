@@ -39,14 +39,15 @@ async function main() {
     timeout: 60_000,
   })
 
-  const create = await client.post('/v2/video/generate', {
-    video_inputs: [{
-      character: { type: 'avatar', avatar_id: avatarId, avatar_style: 'normal' },
-      voice: { type: 'text', input_text: SCRIPT, voice_id: voiceId, speed: 1.0 },
-      background: { type: 'color', value: '#F4F7F5' },
-    }],
-    dimension: { width: 1280, height: 720 },
-    caption: false,
+  const create = await client.post('/v3/videos', {
+    type: 'avatar',
+    avatar_id: avatarId,
+    script: SCRIPT,
+    voice_id: voiceId,
+    voice_settings: { speed: 1.0 },
+    background: { value: '#F4F7F5' },
+    aspect_ratio: '16:9',
+    resolution: '1080p',
     title: 'LeadPilot Google Verification Narration',
   })
 
@@ -57,7 +58,7 @@ async function main() {
   const started = Date.now()
   let videoUrl = ''
   while (Date.now() - started < 30 * 60_000) {
-    const statusRes = await client.get('/v1/video_status.get', { params: { video_id: videoId } })
+    const statusRes = await client.get(`/v3/videos/${encodeURIComponent(videoId)}`)
     const data = statusRes.data?.data || statusRes.data || {}
     const status = String(data.status || '').toLowerCase()
     console.log(`HeyGen status: ${status || 'unknown'}`)

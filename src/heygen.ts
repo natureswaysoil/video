@@ -131,10 +131,10 @@ export class HeyGenClient {
     if (!value) throw new Error(`A HeyGen ${kind === 'avatars' ? 'avatar' : 'voice'} ID is required`)
 
     try {
-      const endpoint = kind === 'avatars' ? '/v2/avatars' : '/v2/voices'
+      const endpoint = kind === 'avatars' ? '/v3/avatars' : '/v3/voices'
       const response = await this.client.get(endpoint, { timeout: 30_000 })
       const data = response.data?.data || response.data || {}
-      const items = data[kind] || data.items || []
+      const items = data[kind] || data.items || data.groups || []
       const idKey = kind === 'avatars' ? 'avatar_id' : 'voice_id'
       const nameKey = kind === 'avatars' ? 'avatar_name' : 'name'
       const lowered = value.toLowerCase()
@@ -155,23 +155,24 @@ export class HeyGenClient {
     const voiceId = await this.resolveId('voices', payload.voice || process.env.HEYGEN_DEFAULT_VOICE || '')
     const scenes = Array.isArray(payload.scenes) && payload.scenes.length ? payload.scenes : [{ avatarText: script, imageUrl: payload.imageUrl }]
 
-    const videoInputs = scenes.map((scene: any, index: number) => {
-      const text = String(scene.avatarText || script).trim()
-      const background = backgroundForScene(scene, payload.imageUrl)
-      if (!background) {
-        throw new Error(`Scene ${index + 1} has no real image or video background. Refusing to create a blank/green-screen marketing video.`)
-      }
-      return {
-        character: { type: 'avatar', avatar_id: avatarId, avatar_style: 'normal' },
-        voice: { type: 'text', input_text: text, voice_id: voiceId, speed: 1.0 },
-        background,
-      }
-    })
-
-    const response = await this.client.post('/v2/video/generate', {
-      video_inputs: videoInputs,
-      dimension: { width: 1080, height: 1920 },
-      caption: true,
+    // v3 single-avatar jobs support one script and one visual background.
+    // Refuse multi-scene inputs rather than silently discard marketing scenes.
+    if (scenes.length > 1) throw new Error('Multiple scenes require a v3 studio payload; single-avatar rendering cannot preserve them')
+    const scene = scenes[0]
+    const background = backgroundForScene(scene, payload.imageUrl)
+    if (!background) throw new Error('A real image or video background is required for this marketing video')
+    if (background.type === 'video') throw new Error('Video B-roll requires a v3 studio payload; cannot use it as an avatar image background')
+    const response = await this.client.post('/v3/videos', {
+      type: 'avatar',
+      avatar_id: avatarId,
+      script: String(scene.avatarText || script).trim(),
+      voice_id: voiceId,
+      voice_settings: { speed: Number(payload.voiceSpeed || process.env.HEYGEN_VOICE_SPEED || 1) },
+      background: { url: background.url },
+      resolution: '1080p',
+      aspect_ratio: '9:16',
+      caption: { file_format: 'srt', style: 'default' },
+      output_format: 'mp4',
       ...(payload.title ? { title: payload.title } : {}),
       ...(payload.webhook ? { callback_url: payload.webhook } : {}),
     })
@@ -187,7 +188,7 @@ export class HeyGenClient {
     const startedAt = Date.now()
 
     while (Date.now() - startedAt < timeoutMs) {
-      const response = await this.client.get('/v1/video_status.get', { params: { video_id: jobId } })
+      const response = await this.client.get(`/v3/videos/${encodeURIComponent(jobId)}`)
       const data = response.data?.data || response.data || {}
       const status = String(data.status || '').toLowerCase()
       const videoUrl = data.captioned_video_url || data.captionedVideoUrl || data.video_url || data.videoUrl || data.url
